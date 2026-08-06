@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import Login from '../pages/auth/Login';
@@ -31,8 +30,17 @@ import AddTeacher from '../pages/teachers/AddTeacher';
 import ViewTeacher from '../pages/teachers/viewTeacher';
 import StudentPayBill from '../pages/student/StudentPayBill';
 import StudentProfile from '../pages/student/StudentProfile';
-import StudentFees from '../pages/student/StudentFees';
 import StudentPayments from '../pages/student/StudentPayments';
+import ParentManagement from '../pages/parents/createParent';
+import ParentPayBill from '../pages/parent/ParentPayBill';
+import MyChildren from '../pages/parent/MyChildren';
+import ParentPaymentHistory from '../pages/parent/ParentPaymentHistory';
+import { ParentProfile } from '../pages/parent';
+
+// AdminAsst imports
+import AdminAsst from '../pages/adminAsst';
+import AdminAsstProfile from '../pages/adminAsst/AdminAsstProfile';
+import AdminAsstPayment from '../pages/adminAsst/AdminAsstPayment';
 
 const AppRoutes: React.FC = () => {
   return (
@@ -53,6 +61,29 @@ const AppRoutes: React.FC = () => {
       >
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
+      </Route>
+
+      {/* Admin Assistant Routes */}
+      <Route
+        path="/admin-asst"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'director', 'admin_asst', 'record_keeper']}>
+            <MainLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route path="dashboard" element={<AdminAsst />} />
+        <Route path="students" element={<AdminAsst />} />
+        <Route path="classes" element={<AdminAsst />} />
+        <Route path="sessions" element={<AdminAsst />} />
+        <Route path="collections" element={<AdminAsst />} />
+        <Route path="inventory" element={<AdminAsst />} />
+        <Route path="reports" element={<AdminAsst />} />
+        <Route path="activity" element={<AdminAsst />} />
+        <Route path="payment" element={<AdminAsstPayment />} />
+        <Route path="settings" element={<AdminAsst />} />
+        <Route path="profile" element={<AdminAsstProfile />} />
+        <Route index element={<Navigate to="/admin-asst/dashboard" replace />} />
       </Route>
 
       {/* Protected Routes with MainLayout */}
@@ -94,6 +125,9 @@ const AppRoutes: React.FC = () => {
         
         {/* Classes */}
         <Route path="classes" element={<ClassesList />} />
+
+        {/* Parents */}
+        <Route path="parents/create" element={<ParentManagement />} />
         
         {/* Branches */}
         <Route path="branches" element={<BranchesList />} />
@@ -136,7 +170,6 @@ const AppRoutes: React.FC = () => {
         <Route path="dashboard" element={<StudentDashboard />} />
         <Route index element={<Navigate to="/student/dashboard" replace />} />
         <Route path="profile" element={<StudentProfile />} />
-        <Route path="fees" element={<StudentFees />} />
         <Route path="payments" element={<StudentPayments />} />
         <Route path="paybill" element={<StudentPayBill />} />
       </Route>
@@ -152,9 +185,16 @@ const AppRoutes: React.FC = () => {
       >
         <Route path="dashboard" element={<ParentDashboard />} />
         <Route index element={<Navigate to="/parent/dashboard" replace />} />
+        
+        <Route path="pay-bill/:studentId" element={<ParentPayBill />} />
+        <Route path="pay-bill" element={<ParentPayBill />} />
+        <Route path="children" element={<MyChildren />} />
+        <Route path="profile" element={<ParentProfile />} />
+        <Route path="payment/:studentId" element={<ParentPaymentHistory />} />
+        <Route path="payment" element={<ParentPaymentHistory />} />
       </Route>
 
-      {/* Catch all */}
+      {/* Catch all - redirect to 404 */}
       <Route path="*" element={<Navigate to="/404" replace />} />
     </Routes>
   );

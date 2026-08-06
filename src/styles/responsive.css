@@ -1,0 +1,421 @@
+/* src/styles/responsive.css */
+
+/* =======================================================
+   FIXED: MOBILE-FIRST RESPONSIVE UTILITIES
+   ======================================================= */
+
+/* Container */
+.responsive-container {
+  width: 100%;
+  max-width: 1280px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+@media (min-width: 640px) {
+  .responsive-container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .responsive-container {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+/* =======================================================
+   FIXED: RESPONSIVE GRID - CARDS SIDE BY SIDE
+   ======================================================= */
+
+/* Desktop-first grid: cards side by side, then stack on mobile */
+.responsive-grid-desktop {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr); /* 4 columns on desktop */
+  gap: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+  .responsive-grid-desktop {
+    grid-template-columns: repeat(3, 1fr); /* 3 columns on tablet */
+    gap: 1.25rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .responsive-grid-desktop {
+    grid-template-columns: repeat(2, 1fr); /* 2 columns on mobile */
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .responsive-grid-desktop {
+    grid-template-columns: 1fr; /* 1 column on small mobile */
+    gap: 0.75rem;
+  }
+}
+
+/* =======================================================
+   FIXED: RESPONSIVE GRID - FLEXIBLE COLUMNS
+   ======================================================= */
+
+.responsive-grid-flex {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+  .responsive-grid-flex {
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.25rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .responsive-grid-flex {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .responsive-grid-flex {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+}
+
+/* =======================================================
+   FIXED: RESPONSIVE CARD - SHRINK AND REALLIGN
+   ======================================================= */
+
+.responsive-card {
+  background: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 1.5rem;
+  border: 1px solid #e5e7eb;
+  transition: all 0.2s ease;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 1024px) {
+  .responsive-card {
+    padding: 1.25rem;
+    border-radius: 0.625rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .responsive-card {
+    padding: 1rem;
+    border-radius: 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .responsive-card {
+    padding: 0.75rem;
+    border-radius: 0.375rem;
+  }
+}
+
+/* =======================================================
+   FIXED: CARD GRID FOR STATS/DASHBOARD
+   ======================================================= */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+}
+
+/* =======================================================
+   FIXED: TABLE RESPONSIVE
+   ======================================================= */
+
+.responsive-table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -0.5rem;
+  padding: 0 0.5rem;
+}
+
+.responsive-table-wrapper table {
+  width: 100%;
+  min-width: 600px;
+  border-collapse: collapse;
+}
+
+@media (max-width: 768px) {
+  .responsive-table-wrapper {
+    margin: 0 -0.75rem;
+    padding: 0 0.75rem;
+  }
+  
+  .responsive-table-wrapper table {
+    min-width: 500px;
+    font-size: 0.875rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .responsive-table-wrapper table {
+    min-width: 400px;
+    font-size: 0.75rem;
+  }
+}
+
+/* =======================================================
+   FIXED: FLEX LAYOUTS
+   ======================================================= */
+
+.responsive-flex-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+@media (max-width: 768px) {
+  .responsive-flex-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+}
+
+.responsive-flex-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+@media (max-width: 480px) {
+  .responsive-flex-wrap {
+    gap: 0.5rem;
+  }
+  .responsive-flex-wrap > * {
+    flex: 1 1 100%;
+  }
+}
+
+/* =======================================================
+   FIXED: FORM ELEMENTS
+   ======================================================= */
+
+.responsive-form-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .responsive-form-row {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+}
+
+/* =======================================================
+   FIXED: BUTTONS
+   ======================================================= */
+
+.responsive-btn-group {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 480px) {
+  .responsive-btn-group {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .responsive-btn-group > button {
+    width: 100%;
+  }
+}
+
+/* =======================================================
+   FIXED: SIDEBAR / MAIN LAYOUT
+   ======================================================= */
+
+.responsive-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+  .responsive-layout {
+    grid-template-columns: 240px 1fr;
+    gap: 1.25rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .responsive-layout {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+}
+
+/* =======================================================
+   FIXED: TYPOGRAPHY
+   ======================================================= */
+
+.responsive-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+@media (max-width: 768px) {
+  .responsive-title {
+    font-size: 1.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .responsive-title {
+    font-size: 1.125rem;
+  }
+}
+
+.responsive-subtitle {
+  font-size: 1rem;
+  color: #6b7280;
+}
+
+@media (max-width: 768px) {
+  .responsive-subtitle {
+    font-size: 0.875rem;
+  }
+}
+
+/* =======================================================
+   FIXED: RESPONSIVE SPACING
+   ======================================================= */
+
+.responsive-padding {
+  padding: 1.5rem;
+}
+
+@media (max-width: 768px) {
+  .responsive-padding {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .responsive-padding {
+    padding: 0.75rem;
+  }
+}
+
+/* =======================================================
+   FIXED: HEADER / NAV
+   ======================================================= */
+
+.responsive-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  gap: 1rem;
+}
+
+@media (max-width: 768px) {
+  .responsive-header {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0.75rem 1rem;
+    gap: 0.75rem;
+  }
+}
+
+/* =======================================================
+   FIXED: MODAL
+   ======================================================= */
+
+.responsive-modal {
+  max-width: 600px;
+  width: 95%;
+  margin: 1rem auto;
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+@media (max-width: 768px) {
+  .responsive-modal {
+    width: 98%;
+    padding: 1rem;
+    margin: 0.5rem auto;
+    border-radius: 0.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .responsive-modal {
+    padding: 0.75rem;
+    margin: 0.25rem auto;
+    border-radius: 0.375rem;
+  }
+}
+
+/* =======================================================
+   HELPER: HIDE ON MOBILE / SHOW ON DESKTOP
+   ======================================================= */
+
+.hide-mobile {
+  display: block;
+}
+
+@media (max-width: 768px) {
+  .hide-mobile {
+    display: none;
+  }
+}
+
+.show-mobile {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .show-mobile {
+    display: block;
+  }
+}

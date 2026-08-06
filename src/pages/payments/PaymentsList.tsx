@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -23,31 +24,26 @@ import {
   Wallet,
   Receipt,
   User,
-  Calendar,
-  DollarSign,
-  Mail,
-  Phone,
-  MapPin,
   Shield,
   QrCode,
   Barcode,
   Copy,
   Check,
   School,
-  GraduationCap,
-  Home,
   X,
   FileText,
-  Info,
-  Users,
   List,
   AlertTriangle,
-  Globe
+  Image,
+  ZoomIn,
+  ZoomOut,
+  RotateCw
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
 import toast from 'react-hot-toast';
 import dayjs from 'dayjs';
+import ReceiptModal from '../../components/common/ReceiptModal';
 
 // Import school logo from assets
 import schoolLogo from '../../assets/school-logo.png';
@@ -58,6 +54,7 @@ interface Payment {
   receipt_number: string;
   student_id: string;
   fee_id: string;
+  assignment_id?: string;
   amount: number;
   amount_paid: number;
   balance: number;
@@ -67,6 +64,10 @@ interface Payment {
   status: string;
   transaction_reference: string;
   payment_proof_url: string;
+  payment_proof_path: string;
+  receipt_url: string;
+  receipt_path: string;
+  receipt_file_name: string;
   approved_by: string;
   approved_at: string;
   rejection_reason: string;
@@ -78,17 +79,18 @@ interface Payment {
   student_last_name?: string;
   student_admission?: string;
   fee_name?: string;
-}
-
-interface FeeWithBalance {
-  id: string;
-  name: string;
-  amount: number;
-  paid: number;
-  balance: number;
-  status: string;
-  due_date: string;
-  category: string;
+  metadata?: {
+    receipt_url?: string;
+    receipt_path?: string;
+    receipt_file_name?: string;
+    uploaded_from?: string;
+    uploaded_at?: string;
+    uploaded_file?: string;
+    proof_path?: string;
+    proof_url?: string;
+    payment_type?: string;
+    submitted_at?: string;
+  };
 }
 
 interface PaymentStats {
@@ -156,18 +158,21 @@ const PaymentsList: React.FC = () => {
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [showReceiptViewer, setShowReceiptViewer] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [processing, setProcessing] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [schoolInfo, setSchoolInfo] = useState<SchoolInfo | null>(null);
   const [printing, setPrinting] = useState(false);
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
-  const [feeBalances, setFeeBalances] = useState<FeeWithBalance[]>([]);
-  const [feeBalancesLoaded, setFeeBalancesLoaded] = useState(false);
   const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
+  const [imageZoom, setImageZoom] = useState(1);
+  const [imageRotation, setImageRotation] = useState(0);
+  const [viewerImageError, setViewerImageError] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const pageSize = 10;
-  const receiptRef = useRef<HTMLDivElement>(null);
 
   // Fetch school info from database (branch-specific)
   useEffect(() => {
@@ -273,10 +278,12 @@ const PaymentsList: React.FC = () => {
             setUserBranchId(branchId);
           } else {
             setLoading(false);
+            setIsInitialLoad(false);
           }
         } catch (error) {
           console.error('Error fetching user branch:', error);
           setLoading(false);
+          setIsInitialLoad(false);
         }
       }
     };
@@ -284,20 +291,15 @@ const PaymentsList: React.FC = () => {
     fetchUserBranch();
   }, [user]);
 
-  useEffect(() => {
-    if (userBranchId !== null) {
-      fetchPayments();
-      fetchPaymentStats();
-    }
-  }, [currentPage, searchTerm, statusFilter, dateRange, userBranchId]);
-
-  const fetchPayments = async () => {
+  // Memoized fetch functions
+  const fetchPayments = useCallback(async () => {
     if (!userBranchId) {
-      console.log('No branch ID found, skipping fetch');
       setLoading(false);
+      setIsInitialLoad(false);
       return;
     }
 
+    setFetchError(null);
     setLoading(true);
     try {
       let query = supabase
@@ -388,16 +390,16 @@ const PaymentsList: React.FC = () => {
       setTotalCount(searchTerm ? filteredPayments.length : count || 0);
     } catch (error: any) {
       console.error('Error fetching payments:', error);
+      setFetchError(error.message || 'Failed to fetch payments');
       toast.error(error.message || 'Failed to fetch payments');
     } finally {
       setLoading(false);
+      setIsInitialLoad(false);
     }
-  };
+  }, [userBranchId, statusFilter, dateRange, currentPage, searchTerm]);
 
-  const fetchPaymentStats = async () => {
-    if (!userBranchId) {
-      return;
-    }
+  const fetchPaymentStats = useCallback(async () => {
+    if (!userBranchId) return;
 
     try {
       let query = supabase
@@ -442,64 +444,138 @@ const PaymentsList: React.FC = () => {
     } catch (error) {
       console.error('Error fetching payment stats:', error);
     }
-  };
+  }, [userBranchId]);
 
-  const fetchStudentFeeBalances = async (studentId: string) => {
-    try {
-      const { data: studentData } = await supabase
-        .from('students')
-        .select('class_id, branch_id')
-        .eq('id', studentId)
-        .single();
-
-      if (!studentData) return [];
-
-      const { data: allFees } = await supabase
-        .from('fees')
-        .select('*')
-        .eq('branch_id', studentData.branch_id)
-        .eq('status', 'active');
-
-      if (!allFees) return [];
-
-      const applicableFees = allFees.filter(fee => {
-        if (fee.class_id === null) return true;
-        if (fee.class_id === studentData.class_id) return true;
-        if (fee.metadata?.class_ids && Array.isArray(fee.metadata.class_ids)) {
-          return fee.metadata.class_ids.includes(studentData.class_id);
-        }
-        return false;
-      });
-
-      const { data: studentPayments } = await supabase
-        .from('payments')
-        .select('*')
-        .eq('student_id', studentId)
-        .eq('status', 'completed');
-
-      const feeBalancesList = applicableFees.map(fee => {
-        const payments = studentPayments?.filter(p => p.fee_id === fee.id) || [];
-        const totalPaid = payments.reduce((sum, p) => sum + p.amount_paid, 0);
-        const balance = fee.amount - totalPaid;
-
-        return {
-          id: fee.id,
-          name: fee.name,
-          amount: fee.amount,
-          paid: totalPaid,
-          balance: balance > 0 ? balance : 0,
-          status: balance <= 0 ? 'Paid' : 'Unpaid',
-          due_date: fee.due_date,
-          category: fee.category
-        };
-      });
-
-      return feeBalancesList;
-    } catch (error) {
-      console.error('Error fetching fee balances:', error);
-      return [];
+  // Fetch data when dependencies change
+  useEffect(() => {
+    if (userBranchId !== null) {
+      fetchPayments();
+      fetchPaymentStats();
     }
-  };
+  }, [userBranchId, fetchPayments, fetchPaymentStats]);
+
+  // --- Get receipt URL from multiple sources ---
+  const getReceiptUrl = useCallback((payment: Payment): string | null => {
+    // Check direct URL fields first
+    if (payment.receipt_url && payment.receipt_url.startsWith('http')) {
+      return payment.receipt_url;
+    }
+    
+    if (payment.metadata?.receipt_url && payment.metadata.receipt_url.startsWith('http')) {
+      return payment.metadata.receipt_url;
+    }
+    
+    if (payment.payment_proof_url && payment.payment_proof_url.startsWith('http')) {
+      return payment.payment_proof_url;
+    }
+    
+    if (payment.metadata?.proof_url && payment.metadata.proof_url.startsWith('http')) {
+      return payment.metadata.proof_url;
+    }
+
+    // Try to construct from paths
+    const path = payment.receipt_path || payment.metadata?.receipt_path || 
+                 payment.payment_proof_path || payment.metadata?.proof_path;
+    
+    if (path) {
+      const bucket = path.startsWith('payments/') ? 'payment-receipts' : 'payment-proofs';
+      const { data } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(path);
+      if (data?.publicUrl) {
+        return data.publicUrl;
+      }
+    }
+
+    if (payment.metadata?.uploaded_file && payment.student_id) {
+      const { data } = supabase.storage
+        .from('payment-proofs')
+        .getPublicUrl(`${payment.student_id}/${payment.metadata.uploaded_file}`);
+      if (data?.publicUrl) {
+        return data.publicUrl;
+      }
+    }
+
+    return null;
+  }, []);
+
+  const hasReceipt = useCallback((payment: Payment): boolean => {
+    return !!(getReceiptUrl(payment));
+  }, [getReceiptUrl]);
+
+  const handleDownloadReceiptImage = useCallback(async (payment?: Payment) => {
+    const targetPayment = payment || selectedPayment;
+    if (!targetPayment) {
+      toast.error('No payment selected');
+      return;
+    }
+
+    const imageUrl = getReceiptUrl(targetPayment);
+    if (!imageUrl) {
+      toast.error('No receipt image found');
+      return;
+    }
+
+    try {
+      toast.loading('Downloading receipt...');
+      
+      const response = await fetch(imageUrl);
+      if (!response.ok) throw new Error('Failed to fetch image');
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const fileExtension = blob.type.split('/')[1] || 'jpg';
+      const fileName = `receipt-${targetPayment.receipt_number || 'payment'}.${fileExtension}`;
+      link.download = fileName;
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      window.URL.revokeObjectURL(url);
+      
+      toast.dismiss();
+      toast.success('Receipt downloaded successfully!');
+    } catch (error) {
+      console.error('Error downloading receipt:', error);
+      toast.dismiss();
+      toast.error('Failed to download receipt');
+    }
+  }, [selectedPayment, getReceiptUrl]);
+
+  const viewReceipt = useCallback(async (payment: Payment) => {
+    setSelectedPayment(payment);
+    setReceiptLoading(true);
+    setViewerImageError(false);
+    setImageZoom(1);
+    setImageRotation(0);
+    
+    try {
+      const imageUrl = getReceiptUrl(payment);
+      
+      if (imageUrl) {
+        setReceiptImageUrl(imageUrl);
+        setShowReceiptViewer(true);
+        setReceiptLoading(false);
+      } else {
+        toast.error('No receipt image found for this payment');
+        setReceiptLoading(false);
+      }
+    } catch (error) {
+      console.error('Error viewing receipt:', error);
+      toast.error('Failed to load receipt image');
+      setReceiptLoading(false);
+    }
+  }, [getReceiptUrl]);
+
+  const handleZoomIn = useCallback(() => setImageZoom(prev => Math.min(prev + 0.25, 3)), []);
+  const handleZoomOut = useCallback(() => setImageZoom(prev => Math.max(prev - 0.25, 0.5)), []);
+  const handleRotate = useCallback(() => setImageRotation(prev => (prev + 90) % 360), []);
+  const handleReset = useCallback(() => { setImageZoom(1); setImageRotation(0); }, []);
 
   const handleApprovePayment = async (paymentId: string) => {
     setProcessing(true);
@@ -560,7 +636,7 @@ const PaymentsList: React.FC = () => {
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = useCallback((status: string) => {
     const styles: Record<string, string> = {
       completed: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
       paid: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
@@ -570,9 +646,9 @@ const PaymentsList: React.FC = () => {
       refunded: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
     };
     return styles[status] || styles.pending;
-  };
+  }, []);
 
-  const getStatusIcon = (status: string) => {
+  const getStatusIcon = useCallback((status: string) => {
     switch (status) {
       case 'completed':
       case 'paid':
@@ -588,9 +664,9 @@ const PaymentsList: React.FC = () => {
       default:
         return <Clock className="w-3 h-3" />;
     }
-  };
+  }, []);
 
-  const getPaymentMethodIcon = (method: string) => {
+  const getPaymentMethodIcon = useCallback((method: string) => {
     const methods: Record<string, any> = {
       cash: <Banknote className="w-4 h-4 text-gray-400" />,
       bank_transfer: <Building className="w-4 h-4 text-gray-400" />,
@@ -599,9 +675,9 @@ const PaymentsList: React.FC = () => {
       wallet: <Wallet className="w-4 h-4 text-gray-400" />,
     };
     return methods[method] || <CreditCard className="w-4 h-4 text-gray-400" />;
-  };
+  }, []);
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = useCallback((amount: number) => {
     const currency = schoolInfo?.currency || 'NGN';
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
@@ -609,539 +685,43 @@ const PaymentsList: React.FC = () => {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(amount);
-  };
+  }, [schoolInfo]);
 
-  const generateTrackingNumber = (payment: Payment) => {
-    return `TRK-${dayjs(payment.payment_date).format('YYYYMMDD')}-${payment.receipt_number?.slice(-6) || '000000'}`;
-  };
-
-  const generatePaymentReference = (payment: Payment) => {
-    const shortId = payment.id ? payment.id.slice(0, 8) : '00000000';
-    return `PAY-${dayjs(payment.payment_date).format('YYYYMM')}-${shortId}`;
-  };
-
-  const copyToClipboard = (text: string) => {
+  const copyToClipboard = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
     toast.success('Copied to clipboard');
-  };
-
-  const handlePrint = () => {
-    setPrinting(true);
-    if (selectedPayment?.student_id) {
-      fetchStudentFeeBalances(selectedPayment.student_id).then(balances => {
-        setFeeBalances(balances);
-        setFeeBalancesLoaded(true);
-        setTimeout(() => {
-          window.print();
-          setPrinting(false);
-        }, 500);
-      });
-    } else {
-      setTimeout(() => {
-        window.print();
-        setPrinting(false);
-      }, 500);
-    }
-  };
-
-  const handleDownload = async () => {
-    if (!selectedPayment) {
-      toast.error('No payment selected');
-      return;
-    }
-
-    try {
-      toast.loading('Generating receipt...');
-      
-      const receiptElement = receiptRef.current;
-      if (!receiptElement) {
-        toast.dismiss();
-        toast.error('Receipt not found');
-        return;
-      }
-
-      let balances = feeBalances;
-      if (!feeBalancesLoaded && selectedPayment.student_id) {
-        balances = await fetchStudentFeeBalances(selectedPayment.student_id);
-        setFeeBalances(balances);
-        setFeeBalancesLoaded(true);
-      }
-
-      const printWindow = window.open('', '_blank');
-      if (!printWindow) {
-        toast.dismiss();
-        toast.error('Please allow popups for this site');
-        return;
-      }
-
-      const htmlContent = receiptElement.innerHTML;
-      
-      printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Payment Receipt - ${selectedPayment.receipt_number}</title>
-            <style>
-              body { 
-                font-family: 'Times New Roman', serif; 
-                padding: 40px; 
-                max-width: 800px; 
-                margin: 0 auto;
-                color: #1a1a1a;
-              }
-              .receipt-container {
-                border: 2px solid #1a1a1a;
-                padding: 30px;
-                border-radius: 8px;
-              }
-              .text-center { text-align: center; }
-              .text-right { text-align: right; }
-              .mt-4 { margin-top: 16px; }
-              .mb-4 { margin-bottom: 16px; }
-              .border-bottom { border-bottom: 2px solid #1a1a1a; padding-bottom: 16px; }
-              .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-              .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
-              .p-4 { padding: 16px; }
-              .bg-gray { background-color: #f5f5f5; }
-              .rounded { border-radius: 8px; }
-              .font-bold { font-weight: bold; }
-              .text-2xl { font-size: 24px; }
-              .text-xl { font-size: 20px; }
-              .text-sm { font-size: 14px; }
-              .text-xs { font-size: 12px; }
-              .text-gray { color: #666; }
-              .text-green { color: #22c55e; }
-              .text-red { color: #ef4444; }
-              .text-blue { color: #3b82f6; }
-              .mb-2 { margin-bottom: 8px; }
-              .mt-2 { margin-top: 8px; }
-              .mt-6 { margin-top: 24px; }
-              .pt-4 { padding-top: 16px; }
-              .border-top { border-top: 2px solid #1a1a1a; padding-top: 16px; }
-              table { width: 100%; border-collapse: collapse; }
-              th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #e5e5e5; }
-              th { background-color: #f5f5f5; font-size: 12px; text-transform: uppercase; color: #666; }
-              .status-paid { color: #22c55e; }
-              .status-unpaid { color: #eab308; }
-              .logo { max-height: 60px; width: auto; object-fit: contain; }
-            </style>
-          </head>
-          <body>
-            <div class="receipt-container">
-              ${htmlContent}
-            </div>
-            <script>
-              window.onload = function() {
-                setTimeout(function() {
-                  window.print();
-                }, 500);
-              };
-            </script>
-          </body>
-        </html>
-      `);
-      
-      printWindow.document.close();
-      toast.dismiss();
-      toast.success('Receipt ready for download');
-    } catch (error) {
-      console.error('Error downloading receipt:', error);
-      toast.dismiss();
-      toast.error('Failed to download receipt');
-    }
-  };
-
-  const totalPages = Math.ceil(totalCount / pageSize);
-
-  // Receipt Modal Component
-  const ReceiptModal: React.FC<{ payment: Payment; onClose: () => void }> = ({ payment, onClose }) => {
-    const [localFeeBalances, setLocalFeeBalances] = useState<FeeWithBalance[]>([]);
-    const [loadingBalances, setLoadingBalances] = useState(true);
-    const [isReady, setIsReady] = useState(false);
-
-    useEffect(() => {
-      const loadFeeBalances = async () => {
-        if (payment.student_id) {
-          setLoadingBalances(true);
-          setIsReady(false);
-          
-          if (feeBalancesLoaded && feeBalances.length > 0) {
-            setLocalFeeBalances(feeBalances);
-            setLoadingBalances(false);
-            setIsReady(true);
-            return;
-          }
-
-          const balances = await fetchStudentFeeBalances(payment.student_id);
-          setLocalFeeBalances(balances);
-          setFeeBalances(balances);
-          setFeeBalancesLoaded(true);
-          setLoadingBalances(false);
-          
-          setTimeout(() => {
-            setIsReady(true);
-          }, 50);
-        } else {
-          setIsReady(true);
-        }
-      };
-      
-      loadFeeBalances();
-    }, [payment.student_id]);
-
-    if (!isReady) {
-      return (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4"
-        >
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="bg-white dark:bg-gray-800 rounded-2xl max-w-4xl w-full max-h-[95vh] overflow-y-auto shadow-2xl p-8"
-          >
-            <div className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="w-12 h-12 animate-spin text-blue-500 mb-4" />
-              <p className="text-gray-500 dark:text-gray-400">Loading receipt...</p>
-            </div>
-          </motion.div>
-        </motion.div>
-      );
-    }
-
-    const studentName = payment.student_name || 'N/A';
-    const studentAdmission = payment.student_admission || 'N/A';
-    const totalOutstanding = localFeeBalances.reduce((sum, f) => sum + f.balance, 0);
-    const logoUrl = schoolInfo?.logo_url || schoolLogo;
-
-    return (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) onClose();
-        }}
-      >
-        <motion.div
-          initial={{ scale: 0.95, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.95, opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="bg-white dark:bg-gray-800 rounded-2xl max-w-4xl w-full max-h-[95vh] overflow-y-auto shadow-2xl"
-        >
-          {/* Modal Header */}
-          <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between z-10 print:hidden">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                <Receipt className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Payment Receipt</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{payment.receipt_number}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handlePrint}
-                disabled={printing}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all print:hidden"
-                title="Print Receipt"
-              >
-                {printing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Printer className="w-5 h-5 text-gray-600 dark:text-gray-300" />}
-              </button>
-              <button
-                onClick={handleDownload}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all print:hidden"
-                title="Download Receipt"
-              >
-                <Download className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-              </button>
-              <button
-                onClick={onClose}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all print:hidden"
-              >
-                <X className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-              </button>
-            </div>
-          </div>
-
-          {/* Receipt Content */}
-          <div ref={receiptRef} className="p-6 md:p-8 print:p-8">
-            {/* School Header */}
-            <div className="text-center border-b-2 border-gray-200 dark:border-gray-700 pb-6 mb-6">
-              <div className="flex justify-center mb-3">
-                {logoUrl ? (
-                  <img 
-                    src={logoUrl} 
-                    alt={schoolInfo?.school_name || 'School Logo'} 
-                    className="h-16 w-auto object-contain"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = schoolLogo;
-                    }}
-                  />
-                ) : (
-                  <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center text-white text-2xl font-bold">
-                    <School className="w-8 h-8" />
-                  </div>
-                )}
-              </div>
-              <h1 className="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">
-                {schoolInfo?.school_name || 'Ebeniza International School'}
-              </h1>
-              {schoolInfo?.motto && (
-                <p className="text-sm italic text-gray-500 dark:text-gray-400 mt-1">
-                  "{schoolInfo.motto}"
-                </p>
-              )}
-              <div className="text-sm text-gray-600 dark:text-gray-400 mt-2 space-y-1">
-                <p>{schoolInfo?.address || '42 Allen Avenue, Ikeja, Lagos'}</p>
-                <p>
-                  {schoolInfo?.phone_number || '+234 800 000 0000'} | {schoolInfo?.email || 'info@ebeniza.edu.ng'}
-                </p>
-                {schoolInfo?.website && (
-                  <p className="text-xs text-blue-500">{schoolInfo.website}</p>
-                )}
-              </div>
-              <div className="mt-2 text-xs text-gray-400">
-                <span>Session: {schoolInfo?.academic_session || '2026/2027'}</span>
-                <span className="mx-2">•</span>
-                <span>Term: {schoolInfo?.current_term || '2nd Term'}</span>
-              </div>
-            </div>
-
-            {/* Receipt Title */}
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Payment Receipt</h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">Official payment confirmation</p>
-              </div>
-              <div className="text-right">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                  <Shield className="w-3 h-3" />
-                  Verified
-                </div>
-                <p className="text-xs text-gray-400 mt-1">#{payment.receipt_number}</p>
-              </div>
-            </div>
-
-            {/* Student & Payment Info */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div className="space-y-4">
-                <div className="p-4 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-1">
-                    <User className="w-3 h-3" /> Student Information
-                  </p>
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">{studentName}</p>
-                  <p className="text-xs text-gray-500">Admission: {studentAdmission}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Receipt Number</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <p className="text-sm font-mono font-semibold text-gray-900 dark:text-white">{payment.receipt_number}</p>
-                      <button 
-                        onClick={() => copyToClipboard(payment.receipt_number || '')}
-                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-all"
-                      >
-                        {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3 text-gray-400" />}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Payment Date</p>
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                      {dayjs(payment.payment_date).format('MMM D, YYYY')}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="p-4 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                  <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Payment Summary</p>
-                  <div className="grid grid-cols-2 gap-4 mt-2">
-                    <div>
-                      <p className="text-xs text-gray-500">Amount Paid</p>
-                      <p className="text-lg font-bold text-green-600">{formatCurrency(payment.amount_paid)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Balance</p>
-                      <p className={`text-lg font-bold ${payment.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        {formatCurrency(payment.balance)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Method</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        {getPaymentMethodIcon(payment.payment_method)}
-                        <span className="text-sm font-medium capitalize">{payment.payment_method?.replace('_', ' ') || 'N/A'}</span>
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-500">Status</p>
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(payment.status)}`}>
-                        {getStatusIcon(payment.status)}
-                        {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <div className="p-3 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Fee</p>
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white">{payment.fee_name || 'N/A'}</p>
-                  <p className="text-xs text-gray-500">Transaction: {payment.transaction_reference || 'N/A'}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* All Fees with Balances Section */}
-            <div className="border-t-2 border-gray-200 dark:border-gray-700 pt-6 mt-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                  <List className="w-5 h-5 text-blue-500" />
-                  Fee Statement
-                </h3>
-                <div className="text-right">
-                  <p className="text-sm text-gray-500">Total Outstanding</p>
-                  <p className={`text-xl font-bold ${totalOutstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                    {formatCurrency(totalOutstanding)}
-                  </p>
-                </div>
-              </div>
-
-              {localFeeBalances.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <FileText className="w-12 h-12 mx-auto text-gray-300 mb-2" />
-                  <p>No fees found for this student</p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50 dark:bg-gray-700/50">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Fee Name
-                        </th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Category
-                        </th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Amount
-                        </th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Paid
-                        </th>
-                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Balance
-                        </th>
-                        <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                          Status
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                      {localFeeBalances.map((fee) => (
-                        <tr key={fee.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
-                          <td className="px-4 py-2 font-medium text-gray-900 dark:text-white">{fee.name}</td>
-                          <td className="px-4 py-2 text-gray-600 dark:text-gray-300 capitalize">{fee.category.replace(/_/g, ' ')}</td>
-                          <td className="px-4 py-2 text-right text-gray-600 dark:text-gray-300">{formatCurrency(fee.amount)}</td>
-                          <td className="px-4 py-2 text-right text-green-600">{formatCurrency(fee.paid)}</td>
-                          <td className={`px-4 py-2 text-right font-medium ${fee.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                            {formatCurrency(fee.balance)}
-                          </td>
-                          <td className="px-4 py-2 text-center">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                              fee.balance <= 0 
-                                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                            }`}>
-                              {fee.balance <= 0 ? (
-                                <CheckCircle className="w-3 h-3" />
-                              ) : (
-                                <AlertTriangle className="w-3 h-3" />
-                              )}
-                              {fee.balance <= 0 ? 'Paid' : 'Unpaid'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="bg-gray-50 dark:bg-gray-700/50">
-                      <tr>
-                        <td colSpan={2} className="px-4 py-3 font-semibold text-gray-900 dark:text-white">Total</td>
-                        <td className="px-4 py-3 text-right font-semibold text-gray-900 dark:text-white">
-                          {formatCurrency(localFeeBalances.reduce((sum, f) => sum + f.amount, 0))}
-                        </td>
-                        <td className="px-4 py-3 text-right font-semibold text-green-600">
-                          {formatCurrency(localFeeBalances.reduce((sum, f) => sum + f.paid, 0))}
-                        </td>
-                        <td className={`px-4 py-3 text-right font-bold ${totalOutstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                          {formatCurrency(totalOutstanding)}
-                        </td>
-                        <td className="px-4 py-3 text-center"></td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="mt-6 border-t-2 border-gray-200 dark:border-gray-700 pt-4">
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400">
-                <div className="flex items-center gap-2">
-                  <Shield className="w-4 h-4" />
-                  <span>Verified Payment • {dayjs().format('YYYY-MM-DD HH:mm')}</span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <QrCode className="w-8 h-8 text-gray-400" />
-                  <Barcode className="w-16 h-8 text-gray-400" />
-                </div>
-              </div>
-              <div className="text-center mt-3 text-xs text-gray-400 dark:text-gray-500">
-                <p>This is a computer-generated receipt. No signature required.</p>
-                <p className="mt-1">© {dayjs().year()} {schoolInfo?.school_name || 'Ebeniza International School'}. All rights reserved.</p>
-              </div>
-            </div>
-
-            {/* Print Actions */}
-            <div className="flex flex-col sm:flex-row gap-3 pt-6 border-t border-gray-200 dark:border-gray-700 print:hidden">
-              <button
-                onClick={onClose}
-                className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
-              >
-                Close
-              </button>
-              <button
-                onClick={handlePrint}
-                disabled={printing}
-                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all shadow-lg shadow-blue-500/25 flex items-center justify-center gap-2"
-              >
-                {printing ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    <Printer className="w-4 h-4" />
-                    Print Receipt
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </motion.div>
-      </motion.div>
-    );
-  };
+  }, []);
 
   const exportPayments = () => {
     toast.success('Export started. Download will begin shortly.');
   };
+
+  const totalPages = Math.ceil(totalCount / pageSize);
+
+  // Format payment for receipt modal - ensure all required fields exist
+  const formatPaymentForReceipt = (payment: Payment) => {
+    return {
+      ...payment,
+      // Ensure these fields exist for the receipt modal
+      student_id: payment.student_id || '',
+      receipt_number: payment.receipt_number || 'N/A',
+      amount_paid: payment.amount_paid || 0,
+      payment_date: payment.payment_date || new Date().toISOString(),
+      payment_method: payment.payment_method || 'N/A',
+      status: payment.status || 'pending',
+      fee_name: payment.fee_name || 'N/A',
+      transaction_reference: payment.transaction_reference || 'N/A',
+    };
+  };
+
+  if (isInitialLoad && loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        <span className="ml-3 text-gray-500">Loading payments...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 print:space-y-0">
@@ -1310,6 +890,8 @@ const PaymentsList: React.FC = () => {
                 payments.map((payment) => {
                   const isPending = payment.status === 'pending';
                   const isOverdue = isPending && payment.due_date && dayjs(payment.due_date).isBefore(dayjs());
+                  const hasReceiptImage = hasReceipt(payment);
+                  const isSuccessful = payment.status === 'completed' || payment.status === 'paid' || payment.status === 'approved';
 
                   return (
                     <tr key={payment.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition">
@@ -1321,6 +903,17 @@ const PaymentsList: React.FC = () => {
                           <p className="text-xs text-gray-500 dark:text-gray-400">
                             {payment.student_name} • {payment.student_admission}
                           </p>
+                          {hasReceiptImage && (
+                            <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                              <Check className="w-3 h-3" />
+                              Receipt uploaded
+                            </span>
+                          )}
+                          {payment.assignment_id && (
+                            <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 ml-2">
+                              ✓ Assigned
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="hidden md:table-cell px-4 sm:px-6 py-4">
@@ -1360,16 +953,45 @@ const PaymentsList: React.FC = () => {
                       </td>
                       <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {hasReceiptImage ? (
+                            <div className="flex items-center gap-0.5">
+                              <button
+                                onClick={() => viewReceipt(payment)}
+                                className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-blue-600 dark:text-blue-400"
+                                title="View Receipt Image"
+                              >
+                                <Image className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDownloadReceiptImage(payment)}
+                                className="p-1.5 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-all text-green-600 dark:text-green-400"
+                                title="Download Receipt Image"
+                              >
+                                <Download className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              className="p-1.5 rounded-lg text-gray-300 dark:text-gray-600 cursor-not-allowed"
+                              title="No Receipt"
+                              disabled
+                            >
+                              <Image className="w-4 h-4" />
+                            </button>
+                          )}
+                          
                           <button
                             onClick={() => {
                               setSelectedPayment(payment);
                               setShowReceiptModal(true);
                             }}
                             className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-blue-600 dark:text-blue-400"
-                            title="View Receipt"
+                            title="View Receipt Details"
+                            disabled={!isSuccessful}
                           >
                             <Receipt className="w-4 h-4" />
                           </button>
+                          
                           <button
                             onClick={() => {
                               setSelectedPayment(payment);
@@ -1380,6 +1002,7 @@ const PaymentsList: React.FC = () => {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
+                          
                           {isPending && (
                             <>
                               <button
@@ -1443,15 +1066,184 @@ const PaymentsList: React.FC = () => {
         )}
       </div>
 
-      {/* Receipt Modal */}
+      {/* Receipt Viewer Modal - Image Viewer */}
+      <AnimatePresence>
+        {showReceiptViewer && selectedPayment && receiptImageUrl && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-md p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowReceiptViewer(false);
+                setReceiptImageUrl(null);
+                setSelectedPayment(null);
+              }
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl max-w-5xl w-full max-h-[95vh] overflow-hidden shadow-2xl"
+            >
+              {/* Header */}
+              <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                    <Image className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Payment Receipt</h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {selectedPayment.receipt_number} • {selectedPayment.student_name}
+                    </p>
+                    {selectedPayment.metadata?.uploaded_file && (
+                      <p className="text-xs text-gray-400">
+                        File: {selectedPayment.metadata.uploaded_file}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowReceiptViewer(false)}
+                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+                  >
+                    <X className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Image Controls */}
+              <div className="bg-gray-50 dark:bg-gray-700/30 p-3 flex items-center justify-center gap-3 border-b border-gray-200 dark:border-gray-700 flex-wrap">
+                <button
+                  onClick={handleZoomOut}
+                  className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-all"
+                  title="Zoom Out"
+                >
+                  <ZoomOut className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                </button>
+                <span className="text-sm text-gray-600 dark:text-gray-300">{Math.round(imageZoom * 100)}%</span>
+                <button
+                  onClick={handleZoomIn}
+                  className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-all"
+                  title="Zoom In"
+                >
+                  <ZoomIn className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                </button>
+                <button
+                  onClick={handleRotate}
+                  className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-all"
+                  title="Rotate"
+                >
+                  <RotateCw className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                </button>
+                <button
+                  onClick={handleReset}
+                  className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-all"
+                  title="Reset"
+                >
+                  <RefreshCw className="w-4 h-4 text-gray-600 dark:text-gray-300" />
+                </button>
+                
+                <button
+                  onClick={() => handleDownloadReceiptImage(selectedPayment)}
+                  className="p-1.5 hover:bg-green-100 dark:hover:bg-green-900/20 rounded-lg transition-all text-green-600 dark:text-green-400"
+                  title="Download Receipt Image"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                
+                {receiptLoading && <Loader2 className="w-4 h-4 animate-spin text-blue-600" />}
+              </div>
+
+              {/* Image Display */}
+              <div className="relative p-4 flex items-center justify-center bg-gray-100 dark:bg-gray-900/50" style={{ minHeight: '400px' }}>
+                {receiptImageUrl && !viewerImageError ? (
+                  <motion.img
+                    src={receiptImageUrl}
+                    alt={`Receipt ${selectedPayment.receipt_number}`}
+                    className="max-w-full max-h-[65vh] object-contain rounded-lg shadow-lg"
+                    style={{
+                      transform: `scale(${imageZoom}) rotate(${imageRotation}deg)`,
+                      transition: 'transform 0.3s ease'
+                    }}
+                    onError={() => {
+                      setViewerImageError(true);
+                      toast.error('Failed to load receipt image');
+                    }}
+                  />
+                ) : (
+                  <div className="text-center py-12">
+                    {viewerImageError ? (
+                      <>
+                        <AlertTriangle className="w-16 h-16 mx-auto text-yellow-500 dark:text-yellow-400 mb-4" />
+                        <p className="text-gray-500 dark:text-gray-400">Failed to load receipt image</p>
+                        <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
+                          The file may have been moved or deleted
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="w-16 h-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
+                        <p className="text-gray-500 dark:text-gray-400">No receipt image available</p>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Payment Info Footer */}
+              <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Receipt Number</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{selectedPayment.receipt_number}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Student</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{selectedPayment.student_name}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Amount</p>
+                    <p className="font-medium text-green-600">{formatCurrency(selectedPayment.amount_paid)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Status</p>
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(selectedPayment.status)}`}>
+                      {getStatusIcon(selectedPayment.status)}
+                      {selectedPayment.status.charAt(0).toUpperCase() + selectedPayment.status.slice(1)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Receipt Modal - Using reusable component */}
       <AnimatePresence>
         {showReceiptModal && selectedPayment && (
           <ReceiptModal
-            payment={selectedPayment}
+            payment={formatPaymentForReceipt(selectedPayment)}
+            student={{
+              id: selectedPayment.student_id || '',
+              first_name: selectedPayment.student_first_name || '',
+              last_name: selectedPayment.student_last_name || '',
+              student_id: selectedPayment.student_admission || '',
+              admission_number: selectedPayment.student_admission || '',
+              class_name: 'N/A',
+              branch_id: selectedPayment.branch_id || '',
+            }}
+            schoolInfo={schoolInfo}
             onClose={() => {
               setShowReceiptModal(false);
               setSelectedPayment(null);
             }}
+            formatCurrency={formatCurrency}
           />
         )}
       </AnimatePresence>
@@ -1536,6 +1328,40 @@ const PaymentsList: React.FC = () => {
                   <div className="col-span-2">
                     <p className="text-sm text-gray-500 dark:text-gray-400">Rejection Reason</p>
                     <p className="font-medium text-red-600 dark:text-red-400">{selectedPayment.rejection_reason}</p>
+                  </div>
+                )}
+                {(selectedPayment.receipt_url || selectedPayment.metadata?.receipt_url || selectedPayment.payment_proof_url) && (
+                  <div className="col-span-2 border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Receipt File</p>
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+                      <FileText className="w-5 h-5 text-blue-500" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          {selectedPayment.metadata?.uploaded_file || selectedPayment.receipt_file_name || 'Receipt file'}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {selectedPayment.metadata?.uploaded_at 
+                            ? `Uploaded: ${dayjs(selectedPayment.metadata.uploaded_at).format('MMM D, YYYY')}`
+                            : 'Uploaded'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => viewReceipt(selectedPayment)}
+                          className="p-1.5 hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded-lg text-blue-600 dark:text-blue-400 transition-all"
+                          title="View Receipt"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDownloadReceiptImage(selectedPayment)}
+                          className="p-1.5 hover:bg-green-100 dark:hover:bg-green-900/20 rounded-lg text-green-600 dark:text-green-400 transition-all"
+                          title="Download Receipt"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

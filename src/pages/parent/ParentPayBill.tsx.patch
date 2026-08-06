@@ -1,0 +1,39 @@
+// Make sure fetchPayments is defined before usePaymentHandlers
+
+  const fetchPayments = async (studentId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('payment_date', { ascending: false })
+        .limit(20);
+
+      if (error) {
+        console.error('Payments fetch error:', error);
+        return;
+      }
+
+      setPayments(data || []);
+    } catch (error: any) {
+      console.error('Error fetching payments:', error);
+    }
+  };
+
+  // Refresh data - DEFINED BEFORE usePaymentHandlers
+  const refreshData = async () => {
+    if (!selectedChild) return;
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        refreshPaymentData(),
+        fetchPayments(selectedChild.id),
+        fetchPaymentGateway(selectedChild.branch_id)
+      ]);
+      toast.success('Data refreshed');
+    } catch (error) {
+      toast.error('Failed to refresh data');
+    } finally {
+      setRefreshing(false);
+    }
+  };

@@ -1,0 +1,71 @@
+/* ParentProfile.css - Mobile Responsive Enhancements */
+
+/* Touch-friendly tap targets */
+.touch-manipulation {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Better touch targets for buttons */
+button, a, [role="button"] {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Mobile-optimized accordion */
+@media (max-width: 640px) {
+  .accordion-content {
+    padding: 0.75rem;
+  }
+  
+  .info-grid {
+    gap: 0.5rem;
+  }
+  
+  .info-item {
+    padding: 0.5rem;
+  }
+}
+
+/* Smooth transitions for mobile */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Bottom navigation safe area */
+@media (max-width: 768px) {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 1rem);
+  }
+}
+
+/* Loading shimmer effect */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.1) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Dark mode overrides */
+.dark .shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}

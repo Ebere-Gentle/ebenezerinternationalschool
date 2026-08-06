@@ -9,6 +9,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  initialized: boolean;
   login: (email: string, password: string) => Promise<User>;
   logout: () => Promise<void>;
   updateUser: (user: User) => void;
@@ -20,20 +21,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
     const checkUser = async () => {
       try {
+        setIsLoading(true);
+        
+        // Check localStorage first
         const storedUser = localStorage.getItem('user');
         if (storedUser) {
-          const parsedUser = JSON.parse(storedUser);
-          setUser(parsedUser);
-          setIsAuthenticated(true);
-          setIsLoading(false);
-          return;
+          try {
+            const parsedUser = JSON.parse(storedUser);
+            setUser(parsedUser);
+            setIsAuthenticated(true);
+            setInitialized(true);
+            setIsLoading(false);
+            return;
+          } catch (e) {
+            localStorage.removeItem('user');
+          }
         }
 
+        // Check Supabase session
         const { data: { session } } = await supabase.auth.getSession();
+        
         if (session?.user) {
           const { data: profile, error } = await supabase
             .from('users')
@@ -42,36 +54,91 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             .single();
 
           if (!error && profile) {
-            setUser(profile as User);
+            const userData = {
+              ...profile,
+              branch_id: profile.branch_id || null,
+              role: profile.role || 'student',
+            } as User;
+            
+            setUser(userData);
             setIsAuthenticated(true);
-            localStorage.setItem('user', JSON.stringify(profile));
+            localStorage.setItem('user', JSON.stringify(userData));
+          } else {
+            // Create minimal user from session
+            const minimalUser = {
+              id: session.user.id,
+              email: session.user.email || '',
+              first_name: session.user.user_metadata?.first_name || '',
+              last_name: session.user.user_metadata?.last_name || '',
+              role: session.user.user_metadata?.role || 'student',
+              branch_id: session.user.user_metadata?.branch_id || null,
+            } as User;
+            
+            setUser(minimalUser);
+            setIsAuthenticated(true);
+            localStorage.setItem('user', JSON.stringify(minimalUser));
           }
+        } else {
+          setUser(null);
+          setIsAuthenticated(false);
         }
       } catch (error) {
         console.error('Auth check error:', error);
+        setUser(null);
+        setIsAuthenticated(false);
       } finally {
+        setInitialized(true);
         setIsLoading(false);
       }
     };
 
     checkUser();
 
+    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
         setUser(null);
         setIsAuthenticated(false);
         localStorage.removeItem('user');
+        setInitialized(true);
       } else if (event === 'SIGNED_IN' && session?.user) {
-        const { data: profile, error } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
+        setIsLoading(true);
+        try {
+          const { data: profile, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
 
-        if (!error && profile) {
-          setUser(profile as User);
-          setIsAuthenticated(true);
-          localStorage.setItem('user', JSON.stringify(profile));
+          if (!error && profile) {
+            const userData = {
+              ...profile,
+              branch_id: profile.branch_id || null,
+              role: profile.role || 'student',
+            } as User;
+            
+            setUser(userData);
+            setIsAuthenticated(true);
+            localStorage.setItem('user', JSON.stringify(userData));
+          } else {
+            const minimalUser = {
+              id: session.user.id,
+              email: session.user.email || '',
+              first_name: session.user.user_metadata?.first_name || '',
+              last_name: session.user.user_metadata?.last_name || '',
+              role: session.user.user_metadata?.role || 'student',
+              branch_id: session.user.user_metadata?.branch_id || null,
+            } as User;
+            
+            setUser(minimalUser);
+            setIsAuthenticated(true);
+            localStorage.setItem('user', JSON.stringify(minimalUser));
+          }
+        } catch (error) {
+          console.error('Error loading user profile:', error);
+        } finally {
+          setInitialized(true);
+          setIsLoading(false);
         }
       }
     });
@@ -89,6 +156,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(userData);
       setIsAuthenticated(true);
       localStorage.setItem('user', JSON.stringify(userData));
+      setInitialized(true);
       return userData;
     } catch (error) {
       console.error('Login error:', error);
@@ -107,6 +175,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setIsAuthenticated(false);
       localStorage.removeItem('user');
+      setInitialized(true);
       toast.success('Logged out successfully');
     }
   };
@@ -116,7 +185,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('user', JSON.stringify(updatedUser));
   };
 
-  if (isLoading) {
+  // Show loading spinner during initial check
+  if (isLoading && !initialized) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
         <LoadingSpinner size="lg" text="Loading your profile..." />
@@ -128,6 +198,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     isLoading,
     isAuthenticated,
+    initialized,
     login,
     logout,
     updateUser,

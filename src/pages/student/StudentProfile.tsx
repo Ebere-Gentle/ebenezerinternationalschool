@@ -1,8 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+// src/pages/student/StudentProfile.tsx
+
+import React, { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../config/supabase/client';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-import { motion, AnimatePresence } from 'framer-motion';
+import toast from 'react-hot-toast';
+import dayjs from 'dayjs';
 import {
   User,
   Mail,
@@ -10,409 +15,467 @@ import {
   MapPin,
   Calendar,
   BookOpen,
-  Camera,
+  GraduationCap,
+  Download,
+  Info,
+  Printer,
   Loader2,
   CheckCircle,
   AlertCircle,
-  Bell,
-  Settings,
-  LogOut,
-  Menu,
-  Sun,
-  Moon,
-  Shield,
-  Award,
-  GraduationCap,
-  Home,
-  Building2,
-  Globe,
-  ChevronRight,
-  BadgeCheck,
-  Clock,
-  TrendingUp,
-  Wallet,
-  Receipt,
-  FileText,
-  Download,
-  Printer,
-  Share2,
-  Copy,
-  Check,
-  Lock,
-  Key,
-  Crown,
-  Rocket,
-  Target,
   Users,
-  Info,
-  Link,
-  Search,
-  Phone as PhoneIcon,
-  MessageCircle,
   Heart,
-  Star,
-  Sparkles,
+  FileText,
+  UserCheck,
+  Shield,
+  CalendarDays,
+  UserRound,
+  Bus,
   ArrowLeft,
-  ArrowUpRight,
-  ArrowDownRight,
-  BarChart3,
-  CreditCard,
-  QrCode,
-  Barcode,
-  HelpCircle,
-  LifeBuoy
+  Stethoscope,
+  AlertTriangle,
+  Upload,
+  X,
+  Eye,
+  FileCheck,
+  FolderOpen,
+  CloudUpload,
+  Home,
+  BusFront
 } from 'lucide-react';
-import toast from 'react-hot-toast';
-import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
 
-dayjs.extend(relativeTime);
-
-// ============================================
-// INTERFACES
-// ============================================
-interface StudentProfile {
+interface StudentProfileData {
   id: string;
   student_id: string;
   admission_number: string;
-  admission_date: string;
+  user_id: string | null;
+  branch_id: string;
   first_name: string;
   last_name: string;
-  middle_name: string;
-  other_names: string;
+  middle_name: string | null;
+  other_names: string | null;
   gender: string;
-  passport_url: string;
+  passport_url: string | null;
   date_of_birth: string;
-  place_of_birth: string;
+  place_of_birth: string | null;
   nationality: string;
-  state_of_origin: string;
-  lga: string;
-  religion: string;
-  blood_group: string;
-  genotype: string;
-  phone_number: string;
-  email: string;
+  state_of_origin: string | null;
+  lga: string | null;
+  religion: string | null;
+  blood_group: string | null;
+  genotype: string | null;
+  email: string | null;
+  phone_number: string | null;
   home_address: string;
-  residential_address: string;
-  branch_id: string;
-  department: string;
-  class_id: string;
-  class_arm: string;
-  house_id: string;
-  club_id: string;
-  transportation_status: boolean;
-  pickup_location: string;
-  bus_route_id: string;
-  medical_info: any;
-  doctor_name: string;
-  hospital_name: string;
-  allergies: string;
-  medical_conditions: string;
-  special_needs: string;
-  previous_school: string;
-  transfer_status: string;
+  residential_address: string | null;
+  department: string | null;
+  class_id: string | null;
+  class_arm: string | null;
+  house_id: string | null;
+  club_id: string | null;
+  admission_date: string;
   admission_status: string;
   current_status: string;
-  emergency_contact: any;
-  parent_id: string;
+  previous_school: string | null;
+  transfer_status: boolean;
+  transportation_status: boolean;
+  pickup_location: string | null;
+  bus_route_id: string | null;
+  doctor_name: string | null;
+  hospital_name: string | null;
+  allergies: string | null;
+  medical_conditions: string | null;
+  special_needs: string | null;
   guardian_info: any;
-  documents: any;
-  qr_code_data: string;
-  barcode_data: string;
-  created_by: string;
+  emergency_contact: any;
   created_at: string;
   updated_at: string;
-  metadata: any;
-  user_id: string;
-  class?: { id: string; name: string; };
-  branch?: { id: string; name: string; };
-}
-
-interface StudentMatch {
-  id: string;
-  first_name: string;
-  last_name: string;
-  admission_number: string;
   class_name?: string;
-  class_arm: string;
-  email: string;
+  class_code?: string;
+  class_level?: string;
+  branch_name?: string;
+  house_name?: string;
+  house_color?: string;
+  house_motto?: string;
+  club_name?: string;
+  bus_route_name?: string;
 }
 
-// ============================================
-// MAIN COMPONENT
-// ============================================
+interface Document {
+  id: string;
+  student_id: string;
+  document_type: string;
+  file_name: string;
+  file_path: string;
+  file_url: string;
+  file_size: number;
+  mime_type: string;
+  uploaded_by: string | null;
+  uploaded_at: string;
+  status: 'pending' | 'approved' | 'rejected';
+  metadata: any;
+}
+
 const StudentProfile: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState<StudentProfile | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState('personal');
-  
-  // States for the linking flow
-  const [showLinking, setShowLinking] = useState(false);
-  const [foundStudents, setFoundStudents] = useState<StudentMatch[]>([]);
-  const [searchMode, setSearchMode] = useState<'auto' | 'manual' | 'select'>('auto');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searching, setSearching] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState<StudentMatch | null>(null);
-  const [linking, setLinking] = useState(false);
-  const [classNames, setClassNames] = useState<Record<string, string>>({});
+  const [profile, setProfile] = useState<StudentProfileData | null>(null);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [houseDetails, setHouseDetails] = useState<{ id: string; name: string; color: string; motto: string } | null>(null);
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [documentType, setDocumentType] = useState('');
+  const [documentDescription, setDocumentDescription] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [documentsEnabled, setDocumentsEnabled] = useState(true);
 
   useEffect(() => {
     if (user) {
-      fetchProfile();
+      fetchStudentProfile();
+    } else {
+      setLoading(false);
     }
   }, [user]);
 
-  // Helper to fetch class names
-  const fetchClassNames = async (classIds: string[]) => {
-    try {
-      const uniqueIds = [...new Set(classIds)];
-      const { data, error } = await supabase
-        .from('classes')
-        .select('id, name')
-        .in('id', uniqueIds);
-
-      if (!error && data) {
-        const nameMap: Record<string, string> = {};
-        data.forEach(c => { nameMap[c.id] = c.name; });
-        setClassNames(nameMap);
-        return nameMap;
-      }
-    } catch (error) {
-      console.error('Error fetching class names:', error);
-    }
-    return {};
-  };
-
-  const fetchProfile = async () => {
+  const fetchStudentProfile = async () => {
     setLoading(true);
     try {
-      console.log('🔍 Fetching profile for user ID:', user?.id);
-      console.log('📧 User email:', user?.email);
-
       let studentData = null;
 
-      // PRIMARY: Use user_id (most reliable)
       if (user?.id) {
         const { data, error } = await supabase
           .from('students')
-          .select('*')
+          .select(`
+            *,
+            classes!fk_students_class (
+              id,
+              name,
+              code,
+              level,
+              class_code
+            ),
+            branches!fk_students_branch (
+              id,
+              school_name,
+              branch_code,
+              address
+            ),
+            houses!fk_students_house (
+              id,
+              name,
+              color,
+              motto
+            ),
+            clubs!fk_students_club (
+              id,
+              name
+            ),
+            bus_routes!fk_students_bus_route (
+              id,
+              name
+            )
+          `)
           .eq('user_id', user.id)
           .single();
 
         if (!error && data) {
           studentData = data;
-          console.log('✅ Found student via user_id');
-        } else {
-          console.log('❌ user_id lookup failed:', error?.message);
         }
       }
 
-      // SECONDARY: Try by ID
-      if (!studentData && user?.id) {
+      if (!studentData && user?.email) {
         const { data, error } = await supabase
           .from('students')
-          .select('*')
-          .eq('id', user.id)
+          .select(`
+            *,
+            classes!fk_students_class (
+              id,
+              name,
+              code,
+              level,
+              class_code
+            ),
+            branches!fk_students_branch (
+              id,
+              school_name,
+              branch_code,
+              address
+            ),
+            houses!fk_students_house (
+              id,
+              name,
+              color,
+              motto
+            ),
+            clubs!fk_students_club (
+              id,
+              name
+            ),
+            bus_routes!fk_students_bus_route (
+              id,
+              name
+            )
+          `)
+          .eq('email', user.email)
           .single();
 
         if (!error && data) {
           studentData = data;
-          console.log('✅ Found student via id match');
         }
       }
 
-      // TERTIARY: Try by email
-      if (!studentData && user?.email) {
-        console.log('📧 Looking for student with email:', user.email);
-        const { data, error } = await supabase
-          .from('students')
-          .select('*')
-          .eq('email', user.email);
-
-        if (!error && data && data.length > 0) {
-          if (data.length === 1) {
-            studentData = data[0];
-            console.log('✅ Found single student via email');
-          } else {
-            const students = data;
-            const classIds = students.map(s => s.class_id).filter(Boolean);
-            await fetchClassNames(classIds);
-            
-            setFoundStudents(students.map(s => ({
-              id: s.id,
-              first_name: s.first_name,
-              last_name: s.last_name,
-              admission_number: s.admission_number,
-              class_name: classNames[s.class_id] || 'Class',
-              class_arm: s.class_arm,
-              email: s.email
-            })));
-            setSearchMode('select');
-            setShowLinking(true);
-            setLoading(false);
-            return;
-          }
-        }
-      }
-
-      // If found student, fetch class and branch names separately
-      if (studentData) {
-        if (studentData.class_id) {
-          const { data: classData } = await supabase
-            .from('classes')
-            .select('name')
-            .eq('id', studentData.class_id)
-            .single();
-          
-          if (classData) {
-            studentData.class = classData;
-          }
-        }
-
-        if (studentData.branch_id) {
-          const { data: branchData } = await supabase
-            .from('branches')
-            .select('name')
-            .eq('id', studentData.branch_id)
-            .single();
-          
-          if (branchData) {
-            studentData.branch = branchData;
-          }
-        }
-
-        setProfile(studentData);
+      if (!studentData) {
+        toast.error('Student profile not found. Please contact school administration.');
         setLoading(false);
         return;
       }
 
-      setShowLinking(true);
-      setSearchMode('manual');
-      setLoading(false);
+      if (studentData.houses) {
+        setHouseDetails({
+          id: studentData.houses.id,
+          name: studentData.houses.name,
+          color: studentData.houses.color || '#6B7280',
+          motto: studentData.houses.motto || ''
+        });
+      } else if (studentData.house_id) {
+        const { data: houseData } = await supabase
+          .from('houses')
+          .select('id, name, color, motto')
+          .eq('id', studentData.house_id)
+          .single();
+        
+        if (houseData) {
+          setHouseDetails({
+            id: houseData.id,
+            name: houseData.name,
+            color: houseData.color || '#6B7280',
+            motto: houseData.motto || ''
+          });
+        }
+      }
 
+      let guardianInfo = studentData.guardian_info;
+      let emergencyContact = studentData.emergency_contact;
+
+      if (typeof guardianInfo === 'string') {
+        try { guardianInfo = JSON.parse(guardianInfo); } catch (e) { guardianInfo = {}; }
+      }
+      if (typeof emergencyContact === 'string') {
+        try { emergencyContact = JSON.parse(emergencyContact); } catch (e) { emergencyContact = {}; }
+      }
+
+      const formattedProfile: StudentProfileData = {
+        ...studentData,
+        class_name: studentData.classes?.name || 'Not Assigned',
+        class_code: studentData.classes?.class_code || studentData.classes?.code || 'N/A',
+        class_level: studentData.classes?.level || 'N/A',
+        branch_name: studentData.branches?.school_name || 'N/A',
+        house_name: studentData.houses?.name || null,
+        house_color: studentData.houses?.color || '#6B7280',
+        house_motto: studentData.houses?.motto || '',
+        club_name: studentData.clubs?.name || null,
+        bus_route_name: studentData.bus_routes?.name || null,
+        guardian_info: guardianInfo,
+        emergency_contact: emergencyContact,
+      };
+
+      setProfile(formattedProfile);
+      await fetchDocuments(studentData.id);
     } catch (error: any) {
-      console.error('❌ Error fetching profile:', error);
-      setLoading(false);
-      setShowLinking(true);
-      setSearchMode('manual');
-    }
-  };
-
-  const handleLinkStudent = async (studentId: string) => {
-    setLinking(true);
-    try {
-      const { error } = await supabase
-        .from('students')
-        .update({
-          user_id: user?.id,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', studentId);
-
-      if (error) throw error;
-
-      toast.success('Account linked successfully! 🎉');
-      setShowLinking(false);
-      fetchProfile();
-    } catch (error: any) {
-      console.error('Error linking student:', error);
-      toast.error(error.message || 'Failed to link account');
+      console.error('Error fetching profile:', error);
+      toast.error('Failed to load profile');
     } finally {
-      setLinking(false);
+      setLoading(false);
     }
   };
 
-  const handleSearchStudent = async () => {
-    if (!searchQuery.trim()) {
-      toast.error('Please enter an admission number or phone number');
+  const fetchDocuments = async (studentId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('student_documents')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('uploaded_at', { ascending: false });
+
+      if (error) {
+        if (error.code === 'PGRST205') {
+          setDocumentsEnabled(false);
+          setDocuments([]);
+          return;
+        }
+        throw error;
+      }
+      setDocuments(data || []);
+      setDocumentsEnabled(true);
+    } catch (error) {
+      console.error('Error fetching documents:', error);
+      setDocuments([]);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setSelectedFile(file);
+  };
+
+  const uploadDocument = async () => {
+    if (!selectedFile || !documentType || !profile) {
+      toast.error('Please select a file and document type');
       return;
     }
 
-    setSearching(true);
+    setUploading(true);
+    setUploadProgress(0);
+
     try {
-      const { data, error } = await supabase
-        .from('students')
-        .select('*')
-        .or(`admission_number.ilike.%${searchQuery}%,phone_number.ilike.%${searchQuery}%,student_id.ilike.%${searchQuery}%`);
+      const fileExt = selectedFile.name.split('.').pop();
+      const fileName = `${profile.id}/${Date.now()}-${selectedFile.name}`;
+      const filePath = `student-documents/${fileName}`;
 
-      if (error) throw error;
+      const { error: uploadError } = await supabase.storage
+        .from('student-documents')
+        .upload(filePath, selectedFile, {
+          cacheControl: '3600',
+          upsert: false,
+        });
 
-      if (data && data.length > 0) {
-        const classIds = data.map(s => s.class_id).filter(Boolean);
-        await fetchClassNames(classIds);
-
-        setFoundStudents(data.map(s => ({
-          id: s.id,
-          first_name: s.first_name,
-          last_name: s.last_name,
-          admission_number: s.admission_number,
-          class_name: classNames[s.class_id] || 'Class',
-          class_arm: s.class_arm,
-          email: s.email
-        })));
-        setSearchMode('select');
-      } else {
-        toast.error('No students found with that information');
-        setFoundStudents([]);
+      if (uploadError) {
+        if (uploadError.message?.includes('bucket')) {
+          toast.error('Storage bucket not configured. Please contact admin.');
+        } else {
+          toast.error(uploadError.message || 'Failed to upload file');
+        }
+        setUploading(false);
+        return;
       }
+
+      const { data: urlData } = supabase.storage
+        .from('student-documents')
+        .getPublicUrl(filePath);
+
+      const { error: docError } = await supabase
+        .from('student_documents')
+        .insert([{
+          student_id: profile.id,
+          document_type: documentType,
+          file_name: selectedFile.name,
+          file_path: filePath,
+          file_url: urlData.publicUrl,
+          file_size: selectedFile.size,
+          mime_type: selectedFile.type,
+          uploaded_by: user?.id || null,
+          uploaded_at: new Date().toISOString(),
+          status: 'pending',
+          metadata: {
+            description: documentDescription || '',
+            uploaded_by_name: user?.email || 'Student',
+            uploaded_by_id: user?.id || null
+          }
+        }]);
+
+      if (docError) {
+        await supabase.storage.from('student-documents').remove([filePath]);
+        toast.error('Failed to save document record');
+        setUploading(false);
+        return;
+      }
+
+      toast.success('Document uploaded successfully! Waiting for admin approval.');
+      setShowUploadModal(false);
+      setSelectedFile(null);
+      setDocumentType('');
+      setDocumentDescription('');
+      setUploadProgress(0);
+      
+      await fetchDocuments(profile.id);
     } catch (error: any) {
-      console.error('Error searching students:', error);
-      toast.error(error.message || 'Failed to search');
+      console.error('Error uploading document:', error);
+      toast.error(error.message || 'Failed to upload document');
     } finally {
-      setSearching(false);
+      setUploading(false);
     }
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
-    toast.success('Copied to clipboard');
+  const formatDate = (date: string) => {
+    if (!date) return 'N/A';
+    return dayjs(date).format('MMMM D, YYYY');
   };
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
-      admitted: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-      active: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+      active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
       inactive: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
+      transferred: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+      suspended: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+      pending: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+      admitted: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    };
+    return styles[status] || styles.active;
+  };
+
+  const getDocumentStatusBadge = (status: string) => {
+    const styles: Record<string, string> = {
+      approved: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
       pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+      rejected: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
     };
     return styles[status] || styles.pending;
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-NG', {
-      style: 'currency',
-      currency: 'NGN',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
+  const getGenderBadge = (gender: string) => {
+    const styles: Record<string, string> = {
+      male: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+      female: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
+      other: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+    };
+    return styles[gender] || styles.blue;
+  };
+
+  const getLevelBadge = (level: string) => {
+    const styles: Record<string, string> = {
+      nursery: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
+      primary: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+      secondary: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+      creche: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    };
+    return styles[level] || styles.primary;
+  };
+
+  const getBloodGroupBadge = (bloodGroup: string) => {
+    const styles: Record<string, string> = {
+      'A+': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+      'A-': 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+      'B+': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+      'B-': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+      'AB+': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+      'AB-': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+      'O+': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+      'O-': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    };
+    return styles[bloodGroup] || 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400';
+  };
+
+  const getGuardianField = (field: string) => {
+    if (!profile?.guardian_info) return 'N/A';
+    return profile.guardian_info[field] || 'N/A';
+  };
+
+  const getEmergencyField = (field: string) => {
+    if (!profile?.emergency_contact) return 'N/A';
+    return profile.emergency_contact[field] || 'N/A';
   };
 
   const tabs = [
-    { id: 'personal', label: 'Personal', icon: User },
+    { id: 'overview', label: 'Overview', icon: User },
+    { id: 'personal', label: 'Personal', icon: UserRound },
     { id: 'academic', label: 'Academic', icon: GraduationCap },
-    { id: 'medical', label: 'Medical', icon: Heart },
     { id: 'guardian', label: 'Guardian', icon: Users },
+    { id: 'medical', label: 'Medical', icon: Heart },
+    { id: 'transport', label: 'Transport', icon: Bus },
     { id: 'documents', label: 'Documents', icon: FileText },
-    { id: 'security', label: 'Security', icon: Shield },
-    { id: 'transport', label: 'Transport', icon: Home },
   ];
-
-  // Calculate completion rate
-  const completionRate = useMemo(() => {
-    if (!profile) return 0;
-    const fields = [
-      profile.first_name, profile.last_name, profile.email, 
-      profile.phone_number, profile.home_address, profile.date_of_birth,
-      profile.gender, profile.class_id, profile.branch_id
-    ];
-    const filled = fields.filter(f => f && f !== '').length;
-    return Math.round((filled / fields.length) * 100);
-  }, [profile]);
 
   if (loading) {
     return (
@@ -427,243 +490,6 @@ const StudentProfile: React.FC = () => {
     );
   }
 
-  // Account Linking Flow
-  if (showLinking) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="w-full max-w-2xl"
-        >
-          <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 dark:border-gray-700/50 p-6 sm:p-8">
-            <div className="text-center mb-8">
-              <div className="w-20 h-20 mx-auto bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center shadow-lg mb-4">
-                <GraduationCap className="w-10 h-10 text-white" />
-              </div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Welcome to Student Portal</h2>
-              <p className="text-gray-500 dark:text-gray-400 mt-2">
-                {searchMode === 'auto' && 'We found a student record matching your email!'}
-                {searchMode === 'select' && 'Select your student account to link'}
-                {searchMode === 'manual' && 'Find your student record to continue'}
-              </p>
-            </div>
-
-            {searchMode === 'auto' && foundStudents.length === 1 && (
-              <div className="space-y-6">
-                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-6">
-                  <div className="flex items-start gap-4">
-                    <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center flex-shrink-0">
-                      <User className="w-6 h-6 text-green-600 dark:text-green-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-900 dark:text-white truncate">
-                        {foundStudents[0].first_name} {foundStudents[0].last_name}
-                      </h3>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                        Admission: {foundStudents[0].admission_number}
-                      </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                        Class: {foundStudents[0].class_name} - {foundStudents[0].class_arm}
-                      </p>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                        Email: {foundStudents[0].email}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4">
-                  <div className="flex items-start gap-3">
-                    <Info className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-amber-700 dark:text-amber-300">
-                      This student record matches your email. Click "Link My Account" to connect this student to your login.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button
-                    onClick={() => handleLinkStudent(foundStudents[0].id)}
-                    disabled={linking}
-                    className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {linking ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <>
-                        <Link className="w-5 h-5" />
-                        Link My Account
-                      </>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSearchMode('manual');
-                      setFoundStudents([]);
-                    }}
-                    className="px-6 py-3 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
-                  >
-                    Not You?
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {searchMode === 'select' && foundStudents.length > 0 && (
-              <div className="space-y-6">
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  We found multiple students with this information. Please select your account:
-                </p>
-                <div className="space-y-3 max-h-80 overflow-y-auto">
-                  {foundStudents.map((student) => (
-                    <motion.div
-                      key={student.id}
-                      whileHover={{ scale: 1.02 }}
-                      className={`p-4 border-2 rounded-xl cursor-pointer transition-all ${
-                        selectedStudent?.id === student.id
-                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
-                      }`}
-                      onClick={() => setSelectedStudent(student)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4 min-w-0">
-                          <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0">
-                            {student.first_name[0]}{student.last_name[0]}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-semibold text-gray-900 dark:text-white truncate">
-                              {student.first_name} {student.last_name}
-                            </p>
-                            <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
-                              {student.admission_number} • {student.class_name} - {student.class_arm}
-                            </p>
-                          </div>
-                        </div>
-                        {selectedStudent?.id === student.id && (
-                          <CheckCircle className="w-5 h-5 text-blue-500 flex-shrink-0" />
-                        )}
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-
-                <button
-                  onClick={() => {
-                    if (selectedStudent) {
-                      handleLinkStudent(selectedStudent.id);
-                    } else {
-                      toast.error('Please select a student');
-                    }
-                  }}
-                  disabled={linking || !selectedStudent}
-                  className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {linking ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <>
-                      <Link className="w-5 h-5" />
-                      Link Selected Account
-                    </>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => {
-                    setSearchMode('manual');
-                    setFoundStudents([]);
-                    setSelectedStudent(null);
-                  }}
-                  className="w-full text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-                >
-                  Search with different information
-                </button>
-              </div>
-            )}
-
-            {searchMode === 'manual' && (
-              <div className="space-y-6">
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Enter your admission number or phone number to find your student record:
-                </p>
-
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="flex-1 relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Admission number or phone number"
-                      className="w-full pl-10 pr-4 py-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-white/50 dark:bg-gray-700/50 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          handleSearchStudent();
-                        }
-                      }}
-                    />
-                  </div>
-                  <button
-                    onClick={handleSearchStudent}
-                    disabled={searching}
-                    className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:shadow-lg transition-all disabled:opacity-50 flex items-center gap-2"
-                  >
-                    {searching ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <>
-                        <Search className="w-5 h-5" />
-                        Search
-                      </>
-                    )}
-                  </button>
-                </div>
-
-                <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-                  <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-3">
-                    Still having trouble? Contact our support team
-                  </p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-xl hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-all">
-                      <PhoneIcon className="w-4 h-4" />
-                      Call School
-                    </button>
-                    <button className="flex items-center justify-center gap-2 px-4 py-2 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-xl hover:bg-green-200 dark:hover:bg-green-900/50 transition-all">
-                      <MessageCircle className="w-4 h-4" />
-                      WhatsApp
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row justify-between items-center gap-3">
-              <button
-                onClick={() => {
-                  setShowLinking(false);
-                  setSearchMode('manual');
-                  setFoundStudents([]);
-                }}
-                className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
-              >
-                ← Back to Login
-              </button>
-              <button
-                onClick={() => logout()}
-                className="text-sm text-red-500 hover:text-red-700 transition-colors"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-    );
-  }
-
   if (!profile) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-4">
@@ -673,149 +499,163 @@ const StudentProfile: React.FC = () => {
           </div>
           <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Profile Not Found</h3>
           <p className="text-gray-500 dark:text-gray-400 mt-2">
-            We couldn't find your student profile. Please try searching again or contact support.
+            We couldn't find your student profile. Please contact school administration.
           </p>
-          <div className="mt-6 space-y-3">
-            <button
-              onClick={() => {
-                setShowLinking(true);
-                setSearchMode('manual');
-              }}
-              className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:shadow-lg transition-all flex items-center justify-center gap-2"
-            >
-              <Search className="w-5 h-5" />
-              Find My Student
-            </button>
-            <button
-              onClick={() => logout()}
-              className="w-full px-6 py-3 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
-            >
-              Logout
-            </button>
-          </div>
+          <Link
+            to="/student/dashboard"
+            className="inline-block mt-6 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
+          >
+            Back to Dashboard
+          </Link>
         </div>
       </div>
     );
   }
 
-  // ============================================
-  // MAIN PROFILE VIEW
-  // ============================================
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-300">
-      {/* Animated Background */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-blue-500/10 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-20 right-10 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/5 rounded-full blur-3xl animate-pulse delay-2000"></div>
-      </div>
-
-      <div className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-
-        {/* Profile Hero Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 p-6 sm:p-8 text-white shadow-2xl mb-6"
-        >
-          <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-3xl animate-pulse" />
-          <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full blur-3xl animate-pulse delay-1000" />
-          
-          <div className="relative flex flex-col sm:flex-row items-center gap-6">
-            {/* Profile Image */}
-            <div className="relative flex-shrink-0">
-              <div className="absolute -inset-1 bg-white/20 rounded-full blur-md" />
-              <div className="relative w-20 h-20 sm:w-28 sm:h-28 rounded-full ring-4 ring-white/30 shadow-2xl overflow-hidden">
-                {profile.passport_url ? (
-                  <img src={profile.passport_url} alt="Profile" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-400 flex items-center justify-center text-3xl sm:text-4xl font-bold">
-                    {profile.first_name?.[0]}{profile.last_name?.[0]}
-                  </div>
-                )}
-                <div className="absolute bottom-0 right-0 p-1 bg-green-500 rounded-full ring-2 ring-white">
-                  <CheckCircle className="w-3 h-3 text-white" />
-                </div>
-              </div>
-            </div>
-
-            {/* Info */}
-            <div className="flex-1 text-center sm:text-left">
-              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-                <h2 className="text-xl sm:text-2xl font-bold">
-                  {profile.first_name} {profile.last_name}
-                </h2>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/20 backdrop-blur-sm">
-                  <BadgeCheck className="w-3 h-3" />
-                  Verified
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3 mt-1 text-sm text-white/80">
-                <span className="flex items-center gap-1">
-                  <GraduationCap className="w-4 h-4" />
-                  {profile.class?.name || 'N/A'} {profile.class_arm || ''}
-                </span>
-                <span className="flex items-center gap-1">
-                  <Building2 className="w-4 h-4" />
-                  {profile.branch?.name || 'Main Campus'}
-                </span>
-                <span className="flex items-center gap-1">
-                  <CreditCard className="w-4 h-4" />
-                  {profile.admission_number}
-                </span>
-              </div>
-
-              {/* Completion Bar */}
-              <div className="mt-3 flex items-center gap-3">
-                <div className="flex-1 max-w-xs h-1.5 bg-white/20 rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${completionRate}%` }}
-                    transition={{ duration: 1, ease: "easeOut" }}
-                    className="h-full bg-white rounded-full"
-                  />
-                </div>
-                <span className="text-xs text-white/80">{completionRate}% Complete</span>
-              </div>
-            </div>
-
-            {/* Quick Actions */}
-            <div className="flex flex-wrap gap-2">
-              <button className="px-3 py-1.5 sm:px-4 sm:py-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5">
-                <Download className="w-4 h-4" />
-                ID Card
-              </button>
-              <button className="px-3 py-1.5 sm:px-4 sm:py-2 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5">
-                <QrCode className="w-4 h-4" />
-                QR
-              </button>
+      <div className="max-w-6xl mx-auto px-3 sm:px-4 lg:px-6 py-4 sm:py-6">
+        
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-4 sm:mb-6">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <Link
+              to="/student/dashboard"
+              className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all flex-shrink-0"
+            >
+              <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+            </Link>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 dark:text-white truncate">
+                My Profile
+              </h1>
+              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 truncate">
+                {profile.first_name} {profile.last_name} • {profile.admission_number}
+              </p>
             </div>
           </div>
-        </motion.div>
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <button 
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg sm:rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all text-xs sm:text-sm"
+            >
+              <Printer className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span className="hidden xs:inline">Print</span>
+            </button>
+            <button className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg sm:rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all text-xs sm:text-sm">
+              <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span className="hidden xs:inline">Export</span>
+            </button>
+          </div>
+        </div>
 
-       
+        {/* Profile Card - Mobile Responsive */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
+              
+              {/* Avatar - Responsive */}
+              <div className="relative flex-shrink-0">
+                <div className="w-20 h-20 sm:w-24 sm:h-24 md:w-32 md:h-32 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center text-white text-2xl sm:text-3xl md:text-4xl font-bold">
+                  {profile.passport_url ? (
+                    <img src={profile.passport_url} alt={profile.first_name} className="w-full h-full rounded-full object-cover" />
+                  ) : (
+                    `${profile.first_name[0]}${profile.last_name[0]}`
+                  )}
+                </div>
+                <div className="absolute -bottom-0.5 -right-0.5 sm:-bottom-1 sm:-right-1">
+                  <span className={`px-1.5 sm:px-2.5 py-0.5 rounded-full text-[8px] sm:text-xs font-medium ${getStatusBadge(profile.current_status)}`}>
+                    {profile.current_status}
+                  </span>
+                </div>
+              </div>
 
-        {/* Tabs */}
-        <div className="space-y-4">
-          <div className="flex overflow-x-auto gap-1 p-1 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm rounded-2xl border border-white/20 dark:border-gray-700/50">
+              {/* Info - Responsive */}
+              <div className="flex-1 text-center sm:text-left min-w-0">
+                <h2 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 dark:text-white truncate">
+                  {profile.first_name} {profile.middle_name || ''} {profile.last_name}
+                </h2>
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 sm:gap-3 mt-1.5 sm:mt-2">
+                  <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                    <span className="font-medium">Admission:</span> {profile.admission_number}
+                  </span>
+                  <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                    <span className="font-medium">Class:</span> {profile.class_name}
+                  </span>
+                  <span className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">
+                    <span className="font-medium">Branch:</span> {profile.branch_name}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-1.5 sm:gap-3 mt-1.5 sm:mt-2">
+                  {profile.email && (
+                    <span className="flex items-center gap-1 text-xs sm:text-sm text-gray-600 dark:text-gray-300 truncate max-w-[120px] sm:max-w-none">
+                      <Mail className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
+                      {profile.email}
+                    </span>
+                  )}
+                  {profile.phone_number && (
+                    <span className="flex items-center gap-1 text-xs sm:text-sm text-gray-600 dark:text-gray-300 truncate max-w-[100px] sm:max-w-none">
+                      <Phone className="w-3 h-3 sm:w-4 sm:h-4 flex-shrink-0" />
+                      {profile.phone_number}
+                    </span>
+                  )}
+                  {houseDetails ? (
+                    <span 
+                      className="flex items-center gap-1 text-xs sm:text-sm font-medium px-1.5 sm:px-2 py-0.5 rounded-full truncate max-w-[120px] sm:max-w-none"
+                      style={{ 
+                        backgroundColor: houseDetails.color ? `${houseDetails.color}20` : '#6B728020',
+                        color: houseDetails.color || '#6B7280'
+                      }}
+                    >
+                      <Home className="w-3 h-3 sm:w-3.5 sm:h-3.5 flex-shrink-0" />
+                      {houseDetails.name}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* Quick Action - Responsive */}
+              <div className="flex flex-col gap-1.5 sm:gap-2 w-full sm:w-auto">
+                <button 
+                  onClick={() => {
+                    setActiveTab('documents');
+                    setTimeout(() => setShowUploadModal(true), 300);
+                  }}
+                  className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg sm:rounded-xl hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all text-xs sm:text-sm w-full sm:w-auto"
+                >
+                  <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  Upload
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs - Mobile Responsive */}
+        <div className="border-b border-gray-200 dark:border-gray-700 mt-4 sm:mt-6 overflow-x-auto">
+          <nav className="flex gap-1 sm:gap-4 min-w-max">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${
+                className={`px-2 sm:px-3 py-2 sm:py-3 text-[10px] sm:text-sm font-medium capitalize transition-all whitespace-nowrap ${
                   activeTab === tab.id
-                    ? 'bg-white dark:bg-gray-700 shadow-lg text-blue-600 dark:text-blue-400'
-                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-gray-700/50'
+                    ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
               >
-                <tab.icon className="w-4 h-4" />
-                <span className="hidden sm:inline">{tab.label}</span>
+                <span className="flex items-center gap-1 sm:gap-2">
+                  <tab.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <span className="hidden xs:inline">{tab.label}</span>
+                </span>
               </button>
             ))}
-          </div>
+          </nav>
+        </div>
 
-          {/* Tab Content */}
-          <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-3xl p-4 sm:p-6 border border-white/20 dark:border-gray-700/50 shadow-xl">
+        {/* Tab Content - Mobile Responsive */}
+        <div className="bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden mt-4 sm:mt-6">
+          <div className="p-3 sm:p-4 md:p-6">
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab}
@@ -823,305 +663,316 @@ const StudentProfile: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 transition={{ duration: 0.2 }}
-                className="overflow-x-auto"
               >
-                {/* Personal Information */}
-                {activeTab === 'personal' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5" /> First Name
-                      </label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.first_name}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                        <User className="w-3.5 h-3.5" /> Last Name
-                      </label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.last_name}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Middle Name</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.middle_name || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Other Names</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.other_names || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Gender</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 capitalize truncate">{profile.gender || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5" /> Date of Birth
-                      </label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">
-                        {profile.date_of_birth ? dayjs(profile.date_of_birth).format('MMMM D, YYYY') : 'N/A'}
-                      </p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Place of Birth</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.place_of_birth || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Nationality</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.nationality || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">State of Origin</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.state_of_origin || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">LGA</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.lga || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Religion</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 capitalize truncate">{profile.religion || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Blood Group</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.blood_group || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Genotype</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.genotype || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                        <Mail className="w-3.5 h-3.5" /> Email
-                      </label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.email}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                        <Phone className="w-3.5 h-3.5" /> Phone
-                      </label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.phone_number || 'N/A'}</p>
-                    </div>
-                    <div className="sm:col-span-2 p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                        <MapPin className="w-3.5 h-3.5" /> Home Address
-                      </label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 break-words">{profile.home_address || 'N/A'}</p>
-                    </div>
-                    <div className="sm:col-span-2 p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Residential Address</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 break-words">{profile.residential_address || 'N/A'}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Academic Information */}
-                {activeTab === 'academic' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Student ID</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 font-mono text-xs sm:text-sm break-all">{profile.student_id}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Admission Number</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 font-mono text-xs sm:text-sm break-all">{profile.admission_number}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Admission Date</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">
-                        {profile.admission_date ? dayjs(profile.admission_date).format('MMMM D, YYYY') : 'N/A'}
-                      </p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Admission Status</label>
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium mt-1 ${
-                        profile.admission_status === 'admitted' 
-                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' 
-                          : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                      }`}>
-                        <CheckCircle className="w-3 h-3" />
-                        {profile.admission_status}
-                      </span>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Current Status</label>
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium mt-1 ${
-                        profile.current_status === 'active' 
-                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' 
-                          : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400'
-                      }`}>
-                        {profile.current_status}
-                      </span>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Class</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.class?.name || 'N/A'} {profile.class_arm || ''}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Department</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.department || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">House</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.house_id || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Club</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.club_id || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Transfer Status</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 capitalize truncate">{profile.transfer_status || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Previous School</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.previous_school || 'N/A'}</p>
-                    </div>
-                    <div className="sm:col-span-2 p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Branch</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.branch?.name || 'N/A'}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Medical Information */}
-                {activeTab === 'medical' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Blood Group</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.blood_group || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Genotype</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.genotype || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Doctor's Name</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.doctor_name || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Hospital Name</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.hospital_name || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Allergies</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.allergies || 'None'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Medical Conditions</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.medical_conditions || 'None'}</p>
-                    </div>
-                    <div className="sm:col-span-2 p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Special Needs</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.special_needs || 'None'}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Guardian Information */}
-                {activeTab === 'guardian' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Father's Name</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.guardian_info?.father_name || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Mother's Name</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.guardian_info?.mother_name || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Guardian's Occupation</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.guardian_info?.occupation || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Emergency Contact</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.emergency_contact?.name || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Emergency Phone</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.emergency_contact?.phone || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Relationship</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.emergency_contact?.relationship || 'N/A'}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Documents */}
-                {activeTab === 'documents' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {profile.documents && profile.documents.length > 0 ? (
-                      profile.documents.map((doc: string, index: number) => (
-                        <div key={index} className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl flex items-center gap-3">
-                          <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex-shrink-0">
-                            <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-medium text-gray-900 dark:text-white truncate">{doc}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">Document</p>
-                          </div>
-                          <button className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all flex-shrink-0">
-                            <Download className="w-4 h-4 text-gray-400" />
-                          </button>
+                {/* Overview Tab */}
+                {activeTab === 'overview' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+                    <div>
+                      <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4 flex items-center gap-2">
+                        <User className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+                        Personal Information
+                      </h3>
+                      <dl className="space-y-2 sm:space-y-3">
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 border-b border-gray-100 dark:border-gray-700 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Full Name</dt>
+                          <dd className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white truncate">
+                            {profile.first_name} {profile.middle_name || ''} {profile.last_name}
+                          </dd>
                         </div>
-                      ))
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 border-b border-gray-100 dark:border-gray-700 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Gender</dt>
+                          <dd className="text-xs sm:text-sm font-medium">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getGenderBadge(profile.gender)}`}>
+                              {profile.gender}
+                            </span>
+                          </dd>
+                        </div>
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 border-b border-gray-100 dark:border-gray-700 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Date of Birth</dt>
+                          <dd className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
+                            {formatDate(profile.date_of_birth)}
+                          </dd>
+                        </div>
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 border-b border-gray-100 dark:border-gray-700 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Nationality</dt>
+                          <dd className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white">{profile.nationality || 'N/A'}</dd>
+                        </div>
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 border-b border-gray-100 dark:border-gray-700 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Blood Group</dt>
+                          <dd className="text-xs sm:text-sm font-medium">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getBloodGroupBadge(profile.blood_group || '')}`}>
+                              {profile.blood_group || 'N/A'}
+                            </span>
+                          </dd>
+                        </div>
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Genotype</dt>
+                          <dd className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white">{profile.genotype || 'N/A'}</dd>
+                        </div>
+                      </dl>
+                    </div>
+
+                    <div>
+                      <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4 flex items-center gap-2">
+                        <MapPin className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
+                        Contact & Academic
+                      </h3>
+                      <dl className="space-y-2 sm:space-y-3">
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 border-b border-gray-100 dark:border-gray-700 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Email</dt>
+                          <dd className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white truncate max-w-[120px] xs:max-w-none">{profile.email || 'N/A'}</dd>
+                        </div>
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 border-b border-gray-100 dark:border-gray-700 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Phone</dt>
+                          <dd className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white">{profile.phone_number || 'N/A'}</dd>
+                        </div>
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 border-b border-gray-100 dark:border-gray-700 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Class</dt>
+                          <dd className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white">{profile.class_name}</dd>
+                        </div>
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 border-b border-gray-100 dark:border-gray-700 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Department</dt>
+                          <dd className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white capitalize">{profile.department || 'N/A'}</dd>
+                        </div>
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 border-b border-gray-100 dark:border-gray-700 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Admission Date</dt>
+                          <dd className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white">
+                            {formatDate(profile.admission_date)}
+                          </dd>
+                        </div>
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 border-b border-gray-100 dark:border-gray-700 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Status</dt>
+                          <dd className="text-xs sm:text-sm font-medium">
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(profile.current_status)}`}>
+                              {profile.current_status}
+                            </span>
+                          </dd>
+                        </div>
+                        <div className="flex flex-col xs:flex-row xs:justify-between py-1.5 sm:py-2 gap-1 xs:gap-0">
+                          <dt className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">House</dt>
+                          <dd className="text-xs sm:text-sm font-medium">
+                            {houseDetails ? (
+                              <span 
+                                className="px-2 py-0.5 rounded-full text-xs font-medium"
+                                style={{ 
+                                  backgroundColor: houseDetails.color ? `${houseDetails.color}20` : '#6B728020',
+                                  color: houseDetails.color || '#6B7280'
+                                }}
+                              >
+                                {houseDetails.name}
+                              </span>
+                            ) : profile.house_name ? (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                                {profile.house_name}
+                              </span>
+                            ) : 'N/A'}
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                )}
+
+                {/* Personal Tab - Mobile Responsive */}
+                {activeTab === 'personal' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
+                    <InfoField label="First Name" value={profile.first_name} icon={User} />
+                    <InfoField label="Last Name" value={profile.last_name} icon={User} />
+                    <InfoField label="Middle Name" value={profile.middle_name || 'N/A'} />
+                    <InfoField label="Other Names" value={profile.other_names || 'N/A'} />
+                    <InfoField label="Place of Birth" value={profile.place_of_birth || 'N/A'} />
+                    <InfoField label="LGA" value={profile.lga || 'N/A'} />
+                    <InfoField label="Religion" value={profile.religion || 'N/A'} />
+                    <InfoField label="Residential Address" value={profile.residential_address || 'Same as home'} />
+                    <InfoField label="Home Address" value={profile.home_address} icon={MapPin} fullWidth />
+                  </div>
+                )}
+
+                {/* Academic Tab - Mobile Responsive */}
+                {activeTab === 'academic' && (
+                  <div>
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4 flex items-center gap-2">
+                      <GraduationCap className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600" />
+                      Academic Details
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-6">
+                      <InfoCard 
+                        title="Class Information" 
+                        icon={<BookOpen className="w-4 h-4 text-blue-500" />}
+                        items={[
+                          { label: 'Class', value: profile.class_name },
+                          { label: 'Class Code', value: profile.class_code },
+                          { label: 'Level', value: profile.class_level, badge: getLevelBadge(profile.class_level || '') },
+                          { label: 'Class Arm', value: profile.class_arm || 'N/A' },
+                          { label: 'Department', value: profile.department || 'N/A' },
+                        ]}
+                      />
+                      <InfoCard 
+                        title="Status" 
+                        icon={<Shield className="w-4 h-4 text-green-500" />}
+                        items={[
+                          { label: 'Admission Status', value: profile.admission_status, badge: getStatusBadge(profile.admission_status) },
+                          { label: 'Current Status', value: profile.current_status, badge: getStatusBadge(profile.current_status) },
+                          { label: 'Previous School', value: profile.previous_school || 'N/A' },
+                          { label: 'Transfer Status', value: profile.transfer_status ? 'Yes' : 'No' },
+                        ]}
+                      />
+                      <InfoCard 
+                        title="Dates" 
+                        icon={<CalendarDays className="w-4 h-4 text-orange-500" />}
+                        items={[
+                          { label: 'Admission Date', value: formatDate(profile.admission_date) },
+                          { label: 'Date of Birth', value: formatDate(profile.date_of_birth) },
+                          { label: 'Created', value: formatDate(profile.created_at) },
+                          { label: 'Last Updated', value: formatDate(profile.updated_at) },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Guardian Tab - Mobile Responsive */}
+                {activeTab === 'guardian' && (
+                  <div>
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4 flex items-center gap-2">
+                      <Users className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+                      Guardian & Emergency Contact
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-6">
+                      <InfoCard 
+                        title="Father's Information" 
+                        icon={<UserRound className="w-4 h-4 text-blue-500" />}
+                        items={[
+                          { label: 'Name', value: getGuardianField('father_name') },
+                          { label: 'Phone', value: getGuardianField('father_phone') },
+                          { label: 'Occupation', value: getGuardianField('father_occupation') },
+                        ]}
+                      />
+                      <InfoCard 
+                        title="Mother's Information" 
+                        icon={<UserRound className="w-4 h-4 text-pink-500" />}
+                        items={[
+                          { label: 'Name', value: getGuardianField('mother_name') },
+                          { label: 'Phone', value: getGuardianField('mother_phone') },
+                          { label: 'Occupation', value: getGuardianField('mother_occupation') },
+                        ]}
+                      />
+                      <InfoCard 
+                        title="Guardian Information" 
+                        icon={<UserCheck className="w-4 h-4 text-green-500" />}
+                        items={[
+                          { label: 'Name', value: getGuardianField('guardian_name') },
+                          { label: 'Phone', value: getGuardianField('guardian_phone') },
+                          { label: 'Relationship', value: getGuardianField('guardian_relationship') },
+                        ]}
+                      />
+                      <InfoCard 
+                        title="Emergency Contact" 
+                        icon={<AlertCircle className="w-4 h-4 text-red-500" />}
+                        items={[
+                          { label: 'Name', value: getEmergencyField('name') },
+                          { label: 'Phone', value: getEmergencyField('phone') },
+                          { label: 'Relationship', value: getEmergencyField('relationship') },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Medical Tab - Mobile Responsive */}
+                {activeTab === 'medical' && (
+                  <div>
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4 flex items-center gap-2">
+                      <Heart className="w-4 h-4 sm:w-5 sm:h-5 text-red-500" />
+                      Medical Information
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-6">
+                      <InfoCard 
+                        title="Primary Medical Details" 
+                        icon={<Stethoscope className="w-4 h-4 text-blue-500" />}
+                        items={[
+                          { label: 'Doctor', value: profile.doctor_name || 'N/A' },
+                          { label: 'Hospital', value: profile.hospital_name || 'N/A' },
+                          { label: 'Blood Group', value: profile.blood_group || 'N/A', badge: getBloodGroupBadge(profile.blood_group || '') },
+                          { label: 'Genotype', value: profile.genotype || 'N/A' },
+                          { label: 'Allergies', value: profile.allergies || 'None' },
+                        ]}
+                      />
+                      <InfoCard 
+                        title="Health Notes" 
+                        icon={<AlertTriangle className="w-4 h-4 text-yellow-500" />}
+                        items={[
+                          { label: 'Medical Conditions', value: profile.medical_conditions || 'None' },
+                          { label: 'Special Needs', value: profile.special_needs || 'None' },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Transport Tab - Mobile Responsive */}
+                {activeTab === 'transport' && (
+                  <div>
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white mb-3 sm:mb-4 flex items-center gap-2">
+                      <Bus className="w-4 h-4 sm:w-5 sm:h-5 text-orange-600" />
+                      Transportation Details
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-6">
+                      <InfoCard 
+                        title="Transport Information" 
+                        icon={<BusFront className="w-4 h-4 text-blue-500" />}
+                        items={[
+                          { label: 'Transportation', value: profile.transportation_status ? 'Yes ✅' : 'No ❌' },
+                          ...(profile.transportation_status ? [
+                            { label: 'Pickup Location', value: profile.pickup_location || 'N/A' },
+                            { label: 'Bus Route', value: profile.bus_route_name || 'N/A' },
+                          ] : []),
+                        ]}
+                      />
+                      <InfoCard 
+                        title="House & Club" 
+                        icon={<Home className="w-4 h-4 text-green-500" />}
+                        items={[
+                          { label: 'House', value: houseDetails ? houseDetails.name : profile.house_name || 'N/A' },
+                          { label: 'Club', value: profile.club_name || 'N/A' },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Documents Tab - Mobile Responsive */}
+                {activeTab === 'documents' && (
+                  <div>
+                    <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 sm:gap-4 mb-3 sm:mb-4">
+                      <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                        <FileText className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+                        My Documents
+                      </h3>
+                      <button 
+                        onClick={() => setShowUploadModal(true)}
+                        className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium hover:opacity-90 transition-all w-full xs:w-auto"
+                      >
+                        <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                        Upload Document
+                      </button>
+                    </div>
+
+                    {documents.length === 0 ? (
+                      <div className="text-center py-8 sm:py-12">
+                        <FolderOpen className="w-12 h-12 sm:w-16 sm:h-16 mx-auto text-gray-300 dark:text-gray-600 mb-3 sm:mb-4" />
+                        <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400">No documents uploaded</p>
+                        <p className="text-xs sm:text-sm text-gray-400 dark:text-gray-500 mt-1">
+                          Upload your NIN, Birth Certificate, Medical records, and other documents.
+                        </p>
+                      </div>
                     ) : (
-                      <div className="col-span-2 text-center py-8 text-gray-500 dark:text-gray-400">
-                        <FileText className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-                        <p>No documents uploaded</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                        {documents.map((doc) => (
+                          <DocumentCard key={doc.id} doc={doc} />
+                        ))}
                       </div>
                     )}
-                  </div>
-                )}
-
-                {/* Security */}
-                {activeTab === 'security' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">User ID</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 font-mono text-xs break-all">{profile.user_id || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Account Status</label>
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium mt-1 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                        <CheckCircle className="w-3 h-3" />
-                        Active
-                      </span>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">2FA Status</label>
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium mt-1 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                        <Shield className="w-3 h-3" />
-                        Enabled
-                      </span>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Registered Email</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.email}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Transport */}
-                {activeTab === 'transport' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Transportation Status</label>
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium mt-1 ${
-                        profile.transportation_status 
-                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' 
-                          : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400'
-                      }`}>
-                        {profile.transportation_status ? 'Enabled' : 'Disabled'}
-                      </span>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Pickup Location</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.pickup_location || 'N/A'}</p>
-                    </div>
-                    <div className="p-3 bg-white/50 dark:bg-gray-700/30 rounded-xl">
-                      <label className="text-xs text-gray-500 dark:text-gray-400">Bus Route</label>
-                      <p className="font-medium text-gray-900 dark:text-white mt-1 truncate">{profile.bus_route_id || 'N/A'}</p>
-                    </div>
                   </div>
                 )}
               </motion.div>
@@ -1134,11 +985,340 @@ const StudentProfile: React.FC = () => {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
-          className="mt-8 text-center text-xs text-gray-400 dark:text-gray-600"
+          className="mt-6 sm:mt-8 text-center text-[10px] sm:text-xs text-gray-400 dark:text-gray-600"
         >
           <p>© {dayjs().year()} Ebeniza International School. All rights reserved. ✨</p>
+          <p className="mt-0.5 sm:mt-1 text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500">
+            Last updated: {profile.updated_at ? dayjs(profile.updated_at).format('MMM D, YYYY h:mm A') : 'N/A'}
+          </p>
         </motion.div>
       </div>
+
+      {/* Upload Document Modal - Mobile Responsive */}
+      <AnimatePresence>
+        {showUploadModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowUploadModal(false);
+                setSelectedFile(null);
+                setDocumentType('');
+                setDocumentDescription('');
+              }
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+            >
+              <div className="p-4 sm:p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                    <CloudUpload className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600" />
+                    Upload Document
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setShowUploadModal(false);
+                      setSelectedFile(null);
+                      setDocumentType('');
+                      setDocumentDescription('');
+                    }}
+                    className="p-1.5 sm:p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+                  >
+                    <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 sm:space-y-4">
+                  {/* Document Type */}
+                  <div>
+                    <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Document Type *
+                    </label>
+                    <select
+                      value={documentType}
+                      onChange={(e) => setDocumentType(e.target.value)}
+                      className="w-full px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm dark:text-white"
+                    >
+                      <option value="">Select Document Type</option>
+                      <option value="birth_certificate">Birth Certificate</option>
+                      <option value="nin">National Identification Number (NIN)</option>
+                      <option value="medical_cert">Medical Certificate</option>
+                      <option value="passport">Passport Photo</option>
+                      <option value="transcript">Transcript</option>
+                      <option value="transfer_letter">Transfer Letter</option>
+                      <option value="report_card">Report Card</option>
+                      <option value="other">Other Document</option>
+                    </select>
+                  </div>
+
+                  {/* File Upload */}
+                  <div>
+                    <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Select File *
+                    </label>
+                    <div 
+                      className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg sm:rounded-xl p-6 sm:p-8 text-center hover:border-blue-500 transition-all cursor-pointer"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      {selectedFile ? (
+                        <div className="flex items-center justify-center gap-2 sm:gap-3">
+                          <FileCheck className="w-6 h-6 sm:w-8 sm:h-8 text-green-500" />
+                          <div className="text-left min-w-0">
+                            <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white truncate">{selectedFile.name}</p>
+                            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">
+                              {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                            </p>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedFile(null);
+                            }}
+                            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                          >
+                            <X className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-500" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <Upload className="w-8 h-8 sm:w-10 sm:h-10 mx-auto text-gray-400 mb-1.5 sm:mb-2" />
+                          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Click to upload or drag and drop</p>
+                          <p className="text-[10px] sm:text-xs text-gray-400 dark:text-gray-500">PDF, JPG, PNG (Max 10MB)</p>
+                        </div>
+                      )}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        className="hidden"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={handleFileUpload}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  <div>
+                    <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Description (Optional)
+                    </label>
+                    <textarea
+                      value={documentDescription}
+                      onChange={(e) => setDocumentDescription(e.target.value)}
+                      rows={2}
+                      className="w-full px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm dark:text-white"
+                      placeholder="Add a description for this document..."
+                    />
+                  </div>
+
+                  {/* Upload Progress */}
+                  {uploading && (
+                    <div className="space-y-1.5 sm:space-y-2">
+                      <div className="flex items-center justify-between text-xs sm:text-sm">
+                        <span className="text-gray-600 dark:text-gray-400">Uploading...</span>
+                        <span className="text-gray-600 dark:text-gray-400">{uploadProgress}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 sm:h-2 overflow-hidden">
+                        <motion.div
+                          className="h-full bg-gradient-to-r from-blue-600 to-purple-600 rounded-full"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${uploadProgress}%` }}
+                          transition={{ duration: 0.3 }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Info Notice */}
+                  <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-2.5 sm:p-3">
+                    <p className="text-[10px] sm:text-xs text-yellow-700 dark:text-yellow-300 flex items-start gap-1">
+                      <Info className="w-3 h-3 sm:w-3.5 sm:h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>Your document will be reviewed by the administration. You'll be notified once approved or rejected.</span>
+                    </p>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex flex-col xs:flex-row gap-2 sm:gap-3 pt-3 sm:pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button
+                      onClick={() => {
+                        setShowUploadModal(false);
+                        setSelectedFile(null);
+                        setDocumentType('');
+                        setDocumentDescription('');
+                      }}
+                      className="flex-1 px-4 py-2 sm:py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg sm:rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all text-sm"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={uploadDocument}
+                      disabled={!selectedFile || !documentType || uploading}
+                      className="flex-1 px-4 py-2 sm:py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg sm:rounded-xl font-medium hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+                    >
+                      {uploading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                          Upload
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+// ============================================
+// Helper Components
+// ============================================
+
+const InfoField: React.FC<{ label: string; value: string; icon?: any; fullWidth?: boolean }> = ({ label, value, icon: Icon, fullWidth }) => {
+  return (
+    <div className={`p-2.5 sm:p-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg sm:rounded-xl ${fullWidth ? 'sm:col-span-2' : ''}`}>
+      <label className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+        {Icon && <Icon className="w-3 h-3 sm:w-3.5 sm:h-3.5" />}
+        {label}
+      </label>
+      <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white mt-0.5 break-words">{value}</p>
+    </div>
+  );
+};
+
+const InfoCard: React.FC<{ title: string; icon: React.ReactNode; items: Array<{ label: string; value: string; badge?: string }> }> = ({ title, icon, items }) => {
+  return (
+    <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg sm:rounded-xl p-3 sm:p-4">
+      <h4 className="font-medium text-gray-900 dark:text-white mb-2 flex items-center gap-2 text-sm sm:text-base">
+        {icon}
+        {title}
+      </h4>
+      <dl className="space-y-1.5 sm:space-y-2">
+        {items.map((item, idx) => (
+          <div key={idx} className="flex flex-col xs:flex-row xs:justify-between gap-0.5 xs:gap-0">
+            <dt className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">{item.label}</dt>
+            <dd className="text-[10px] sm:text-xs font-medium text-gray-900 dark:text-white">
+              {item.badge ? (
+                <span className={`px-1.5 sm:px-2 py-0.5 rounded-full text-[8px] sm:text-xs font-medium ${item.badge}`}>
+                  {item.value}
+                </span>
+              ) : item.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+};
+
+const DocumentCard: React.FC<{ doc: Document }> = ({ doc }) => {
+  const getDocumentTypeIcon = (type: string) => {
+    const icons: Record<string, any> = {
+      'birth_certificate': FileCheck,
+      'nin': Shield,
+      'medical_cert': Stethoscope,
+      'passport': User,
+      'transcript': BookOpen,
+      'transfer_letter': FileText,
+      'report_card': FileCheck,
+      'other': FileText,
+    };
+    const Icon = icons[type] || FileText;
+    return <Icon className="w-4 h-4 sm:w-5 sm:h-5" />;
+  };
+
+  const getDocumentTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      'birth_certificate': 'Birth Certificate',
+      'nin': 'NIN',
+      'medical_cert': 'Medical Certificate',
+      'passport': 'Passport',
+      'transcript': 'Transcript',
+      'transfer_letter': 'Transfer Letter',
+      'report_card': 'Report Card',
+      'other': 'Other Document',
+    };
+    return labels[type] || type;
+  };
+
+  const getDocumentStatusBadge = (status: string) => {
+    const styles: Record<string, string> = {
+      approved: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+      pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+      rejected: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    };
+    return styles[status] || styles.pending;
+  };
+
+  return (
+    <div className={`bg-gray-50 dark:bg-gray-700/30 rounded-lg sm:rounded-xl p-3 sm:p-4 border hover:shadow-md transition-all ${
+      doc.status === 'pending' ? 'border-yellow-200 dark:border-yellow-800' :
+      doc.status === 'approved' ? 'border-green-200 dark:border-green-800' :
+      'border-red-200 dark:border-red-800'
+    }`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start gap-2 sm:gap-3 min-w-0">
+          <div className={`p-1.5 sm:p-2 rounded-lg flex-shrink-0 ${
+            doc.status === 'approved' ? 'bg-green-100 dark:bg-green-900/30' :
+            doc.status === 'rejected' ? 'bg-red-100 dark:bg-red-900/30' :
+            'bg-yellow-100 dark:bg-yellow-900/30'
+          }`}>
+            {getDocumentTypeIcon(doc.document_type)}
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-white truncate max-w-[100px] sm:max-w-[150px]">
+              {doc.file_name}
+            </p>
+            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 capitalize">
+              {getDocumentTypeLabel(doc.document_type)}
+            </p>
+            <p className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500">
+              {(doc.file_size / 1024 / 1024).toFixed(2)} MB • {dayjs(doc.uploaded_at).format('MMM D')}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          <span className={`px-1.5 sm:px-2 py-0.5 rounded-full text-[8px] sm:text-[10px] font-medium ${getDocumentStatusBadge(doc.status)}`}>
+            {doc.status === 'pending' ? '⏳' : doc.status === 'approved' ? '✅' : '❌'}
+          </span>
+          <div className="flex items-center gap-0.5 sm:gap-1">
+            <a
+              href={doc.file_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-0.5 sm:p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-all"
+              title="View"
+            >
+              <Eye className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-500" />
+            </a>
+            <a
+              href={doc.file_url}
+              download={doc.file_name}
+              className="p-0.5 sm:p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-all"
+              title="Download"
+            >
+              <Download className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-green-500" />
+            </a>
+          </div>
+        </div>
+      </div>
+      {doc.metadata?.description && (
+        <p className="text-[8px] sm:text-[10px] text-gray-500 dark:text-gray-400 mt-1 truncate">
+          {doc.metadata.description}
+        </p>
+      )}
     </div>
   );
 };

@@ -4,7 +4,6 @@ import { motion } from 'framer-motion';
 import { 
   Coins, 
   Search, 
-  Filter, 
   Plus, 
   Download, 
   Eye, 
@@ -13,17 +12,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
-  DollarSign,
-  Calendar,
-  Building,
-  Tag,
   Clock,
   CheckCircle,
   XCircle,
   AlertCircle,
   RefreshCw,
   Archive,
-  FileText
+  BookOpen,
+  Calendar,
+  Users
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
@@ -54,9 +51,14 @@ interface Fee {
   metadata: any;
   class_name?: string;
   branch_name?: string;
+  term: string | null;
+  session: string | null;
+  academic_session_id: string | null;
+  total_payments?: number;
+  total_amount_paid?: number;
+  total_students_paid?: number;
 }
 
-// Category labels mapping
 const categoryLabels: Record<string, string> = {
   school_fees: 'School Fees',
   books: 'Books',
@@ -77,9 +79,12 @@ const categoryLabels: Record<string, string> = {
   custom: 'Custom',
 };
 
+const TERM_ORDER = ['First Term', 'Second Term', 'Third Term'];
+
 const FeesList: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+
   const [fees, setFees] = useState<Fee[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -87,17 +92,176 @@ const FeesList: React.FC = () => {
   const [totalCount, setTotalCount] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [sessionFilter, setSessionFilter] = useState<string>('all');
+  const [termFilter, setTermFilter] = useState<string>('all');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [sessionOptions, setSessionOptions] = useState<string[]>([]);
+  const [termOptions, setTermOptions] = useState<string[]>([]);
+  const [loadingFilters, setLoadingFilters] = useState(true);
 
   const pageSize = 10;
 
+  // ==================== Wait for auth to load ====================
   useEffect(() => {
-    fetchFees();
-  }, [currentPage, searchTerm, statusFilter, categoryFilter]);
+    // If auth is still loading, do nothing - just wait
+    if (authLoading) {
+      console.log("⏳ Auth is still loading, waiting...");
+      return;
+    }
+
+    // If auth is done but no user, we can't proceed
+    if (!user) {
+      console.warn("⚠️ No user found after auth loading completed");
+      setLoadingFilters(false);
+      return;
+    }
+
+    // If user exists but no branch_id, something is wrong
+    if (!user.branch_id) {
+      console.warn("⚠️ User has no branch_id:", user);
+      setLoadingFilters(false);
+      return;
+    }
+
+    console.log("✅ Auth ready, fetching filters...");
+    fetchFilterOptions();
+
+  }, [user, authLoading]);
+
+  useEffect(() => {
+    // Only fetch fees if user is ready and auth is not loading
+    if (user?.branch_id && !authLoading) {
+      fetchFees();
+    }
+  }, [currentPage, searchTerm, statusFilter, categoryFilter, sessionFilter, termFilter, user, authLoading]);
+
+  const fetchFilterOptions = async () => {
+    // Guard: Ensure user is ready
+    if (!user) {
+      console.warn("❌ fetchFilterOptions: No user found");
+      setLoadingFilters(false);
+      return;
+    }
+
+    if (!user.branch_id) {
+      console.warn("❌ fetchFilterOptions: No branch_id found on user");
+      setLoadingFilters(false);
+      return;
+    }
+
+    console.log("📊 fetchFilterOptions: Loading filters for branch:", user.branch_id);
+    
+    setLoadingFilters(true);
+    try {
+      const { data, error } = await supabase
+        .from("fees")
+        .select("id, fee_id, session, term, branch_id")
+        .eq("branch_id", user.branch_id);
+
+      if (error) {
+        console.error("❌ Supabase error:", error);
+        throw error;
+      }
+
+      console.log(`📊 Found ${data?.length || 0} fees`);
+
+      // Extract unique sessions
+      const sessions = [
+        ...new Set(
+          (data || [])
+            .map(x => x.session)
+            .filter(Boolean)
+        )
+      ].sort().reverse();
+
+      // Extract unique terms
+      const allTerms = [
+        ...new Set(
+          (data || [])
+            .map(x => x.term)
+            .filter(Boolean)
+        )
+      ];
+
+      const orderedTerms = TERM_ORDER.filter(term => allTerms.includes(term));
+
+      console.log("📊 Sessions:", sessions);
+      console.log("📊 Terms:", orderedTerms);
+
+      setSessionOptions(sessions);
+      setTermOptions(orderedTerms);
+
+      // Set default filters
+      if (sessions.length > 0) {
+        setSessionFilter(sessions[0]);
+      } else {
+        setSessionFilter('all');
+      }
+
+      if (orderedTerms.length > 0) {
+        setTermFilter(orderedTerms[0]);
+      } else {
+        setTermFilter('all');
+      }
+
+    } catch (error) {
+      console.error("❌ Error in fetchFilterOptions:", error);
+      toast.error('Failed to load filter options');
+    } finally {
+      setLoadingFilters(false);
+    }
+  };
+
+  const fetchTermsForSession = async (session: string) => {
+    // Guard: Ensure user is ready
+    if (!user?.branch_id) {
+      console.warn("❌ fetchTermsForSession: No branch_id found");
+      return;
+    }
+
+    try {
+      let query = supabase
+        .from('fees')
+        .select('term')
+        .eq('branch_id', user.branch_id)
+        .not('term', 'is', null)
+        .not('term', 'eq', '');
+
+      if (session !== 'all') {
+        query = query.eq('session', session);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      const allTerms = [
+        ...new Set(
+          (data || [])
+            .map(item => item.term)
+            .filter(Boolean)
+        )
+      ];
+
+      const orderedTerms = TERM_ORDER.filter(term => allTerms.includes(term));
+      setTermOptions(orderedTerms);
+      setTermFilter('all');
+
+    } catch (error) {
+      console.error("❌ Error fetching terms:", error);
+    }
+  };
 
   const fetchFees = async () => {
+    // Guard: Ensure user is ready
+    if (!user?.branch_id) {
+      console.warn("❌ fetchFees: No branch_id found");
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       let query = supabase
@@ -112,9 +276,7 @@ const FeesList: React.FC = () => {
           )
         `, { count: 'exact' });
 
-      if (user?.branch_id) {
-        query = query.eq('branch_id', user.branch_id);
-      }
+      query = query.eq('branch_id', user.branch_id);
 
       if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter);
@@ -122,6 +284,14 @@ const FeesList: React.FC = () => {
 
       if (categoryFilter !== 'all') {
         query = query.eq('category', categoryFilter);
+      }
+
+      if (sessionFilter !== 'all') {
+        query = query.eq('session', sessionFilter);
+      }
+
+      if (termFilter !== 'all') {
+        query = query.eq('term', termFilter);
       }
 
       if (searchTerm) {
@@ -140,14 +310,41 @@ const FeesList: React.FC = () => {
 
       if (error) throw error;
 
-      const formattedFees = data?.map((item: any) => ({
-        ...item,
-        class_name: item.classes?.name || 'All Classes',
-        branch_name: item.branches?.school_name || 'N/A',
-      })) || [];
+      const feesWithStats = await Promise.all(
+        (data || []).map(async (fee: any) => {
+          const { data: paymentData, error: paymentError } = await supabase
+            .from('payments')
+            .select('amount_paid, status, student_id')
+            .eq('fee_id', fee.id)
+            .eq('status', 'completed');
 
-      setFees(formattedFees);
+          if (paymentError) {
+            return {
+              ...fee,
+              class_name: fee.classes?.name || 'All Classes',
+              branch_name: fee.branches?.school_name || 'N/A',
+              total_payments: 0,
+              total_amount_paid: 0,
+              total_students_paid: 0,
+            };
+          }
+
+          const uniqueStudents = new Set(paymentData?.map(p => p.student_id) || []);
+          
+          return {
+            ...fee,
+            class_name: fee.classes?.name || 'All Classes',
+            branch_name: fee.branches?.school_name || 'N/A',
+            total_payments: paymentData?.length || 0,
+            total_amount_paid: paymentData?.reduce((sum, p) => sum + (p.amount_paid || 0), 0) || 0,
+            total_students_paid: uniqueStudents.size,
+          };
+        })
+      );
+
+      setFees(feesWithStats);
       setTotalCount(count || 0);
+      
     } catch (error: any) {
       console.error('Error fetching fees:', error);
       toast.error(error.message || 'Failed to fetch fees');
@@ -172,6 +369,7 @@ const FeesList: React.FC = () => {
       setShowDeleteModal(false);
       setSelectedFee(null);
       fetchFees();
+      fetchFilterOptions();
     } catch (error: any) {
       console.error('Error deleting fee:', error);
       toast.error(error.message || 'Failed to delete fee');
@@ -261,14 +459,87 @@ const FeesList: React.FC = () => {
     label: categoryLabels[key],
   }));
 
+  const handleSessionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    setSessionFilter(value);
+    setCurrentPage(1);
+    
+    if (value !== 'all') {
+      fetchTermsForSession(value);
+    } else {
+      fetchTermsForSession('all');
+    }
+  };
+
+  const handleResetFilters = () => {
+    setStatusFilter('all');
+    setCategoryFilter('all');
+    setSearchTerm('');
+    setCurrentPage(1);
+    
+    if (sessionOptions.length > 0) {
+      setSessionFilter(sessionOptions[0]);
+      fetchTermsForSession(sessionOptions[0]);
+    } else {
+      setSessionFilter('all');
+      setTermFilter('all');
+    }
+  };
+
+  const totalFees = fees.length;
+  const activeFees = fees.filter(f => f.status === 'active').length;
+  const inactiveFees = fees.filter(f => f.status === 'inactive').length;
+  const recurringFees = fees.filter(f => f.is_recurring).length;
+  const totalAmount = fees.reduce((sum, f) => sum + f.amount, 0);
+  const totalCollected = fees.reduce((sum, f) => sum + (f.total_amount_paid || 0), 0);
+
+  // ==================== SHOW LOADING WHILE AUTH IS INITIALIZING ====================
+  // Show loading while auth is initializing or filters are loading
+  // This prevents the "Not Authenticated" flash
+  if (authLoading || loadingFilters) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  // If auth is done but no user, show empty state (shouldn't happen with ProtectedRoute)
+  if (!user) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[200px] text-center">
+        <Loader2 className="w-12 h-12 text-gray-400 mb-3" />
+        <p className="text-gray-500 dark:text-gray-400 mt-1">Loading invoice data...</p>
+      </div>
+    );
+  }
+
+  // If user has no branch, show appropriate message
+  if (!user.branch_id) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
+        <AlertCircle className="w-12 h-12 text-amber-400 mb-3" />
+        <h3 className="text-lg font-medium text-gray-900 dark:text-white">No Branch Assigned</h3>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">Please contact your administrator</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5 }}
+      className="space-y-6"
+    >
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Fee Management</h1>
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            Fee Management
+          </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
-            Manage fee structures and categories
+            Manage fee structures and track collections
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -290,33 +561,38 @@ const FeesList: React.FC = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
           <p className="text-sm text-gray-500 dark:text-gray-400">Total Fees</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalCount}</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalFees}</p>
+          <p className="text-xs text-gray-400">{formatCurrency(totalAmount)}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
           <p className="text-sm text-gray-500 dark:text-gray-400">Active</p>
-          <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-            {fees.filter(f => f.status === 'active').length}
-          </p>
+          <p className="text-2xl font-bold text-green-600 dark:text-green-400">{activeFees}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
           <p className="text-sm text-gray-500 dark:text-gray-400">Inactive</p>
-          <p className="text-2xl font-bold text-gray-600 dark:text-gray-400">
-            {fees.filter(f => f.status === 'inactive').length}
-          </p>
+          <p className="text-2xl font-bold text-gray-600 dark:text-gray-400">{inactiveFees}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
           <p className="text-sm text-gray-500 dark:text-gray-400">Recurring</p>
-          <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-            {fees.filter(f => f.is_recurring).length}
+          <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{recurringFees}</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Collected</p>
+          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(totalCollected)}</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Collection Rate</p>
+          <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+            {totalAmount > 0 ? Math.round((totalCollected / totalAmount) * 100) : 0}%
           </p>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
+      <div className="flex flex-col lg:flex-row gap-4">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -330,7 +606,7 @@ const FeesList: React.FC = () => {
             className="w-full pl-10 pr-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
           />
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <select
             value={statusFilter}
             onChange={(e) => {
@@ -358,13 +634,37 @@ const FeesList: React.FC = () => {
               </option>
             ))}
           </select>
-          <button
-            onClick={() => {
-              setStatusFilter('all');
-              setCategoryFilter('all');
-              setSearchTerm('');
+          <select
+            value={sessionFilter}
+            onChange={handleSessionChange}
+            className="px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
+          >
+            <option value="all">All Sessions</option>
+            {sessionOptions.map((session) => (
+              <option key={session} value={session}>
+                {session}
+              </option>
+            ))}
+          </select>
+          <select
+            value={termFilter}
+            onChange={(e) => {
+              setTermFilter(e.target.value);
+              setCurrentPage(1);
             }}
+            className="px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
+          >
+            <option value="all">All Terms</option>
+            {termOptions.map((term) => (
+              <option key={term} value={term}>
+                {term}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={handleResetFilters}
             className="p-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+            title="Reset Filters"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -387,13 +687,19 @@ const FeesList: React.FC = () => {
                   Amount
                 </th>
                 <th className="hidden lg:table-cell px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Session
+                </th>
+                <th className="hidden xl:table-cell px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Term
+                </th>
+                <th className="hidden lg:table-cell px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Class
+                </th>
+                <th className="hidden xl:table-cell px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Payments
                 </th>
                 <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Status
-                </th>
-                <th className="hidden lg:table-cell px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Due Date
                 </th>
                 <th className="px-4 sm:px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Actions
@@ -403,13 +709,13 @@ const FeesList: React.FC = () => {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center">
+                  <td colSpan={9} className="px-6 py-12 text-center">
                     <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-600" />
                   </td>
                 </tr>
               ) : fees.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                     <Coins className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
                     <p className="text-lg font-medium">No fees found</p>
                     <p className="text-sm mt-1">Create your first fee structure</p>
@@ -450,10 +756,29 @@ const FeesList: React.FC = () => {
                         {fee.late_fee_amount > 0 && (
                           <p className="text-xs text-red-500">Late: {formatCurrency(fee.late_fee_amount)}</p>
                         )}
+                        {fee.total_amount_paid > 0 && (
+                          <p className="text-xs text-green-500">Collected: {formatCurrency(fee.total_amount_paid)}</p>
+                        )}
                       </div>
                     </td>
                     <td className="hidden lg:table-cell px-4 sm:px-6 py-4">
+                      <p className="text-sm text-gray-600 dark:text-gray-300">{fee.session || 'N/A'}</p>
+                    </td>
+                    <td className="hidden xl:table-cell px-4 sm:px-6 py-4">
+                      <p className="text-sm text-gray-600 dark:text-gray-300">{fee.term || 'N/A'}</p>
+                    </td>
+                    <td className="hidden lg:table-cell px-4 sm:px-6 py-4">
                       <p className="text-sm text-gray-600 dark:text-gray-300">{fee.class_name}</p>
+                    </td>
+                    <td className="hidden xl:table-cell px-4 sm:px-6 py-4">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          {fee.total_payments || 0}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {fee.total_students_paid || 0} students
+                        </p>
+                      </div>
                     </td>
                     <td className="px-4 sm:px-6 py-4">
                       <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(fee.status)}`}>
@@ -466,11 +791,6 @@ const FeesList: React.FC = () => {
                         )}
                         {fee.status.charAt(0).toUpperCase() + fee.status.slice(1)}
                       </span>
-                    </td>
-                    <td className="hidden lg:table-cell px-4 sm:px-6 py-4">
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {fee.due_date ? dayjs(fee.due_date).format('MMM D, YYYY') : 'N/A'}
-                      </p>
                     </td>
                     <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -551,7 +871,12 @@ const FeesList: React.FC = () => {
       {/* Delete Confirmation Modal */}
       {showDeleteModal && selectedFee && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-6">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.9, opacity: 0 }}
+            className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-6"
+          >
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Delete Fee</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               Are you sure you want to delete <span className="font-semibold text-gray-900 dark:text-white">{selectedFee.name}</span>? This action cannot be undone.
@@ -569,6 +894,24 @@ const FeesList: React.FC = () => {
                 <span className="text-gray-500 dark:text-gray-400">Category:</span>
                 <span className="font-medium text-gray-900 dark:text-white">{categoryLabels[selectedFee.category] || selectedFee.category}</span>
               </div>
+              {selectedFee.session && (
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-gray-500 dark:text-gray-400">Session:</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{selectedFee.session}</span>
+                </div>
+              )}
+              {selectedFee.term && (
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-gray-500 dark:text-gray-400">Term:</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{selectedFee.term}</span>
+                </div>
+              )}
+              {(selectedFee.total_payments || 0) > 0 && (
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-gray-500 dark:text-gray-400">Payments:</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{selectedFee.total_payments} payments</span>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -592,10 +935,10 @@ const FeesList: React.FC = () => {
                 )}
               </button>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 };
 

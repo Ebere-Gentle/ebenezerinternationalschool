@@ -1,3 +1,189 @@
+/* src/index.css or src/App.css */
+
+/* ============================================
+   RECEIPT PRINT STYLES
+   ============================================ */
+
+@media print {
+  /* Hide everything except the receipt */
+  body * {
+    visibility: hidden;
+  }
+  
+  /* Show only the print version */
+  .print\\:block {
+    display: block !important;
+  }
+  
+  .print\\:block * {
+    visibility: visible !important;
+  }
+  
+  /* Reset body for printing */
+  body {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 12px !important;
+  }
+
+  /* Ensure the receipt content is visible */
+  .print\\:bg-white {
+    background-color: #ffffff !important;
+  }
+
+  .print\\:p-8 {
+    padding: 40px !important;
+  }
+
+  /* Page break controls */
+  .print\\:break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Table styling for print */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 10px !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tbody {
+    display: table-row-group !important;
+  }
+
+  tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  td, th {
+    padding: 4px 6px !important;
+    border: 1px solid #e5e7eb !important;
+  }
+
+  /* Ensure text is readable */
+  .text-gray-900 {
+    color: #111827 !important;
+  }
+
+  .text-gray-500 {
+    color: #6B7280 !important;
+  }
+
+  .text-gray-400 {
+    color: #9CA3AF !important;
+  }
+
+  .text-gray-600 {
+    color: #4B5563 !important;
+  }
+
+  .text-green-600 {
+    color: #059669 !important;
+  }
+
+  .text-red-600 {
+    color: #DC2626 !important;
+  }
+
+  /* Background colors for print */
+  .bg-gray-50 {
+    background-color: #F9FAFB !important;
+  }
+
+  .bg-green-50 {
+    background-color: #F0FDF4 !important;
+  }
+
+  .bg-red-50 {
+    background-color: #FEF2F2 !important;
+  }
+
+  .bg-white {
+    background-color: #ffffff !important;
+  }
+
+  .bg-gray-100 {
+    background-color: #F3F4F6 !important;
+  }
+
+  /* Borders */
+  .border {
+    border: 1px solid #E5E7EB !important;
+  }
+
+  .border-t-2 {
+    border-top: 2px solid #E5E7EB !important;
+  }
+
+  .border-b-2 {
+    border-bottom: 2px solid #E5E7EB !important;
+  }
+
+  .border-gray-200 {
+    border-color: #E5E7EB !important;
+  }
+
+  .border-gray-300 {
+    border-color: #D1D5DB !important;
+  }
+
+  /* Ensure images print */
+  img {
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
+  /* Ensure icons print */
+  svg {
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
+  /* Print margins */
+  @page {
+    margin: 10mm 8mm !important;
+    size: A4 portrait !important;
+  }
+
+  /* Hide print buttons */
+  .print\\:hidden {
+    display: none !important;
+  }
+
+  /* Ensure badge colors print properly */
+  .bg-green-100 {
+    background-color: #D1FAE5 !important;
+  }
+
+  .bg-yellow-100 {
+    background-color: #FEF3C7 !important;
+  }
+
+  .bg-red-100 {
+    background-color: #FEE2E2 !important;
+  }
+
+  .text-green-700 {
+    color: #065F46 !important;
+  }
+
+  .text-yellow-700 {
+    color: #92400E !important;
+  }
+
+  .text-red-700 {
+    color: #991B1B !important;
+  }
+}
+
+
 .counter {
   font-size: 16px;
   padding: 5px 10px;

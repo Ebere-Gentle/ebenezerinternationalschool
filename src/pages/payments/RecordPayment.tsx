@@ -25,7 +25,10 @@ import {
   Upload,
   Image,
   File,
-  Eye
+  Eye,
+  AlertTriangle,
+  Calendar,
+  Clock
 } from 'lucide-react';
 
 // Types
@@ -37,12 +40,26 @@ interface Student {
   class_name?: string;
 }
 
-interface Fee {
+interface FeeAssignment {
   id: string;
-  name: string;
-  amount: number;
-  category: string;
-  description: string;
+  fee_id: string;
+  fee_name: string;
+  fee_category: string;
+  fee_description: string;
+  original_amount: number;
+  discount_amount: number;
+  amount_due: number;
+  amount_paid: number;
+  balance: number;
+  payment_status: string;
+  due_date: string;
+  is_active: boolean;
+  session_id?: string;
+  term_id?: string;
+  session_name?: string;
+  term_name?: string;
+  academic_session?: string;
+  academic_term?: string;
 }
 
 interface UploadedFile {
@@ -55,39 +72,48 @@ interface UploadedFile {
   name: string;
   size: number;
   type: string;
+  storage_path?: string;
 }
 
 // Zod Schema
 const paymentSchema = z.object({
   student_id: z.string().min(1, 'Please select a student'),
-  fee_id: z.string().min(1, 'Please select a fee'),
+  assignment_id: z.string().min(1, 'Please select a fee to pay'),
   amount_paid: z.number().min(1, 'Amount must be greater than 0'),
   payment_method: z.string().min(1, 'Please select a payment method'),
   payment_date: z.string().min(1, 'Payment date is required'),
-  due_date: z.string().optional(),
   transaction_reference: z.string().optional(),
   notes: z.string().optional(),
 });
 
 type PaymentFormData = z.infer<typeof paymentSchema>;
 
-const RecordPayment: React.FC = () => {
+interface RecordPaymentProps {
+  onSuccess?: () => void;
+  onCancel?: () => void;
+  redirectTo?: string;
+}
+
+const RecordPayment: React.FC<RecordPaymentProps> = ({ 
+  onSuccess, 
+  onCancel,
+  redirectTo = '/payments'
+}) => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [students, setStudents] = useState<Student[]>([]);
-  const [fees, setFees] = useState<Fee[]>([]);
+  const [assignments, setAssignments] = useState<FeeAssignment[]>([]);
   const [searchStudent, setSearchStudent] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [showStudentDropdown, setShowStudentDropdown] = useState(false);
-  const [selectedFee, setSelectedFee] = useState<Fee | null>(null);
+  const [selectedAssignment, setSelectedAssignment] = useState<FeeAssignment | null>(null);
   const [studentLoading, setStudentLoading] = useState(false);
-  const [feesLoading, setFeesLoading] = useState(false);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false);
   const [branchId, setBranchId] = useState<string>('');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -101,13 +127,12 @@ const RecordPayment: React.FC = () => {
     resolver: zodResolver(paymentSchema),
     defaultValues: {
       payment_date: dayjs().format('YYYY-MM-DD'),
-      due_date: dayjs().add(30, 'days').format('YYYY-MM-DD'),
       payment_method: 'cash',
     },
   });
 
   const watchedStudentId = watch('student_id');
-  const watchedFeeId = watch('fee_id');
+  const watchedAssignmentId = watch('assignment_id');
   const watchedAmount = watch('amount_paid');
 
   // Load user branch
@@ -123,7 +148,6 @@ const RecordPayment: React.FC = () => {
         if (!error && data) {
           setBranchId(data.branch_id);
           loadStudents(data.branch_id);
-          loadFees(data.branch_id);
         }
       }
     };
@@ -141,7 +165,7 @@ const RecordPayment: React.FC = () => {
           first_name,
           last_name,
           admission_number,
-          classes!fk_students_class (name)
+          classes:class_id (name)
         `)
         .eq('branch_id', branchId)
         .eq('current_status', 'active')
@@ -163,24 +187,81 @@ const RecordPayment: React.FC = () => {
     }
   };
 
-  // Load fees
-  const loadFees = async (branchId: string) => {
-    setFeesLoading(true);
+  // Load student's fee assignments - ONLY UNPAID OR PARTIALLY PAID
+  const loadStudentAssignments = async (studentId: string) => {
+    setAssignmentsLoading(true);
+    setAssignments([]);
+    setSelectedAssignment(null);
+    setValue('assignment_id', '');
+    
     try {
       const { data, error } = await supabase
-        .from('fees')
-        .select('id, name, amount, category, description')
-        .eq('branch_id', branchId)
-        .eq('status', 'active')
-        .order('name');
+        .from('student_fee_assignments')
+        .select(`
+          id,
+          fee_id,
+          original_amount,
+          discount_amount,
+          amount_due,
+          amount_paid,
+          balance,
+          payment_status,
+          due_date,
+          is_active,
+          term,
+          session,
+          academic_session_id,
+          fees!inner (
+            id,
+            name,
+            category,
+            description
+          )
+        `)
+        .eq('student_id', studentId)
+        .eq('is_active', true)
+        .neq('payment_status', 'paid')
+        .order('due_date', { ascending: true });
 
       if (error) throw error;
-      setFees(data || []);
+
+      const formattedAssignments = (data || []).map((item: any) => {
+        const sessionName = item.session || 'N/A';
+        const termName = item.term || 'N/A';
+        
+        return {
+          id: item.id,
+          fee_id: item.fee_id,
+          fee_name: item.fees?.name || 'Unknown Fee',
+          fee_category: item.fees?.category || 'N/A',
+          fee_description: item.fees?.description || '',
+          original_amount: item.original_amount,
+          discount_amount: item.discount_amount || 0,
+          amount_due: item.amount_due,
+          amount_paid: item.amount_paid || 0,
+          balance: item.balance,
+          payment_status: item.payment_status,
+          due_date: item.due_date,
+          is_active: item.is_active,
+          session_id: item.academic_session_id,
+          term_id: null,
+          session_name: sessionName,
+          term_name: termName,
+          academic_session: sessionName,
+          academic_term: termName,
+        };
+      });
+
+      setAssignments(formattedAssignments);
+      
+      if (formattedAssignments.length === 0) {
+        toast('No outstanding fee assignments found for this student. All fees are paid!');
+      }
     } catch (error: any) {
-      console.error('Error loading fees:', error);
-      toast.error(error.message || 'Failed to load fees');
+      console.error('Error loading assignments:', error);
+      toast.error(error.message || 'Failed to load fee assignments');
     } finally {
-      setFeesLoading(false);
+      setAssignmentsLoading(false);
     }
   };
 
@@ -190,13 +271,17 @@ const RecordPayment: React.FC = () => {
     setValue('student_id', student.id);
     setShowStudentDropdown(false);
     setSearchStudent(`${student.first_name} ${student.last_name} (${student.admission_number})`);
+    loadStudentAssignments(student.id);
   };
 
-  // Handle fee selection
-  const handleFeeSelect = (fee: Fee) => {
-    setSelectedFee(fee);
-    setValue('fee_id', fee.id);
-    setValue('amount_paid', fee.amount);
+  // Handle assignment selection
+  const handleAssignmentSelect = (assignmentId: string) => {
+    const assignment = assignments.find(a => a.id === assignmentId);
+    if (assignment) {
+      setSelectedAssignment(assignment);
+      setValue('assignment_id', assignmentId);
+      setValue('amount_paid', assignment.balance);
+    }
   };
 
   // Filter students based on search
@@ -210,17 +295,17 @@ const RecordPayment: React.FC = () => {
   const generateReceiptNumber = async () => {
     try {
       const year = dayjs().format('YYYY');
-      const { count, error } = await supabase
-        .from('payments')
-        .select('id', { count: 'exact', head: true })
-        .like('receipt_number', `REC-${year}%`);
+      const { data, error } = await supabase.rpc('generate_receipt_number', {
+        p_prefix: 'REC',
+        p_year: year
+      });
 
       if (error) throw error;
-      const sequence = (count || 0) + 1;
-      return `REC-${year}-${String(sequence).padStart(5, '0')}`;
+      return data;
     } catch (error) {
       console.error('Error generating receipt number:', error);
-      return `REC-${dayjs().format('YYYY')}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
+      const timestamp = Date.now().toString(36).toUpperCase();
+      return `REC-${dayjs().format('YYYY')}-${timestamp}`;
     }
   };
 
@@ -228,17 +313,17 @@ const RecordPayment: React.FC = () => {
   const generatePaymentId = async () => {
     try {
       const year = dayjs().format('YYYY');
-      const { count, error } = await supabase
-        .from('payments')
-        .select('id', { count: 'exact', head: true })
-        .like('payment_id', `PAY-${year}%`);
+      const { data, error } = await supabase.rpc('generate_payment_id', {
+        p_prefix: 'PAY',
+        p_year: year
+      });
 
       if (error) throw error;
-      const sequence = (count || 0) + 1;
-      return `PAY-${year}-${String(sequence).padStart(5, '0')}`;
+      return data;
     } catch (error) {
       console.error('Error generating payment ID:', error);
-      return `PAY-${dayjs().format('YYYY')}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
+      const timestamp = Date.now().toString(36).toUpperCase();
+      return `PAY-${dayjs().format('YYYY')}-${timestamp}`;
     }
   };
 
@@ -259,7 +344,6 @@ const RecordPayment: React.FC = () => {
 
     setUploadedFiles((prev) => [...prev, ...newFiles]);
 
-    // Upload files to Supabase Storage
     newFiles.forEach((fileData) => {
       uploadFileToStorage(fileData);
     });
@@ -267,40 +351,97 @@ const RecordPayment: React.FC = () => {
 
   const uploadFileToStorage = async (fileData: UploadedFile) => {
     try {
-      const filePath = `payments/${branchId}/${fileData.id}/${fileData.file.name}`;
+      // Check if user is authenticated
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log('Session user:', session?.user?.email);
+      console.log('Session user ID:', session?.user?.id);
       
+      if (!session) {
+        toast.error('You must be logged in to upload files');
+        setUploadedFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileData.id ? { ...f, status: 'error' } : f
+          )
+        );
+        return;
+      }
+
+      const timestamp = Date.now();
+      const sanitizedName = fileData.file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const filePath = `payments/${branchId}/${fileData.id}/${timestamp}_${sanitizedName}`;
+      
+      console.log('Uploading file to bucket:', 'payment-proofs');
+      console.log('File path:', filePath);
+      console.log('File size:', fileData.file.size);
+      console.log('File type:', fileData.file.type);
+
+      // DO NOT try to create the bucket - it already exists!
+      // Just upload directly to the bucket
       const { data, error } = await supabase.storage
-        .from('payment_proofs')
+        .from('payment-proofs')
         .upload(filePath, fileData.file, {
           cacheControl: '3600',
           upsert: false,
+          contentType: fileData.file.type,
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Upload error:', error);
+        console.error('Error code:', error.code);
+        console.error('Error message:', error.message);
+        
+        let errorMessage = 'Upload failed: ';
+        if (error.message?.includes('bucket not found')) {
+          errorMessage += 'Storage bucket "payment-proofs" not found.';
+        } else if (error.message?.includes('permission denied') || error.message?.includes('row-level security')) {
+          errorMessage += 'Permission denied. Please check storage policies.';
+        } else if (error.message?.includes('duplicate')) {
+          errorMessage += 'File already exists. Please try again with a different name.';
+        } else {
+          errorMessage += error.message;
+        }
+        
+        toast.error(errorMessage);
+        setUploadedFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileData.id ? { ...f, status: 'error' } : f
+          )
+        );
+        return;
+      }
+
+      console.log('Upload success:', data);
 
       // Get public URL
       const { data: urlData } = supabase.storage
-        .from('payment_proofs')
+        .from('payment-proofs')
         .getPublicUrl(filePath);
 
-      // Update file status
+      console.log('Public URL:', urlData.publicUrl);
+
       setUploadedFiles((prev) =>
         prev.map((f) =>
           f.id === fileData.id
-            ? { ...f, status: 'uploaded', url: urlData.publicUrl, progress: 100 }
+            ? { 
+                ...f, 
+                status: 'uploaded', 
+                url: urlData.publicUrl,
+                storage_path: filePath,
+                progress: 100 
+              }
             : f
         )
       );
 
       toast.success(`File uploaded: ${fileData.file.name}`);
     } catch (error: any) {
-      console.error('Error uploading file:', error);
+      console.error('Error in uploadFileToStorage:', error);
       setUploadedFiles((prev) =>
         prev.map((f) =>
           f.id === fileData.id ? { ...f, status: 'error' } : f
         )
       );
-      toast.error(`Failed to upload: ${fileData.file.name}`);
+      toast.error(`Failed to upload: ${fileData.file.name} - ${error.message}`);
     }
   };
 
@@ -321,6 +462,10 @@ const RecordPayment: React.FC = () => {
   };
 
   const removeFile = (fileId: string) => {
+    const file = uploadedFiles.find(f => f.id === fileId);
+    if (file?.preview) {
+      URL.revokeObjectURL(file.preview);
+    }
     setUploadedFiles((prev) => prev.filter((f) => f.id !== fileId));
   };
 
@@ -335,6 +480,17 @@ const RecordPayment: React.FC = () => {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
+  // Reset form function
+  const resetForm = () => {
+    reset();
+    setSelectedStudent(null);
+    setSelectedAssignment(null);
+    setSearchStudent('');
+    setAssignments([]);
+    uploadedFiles.forEach(f => URL.revokeObjectURL(f.preview));
+    setUploadedFiles([]);
+  };
+
   // Submit handler
   const onSubmit = async (data: PaymentFormData) => {
     if (!branchId) {
@@ -342,44 +498,65 @@ const RecordPayment: React.FC = () => {
       return;
     }
 
-    // Check if any files are still uploading
     const uploadingFiles = uploadedFiles.filter(f => f.status === 'uploading');
     if (uploadingFiles.length > 0) {
       toast.error('Please wait for files to finish uploading');
       return;
     }
 
+    if (selectedAssignment && data.amount_paid > selectedAssignment.balance) {
+      toast.error(`Amount cannot exceed remaining balance of ₦${selectedAssignment.balance.toLocaleString()}`);
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const receiptNumber = await generateReceiptNumber();
-      const paymentId = await generatePaymentId();
+      let receiptNumber = '';
+      let paymentId = '';
+      let retries = 3;
+      let success = false;
 
-      // Get the selected fee amount
-      const fee = fees.find(f => f.id === data.fee_id);
-      const feeAmount = fee?.amount || data.amount_paid;
+      while (retries > 0 && !success) {
+        try {
+          receiptNumber = await generateReceiptNumber();
+          paymentId = await generatePaymentId();
+          success = true;
+        } catch (error) {
+          retries--;
+          if (retries === 0) throw error;
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
 
-      // Calculate balance
-      const balance = feeAmount - data.amount_paid;
-
-      // Get uploaded file URLs
-      const fileUrls = uploadedFiles
+      const uploadedFilesData = uploadedFiles
         .filter(f => f.status === 'uploaded' && f.url)
-        .map(f => f.url);
+        .map(f => ({
+          name: f.name,
+          size: f.size,
+          type: f.type,
+          url: f.url,
+          storage_path: f.storage_path,
+        }));
+
+      const newBalance = (selectedAssignment?.balance || 0) - data.amount_paid;
+      const isFullyPaid = newBalance <= 0;
 
       const paymentData = {
         payment_id: paymentId,
         receipt_number: receiptNumber,
         student_id: data.student_id,
-        fee_id: data.fee_id,
-        amount: feeAmount,
+        fee_id: selectedAssignment?.fee_id || null,
+        assignment_id: data.assignment_id,
+        amount: selectedAssignment?.amount_due || data.amount_paid,
         amount_paid: data.amount_paid,
-        balance: balance,
+        balance: Math.max(newBalance, 0),
         payment_method: data.payment_method,
         payment_date: data.payment_date,
-        due_date: data.due_date || null,
-        status: balance === 0 ? 'completed' : 'pending',
+        due_date: selectedAssignment?.due_date || null,
+        status: isFullyPaid ? 'completed' : 'pending',
         transaction_reference: data.transaction_reference || null,
-        payment_proof_url: fileUrls.length > 0 ? fileUrls.join(',') : null,
+        payment_proof_url: uploadedFilesData.length > 0 ? uploadedFilesData.map(f => f.url).join(',') : null,
+        receipt_url: uploadedFilesData.length > 0 ? uploadedFilesData[0].url : null,
         branch_id: branchId,
         created_by: user?.id,
         created_at: new Date().toISOString(),
@@ -387,32 +564,65 @@ const RecordPayment: React.FC = () => {
         metadata: {
           notes: data.notes || null,
           created_by: user?.email || 'System',
-          files: uploadedFiles.map(f => ({
-            name: f.name,
-            size: f.size,
-            type: f.type,
-            url: f.url,
-          })),
+          files: uploadedFilesData,
+          session: selectedAssignment?.session_name || null,
+          term: selectedAssignment?.term_name || null,
+          session_id: selectedAssignment?.session_id || null,
+          term_id: selectedAssignment?.term_id || null,
         },
       };
 
-      const { error } = await supabase
-        .from('payments')
-        .insert([paymentData]);
+      console.log('Inserting payment data:', paymentData);
 
-      if (error) throw error;
+      const { data: insertedData, error } = await supabase
+        .from('payments')
+        .insert([paymentData])
+        .select();
+
+      if (error) {
+        console.error('Insert error:', error);
+        
+        if (error.code === '23505') {
+          const newReceipt = await generateReceiptNumber();
+          const newPaymentId = await generatePaymentId();
+          
+          paymentData.receipt_number = newReceipt;
+          paymentData.payment_id = newPaymentId;
+          
+          const { error: retryError } = await supabase
+            .from('payments')
+            .insert([paymentData]);
+            
+          if (retryError) throw retryError;
+        } else {
+          throw error;
+        }
+      }
+
+      const { error: updateError } = await supabase
+        .from('student_fee_assignments')
+        .update({
+          amount_paid: (selectedAssignment?.amount_paid || 0) + data.amount_paid,
+          balance: Math.max(newBalance, 0),
+          payment_status: isFullyPaid ? 'paid' : 'partial',
+        })
+        .eq('id', data.assignment_id);
+
+      if (updateError) {
+        console.error('Error updating assignment:', updateError);
+        toast.warning('Payment recorded but fee assignment update failed. Please check the balance manually.');
+      }
 
       toast.success(`Payment recorded successfully! Receipt: ${receiptNumber}`);
       
-      // Clean up file previews
       uploadedFiles.forEach(f => URL.revokeObjectURL(f.preview));
-      
-      reset();
-      setSelectedStudent(null);
-      setSelectedFee(null);
-      setSearchStudent('');
-      setUploadedFiles([]);
-      navigate('/payments');
+      resetForm();
+
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        navigate(redirectTo);
+      }
     } catch (error: any) {
       console.error('Error recording payment:', error);
       toast.error(error.message || 'Failed to record payment');
@@ -429,6 +639,19 @@ const RecordPayment: React.FC = () => {
     { value: 'wallet', label: 'Wallet', icon: Wallet },
   ];
 
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'paid':
+        return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
+      case 'partial':
+        return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
+      case 'unpaid':
+        return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+      default:
+        return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400';
+    }
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -439,28 +662,30 @@ const RecordPayment: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/payments')}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
+          {(onCancel || redirectTo !== '/payments') && (
+            <button
+              onClick={() => {
+                if (onCancel) {
+                  onCancel();
+                } else {
+                  navigate(redirectTo);
+                }
+              }}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Record Payment</h1>
             <p className="text-gray-500 dark:text-gray-400 mt-1">
-              Record a new payment from a student
+              Record a payment against a student's outstanding fee
             </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => {
-              reset();
-              setSelectedStudent(null);
-              setSelectedFee(null);
-              setSearchStudent('');
-              setUploadedFiles([]);
-            }}
+            onClick={resetForm}
             className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
           >
             <X className="w-4 h-4" />
@@ -490,6 +715,7 @@ const RecordPayment: React.FC = () => {
                       if (!e.target.value) {
                         setSelectedStudent(null);
                         setValue('student_id', '');
+                        setAssignments([]);
                       }
                     }}
                     onFocus={() => setShowStudentDropdown(true)}
@@ -507,6 +733,7 @@ const RecordPayment: React.FC = () => {
                         setSelectedStudent(null);
                         setSearchStudent('');
                         setValue('student_id', '');
+                        setAssignments([]);
                       }}
                       className="mr-2 p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
                     >
@@ -550,122 +777,195 @@ const RecordPayment: React.FC = () => {
               {errors.student_id && (
                 <p className="mt-1 text-sm text-red-500">{errors.student_id.message}</p>
               )}
-              {selectedStudent && (
-                <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
-                  <p className="text-sm text-gray-700 dark:text-gray-300">
-                    Selected: <span className="font-semibold">{selectedStudent.first_name} {selectedStudent.last_name}</span>
-                    <span className="ml-2 text-gray-500">({selectedStudent.admission_number})</span>
-                  </p>
-                </div>
-              )}
             </div>
 
-            {/* Fee Selection */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                Fee *
-              </label>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <select
-                    {...register('fee_id')}
-                    onChange={(e) => {
-                      const fee = fees.find(f => f.id === e.target.value);
-                      if (fee) handleFeeSelect(fee);
-                    }}
-                    className={`w-full px-4 py-2.5 rounded-xl border ${
-                      errors.fee_id ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'
-                    } bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white`}
-                    disabled={feesLoading}
-                  >
-                    <option value="">{feesLoading ? 'Loading fees...' : 'Select Fee'}</option>
-                    {fees.map((fee) => (
-                      <option key={fee.id} value={fee.id}>
-                        {fee.name} - ₦{fee.amount.toLocaleString()}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.fee_id && (
-                    <p className="mt-1 text-sm text-red-500">{errors.fee_id.message}</p>
-                  )}
-                  {fees.length === 0 && !feesLoading && (
-                    <p className="mt-1 text-sm text-yellow-600 dark:text-yellow-400">
-                      No active fees found. Please create a fee first.
+            {/* Fee Assignment Selection */}
+            {selectedStudent && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  Select Fee to Pay *
+                </label>
+                {assignmentsLoading ? (
+                  <div className="flex items-center justify-center p-8">
+                    <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+                    <span className="ml-3 text-gray-500">Loading assignments...</span>
+                  </div>
+                ) : assignments.length === 0 ? (
+                  <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl text-center">
+                    <CheckCircle className="w-8 h-8 mx-auto text-green-500 mb-2" />
+                    <p className="text-green-700 dark:text-green-300">
+                      No outstanding fees! 🎉
                     </p>
-                  )}
-                </div>
-                {selectedFee && (
-                  <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Fee Details</p>
-                    <p className="font-medium text-gray-900 dark:text-white">{selectedFee.name}</p>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">
-                      Amount: ₦{selectedFee.amount.toLocaleString()}
+                    <p className="text-sm text-green-600 dark:text-green-400 mt-1">
+                      This student has no unpaid or partially paid fees.
                     </p>
-                    {selectedFee.description && (
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{selectedFee.description}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <select
+                      {...register('assignment_id')}
+                      onChange={(e) => handleAssignmentSelect(e.target.value)}
+                      className={`w-full px-4 py-2.5 rounded-xl border ${
+                        errors.assignment_id ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'
+                      } bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white`}
+                    >
+                      <option value="">Select a fee to pay</option>
+                      {assignments.map((assignment) => (
+                        <option key={assignment.id} value={assignment.id}>
+                          {assignment.fee_name} - ₦{assignment.balance.toLocaleString()} remaining 
+                          ({assignment.payment_status}) - {assignment.session_name} • {assignment.term_name}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Selected Assignment Details */}
+                    {selectedAssignment && (
+                      <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-500 dark:text-gray-400">Fee</span>
+                          <span className="font-medium text-gray-900 dark:text-white">
+                            {selectedAssignment.fee_name}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-500 dark:text-gray-400">Category</span>
+                          <span className="text-sm text-gray-700 dark:text-gray-300">
+                            {selectedAssignment.fee_category}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 border-t border-gray-200 dark:border-gray-600 pt-2">
+                          <div>
+                            <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                              <Calendar className="w-3 h-3" />
+                              Session
+                            </span>
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                              {selectedAssignment.session_name || 'N/A'}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              Term
+                            </span>
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                              {selectedAssignment.term_name || 'N/A'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-500 dark:text-gray-400">Original Amount</span>
+                          <span className="text-sm text-gray-700 dark:text-gray-300">
+                            ₦{selectedAssignment.original_amount.toLocaleString()}
+                          </span>
+                        </div>
+                        {selectedAssignment.discount_amount > 0 && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-500 dark:text-gray-400">Discount</span>
+                            <span className="text-sm text-green-600">
+                              -₦{selectedAssignment.discount_amount.toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-500 dark:text-gray-400">Amount Paid</span>
+                          <span className="text-sm text-green-600">
+                            ₦{selectedAssignment.amount_paid.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-600 pt-2">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Remaining Balance</span>
+                          <span className="text-lg font-bold text-blue-600">
+                            ₦{selectedAssignment.balance.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-500 dark:text-gray-400">Status</span>
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(selectedAssignment.payment_status)}`}>
+                            {selectedAssignment.payment_status.charAt(0).toUpperCase() + selectedAssignment.payment_status.slice(1)}
+                          </span>
+                        </div>
+                        {selectedAssignment.due_date && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-500 dark:text-gray-400">Due Date</span>
+                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                              {dayjs(selectedAssignment.due_date).format('MMM D, YYYY')}
+                            </span>
+                          </div>
+                        )}
+                        {selectedAssignment.fee_description && (
+                          <div className="mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{selectedAssignment.fee_description}</p>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
+                {errors.assignment_id && (
+                  <p className="mt-1 text-sm text-red-500">{errors.assignment_id.message}</p>
+                )}
               </div>
-            </div>
+            )}
 
             {/* Amount */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Amount Paid *
-                </label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('amount_paid', { valueAsNumber: true })}
-                    className={`w-full pl-10 pr-4 py-2.5 rounded-xl border ${
-                      errors.amount_paid ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'
-                    } bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white`}
-                    placeholder="0.00"
-                  />
-                </div>
-                {errors.amount_paid && (
-                  <p className="mt-1 text-sm text-red-500">{errors.amount_paid.message}</p>
-                )}
-                {selectedFee && watchedAmount && watchedAmount > selectedFee.amount && (
-                  <p className="mt-1 text-sm text-yellow-600 dark:text-yellow-400">
-                    Amount exceeds fee amount. Balance will be negative.
+            {selectedAssignment && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                    Amount to Pay *
+                  </label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      type="number"
+                      step="0.01"
+                      {...register('amount_paid', { valueAsNumber: true })}
+                      className={`w-full pl-10 pr-4 py-2.5 rounded-xl border ${
+                        errors.amount_paid ? 'border-red-500' : 'border-gray-200 dark:border-gray-700'
+                      } bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white`}
+                      placeholder="0.00"
+                      max={selectedAssignment.balance}
+                    />
+                  </div>
+                  {errors.amount_paid && (
+                    <p className="mt-1 text-sm text-red-500">{errors.amount_paid.message}</p>
+                  )}
+                  <p className="mt-1 text-xs text-gray-500">
+                    Maximum: ₦{selectedAssignment.balance.toLocaleString()}
                   </p>
-                )}
-              </div>
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Balance
-                </label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    value={selectedFee && watchedAmount ? 
-                      `₦${(selectedFee.amount - watchedAmount).toLocaleString()}` : 
-                      '₦0'
-                    }
-                    disabled
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 cursor-not-allowed dark:text-white"
-                  />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                    New Balance After Payment
+                  </label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      type="text"
+                      value={watchedAmount ? 
+                        `₦${Math.max(selectedAssignment.balance - watchedAmount, 0).toLocaleString()}` : 
+                        `₦${selectedAssignment.balance.toLocaleString()}`
+                      }
+                      disabled
+                      className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 cursor-not-allowed dark:text-white"
+                    />
+                  </div>
+                  {watchedAmount && (
+                    <p className={`mt-1 text-sm ${
+                      selectedAssignment.balance - watchedAmount === 0 ? 'text-green-600' :
+                      selectedAssignment.balance - watchedAmount < 0 ? 'text-red-600' :
+                      'text-blue-600'
+                    }`}>
+                      {selectedAssignment.balance - watchedAmount === 0 ? '✅ Fee will be fully paid' :
+                       selectedAssignment.balance - watchedAmount < 0 ? '⚠️ Overpayment' :
+                       `₦${(selectedAssignment.balance - watchedAmount).toLocaleString()} remaining after payment`}
+                    </p>
+                  )}
                 </div>
-                {selectedFee && watchedAmount && (
-                  <p className={`mt-1 text-sm ${
-                    selectedFee.amount - watchedAmount === 0 ? 'text-green-600' :
-                    selectedFee.amount - watchedAmount < 0 ? 'text-red-600' :
-                    'text-yellow-600'
-                  }`}>
-                    {selectedFee.amount - watchedAmount === 0 ? '✅ Fully paid' :
-                     selectedFee.amount - watchedAmount < 0 ? '⚠️ Overpayment' :
-                     `${(selectedFee.amount - watchedAmount).toLocaleString()} remaining`}
-                  </p>
-                )}
               </div>
-            </div>
+            )}
 
             {/* Payment Method & Date */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -707,30 +1007,17 @@ const RecordPayment: React.FC = () => {
               </div>
             </div>
 
-            {/* Due Date & Reference */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Due Date
-                </label>
-                <input
-                  type="date"
-                  {...register('due_date')}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                  Transaction Reference
-                </label>
-                <input
-                  type="text"
-                  {...register('transaction_reference')}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
-                  placeholder="Enter transaction reference"
-                />
-              </div>
+            {/* Transaction Reference */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                Transaction Reference
+              </label>
+              <input
+                type="text"
+                {...register('transaction_reference')}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
+                placeholder="Enter transaction reference"
+              />
             </div>
 
             {/* File Upload Section */}
@@ -739,7 +1026,6 @@ const RecordPayment: React.FC = () => {
                 Payment Proof / Documents
               </label>
               
-              {/* Upload Zone */}
               <div
                 className={`border-2 border-dashed rounded-xl p-6 text-center transition-all duration-300 ${
                   isDragging
@@ -882,9 +1168,9 @@ const RecordPayment: React.FC = () => {
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex items-start gap-3">
               <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-blue-800 dark:text-blue-300">
-                <p>• Receipt number and payment ID will be generated automatically.</p>
-                <p>• Payment status will be set to "Completed" if full amount is paid.</p>
-                <p>• Partial payments will be marked as "Pending".</p>
+                <p>• Only shows outstanding fees (unpaid or partially paid).</p>
+                <p>• Each fee assignment is linked to a session and term.</p>
+                <p>• Payment status will update automatically based on the remaining balance.</p>
                 <p>• Upload payment proof or receipt for verification.</p>
                 <p>• All payments are recorded in the selected branch.</p>
               </div>
@@ -894,14 +1180,20 @@ const RecordPayment: React.FC = () => {
             <div className="flex flex-col sm:flex-row items-center justify-end gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
               <button
                 type="button"
-                onClick={() => navigate('/payments')}
+                onClick={() => {
+                  if (onCancel) {
+                    onCancel();
+                  } else {
+                    navigate(redirectTo);
+                  }
+                }}
                 className="w-full sm:w-auto px-6 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={submitting || !selectedStudent || !selectedFee}
+                disabled={submitting || !selectedStudent || !selectedAssignment}
                 className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {submitting ? (

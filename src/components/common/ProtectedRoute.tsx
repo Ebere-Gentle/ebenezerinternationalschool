@@ -1,10 +1,13 @@
+
 import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+
+type UserRole = 'admin' | 'teacher' | 'student' | 'parent' | 'director' | 'finance' | 'super_admin' | 'record_keeper' | 'admin_asst';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  allowedRoles?: ('admin' | 'teacher' | 'student' | 'parent' | 'director')[];
+  allowedRoles?: UserRole[];
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 
@@ -12,6 +15,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   allowedRoles = [] 
 }) => {
   const { isAuthenticated, user, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -22,18 +26,22 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   }
 
   if (!isAuthenticated || !user) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   // Check role-based access
   if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
     // Redirect to appropriate dashboard based on role
-    const roleMap: Record<string, string> = {
+    const roleMap: Record<UserRole, string> = {
       admin: '/admin/dashboard',
       teacher: '/teacher/dashboard',
       student: '/student/dashboard',
       parent: '/parent/dashboard',
-      director: '/admin/dashboard', // Directors go to admin dashboard
+      director: '/admin/dashboard',
+      finance: '/admin/dashboard',
+      super_admin: '/admin/dashboard',
+      record_keeper: '/admin-asst/dashboard',
+      admin_asst: '/admin-asst/dashboard',
     };
     const redirectPath = roleMap[user.role] || '/dashboard';
     return <Navigate to={redirectPath} replace />;

@@ -12,32 +12,18 @@ import {
   CheckCircle,
   Globe,
   Zap,
-  Sparkles,
-  Fingerprint,
-  User,
   GraduationCap,
   Building2,
   Award,
   Users,
   School,
-  Star,
   Rocket,
   Crown,
+  User,
   Heart,
-  Sun,
-  Moon,
-  Cloud,
-  Menu,
-  X
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import toast from 'react-hot-toast';
-
-// Import images
-import loginBg from '../../assets/login-bg.jpg';
-import schoolLogo from '../../assets/school-logo.png';
-
-// Floating particles
 const particles = Array.from({ length: 30 }, (_, i) => ({
   id: i,
   x: Math.random() * 100,
@@ -63,6 +49,8 @@ const features = [
   { icon: Heart, title: 'Parent Engagement', desc: 'Real-time updates and communication with parents' },
   { icon: Crown, title: 'Academic Excellence', desc: 'Track and improve student performance' },
 ];
+
+const schoolLogo = '/school-logo.jpeg';
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
@@ -129,7 +117,7 @@ const Login: React.FC = () => {
       <div 
         className="absolute inset-0 bg-cover bg-center bg-no-repeat scale-110"
         style={{
-          backgroundImage: `url(${loginBg})`,
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
           filter: 'blur(2px) brightness(0.4) saturate(0.8)',
         }}
       />

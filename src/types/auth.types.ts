@@ -1,4 +1,3 @@
-
 export interface User {
   id: string;
   user_id: string;
@@ -7,7 +6,7 @@ export interface User {
   first_name: string;
   last_name: string;
   middle_name: string | null;
-  role: 'admin' | 'teacher' | 'student' | 'parent' | 'director';
+  role: 'admin' | 'teacher' | 'student' | 'parent' | 'director' | 'admin_asst';
   branch_id: string;
   is_active: boolean;
   last_login: string | null;
@@ -39,7 +38,7 @@ export interface AuthState {
   isAuthenticated: boolean;
 }
 
-export type UserRole = 'admin' | 'teacher' | 'student' | 'parent' | 'director';
+export type UserRole = 'admin' | 'teacher' | 'student' | 'parent' | 'director' | 'admin_asst';
 
 export const ROLE_MAP: Record<UserRole, string> = {
   admin: '/admin/dashboard',
@@ -47,6 +46,7 @@ export const ROLE_MAP: Record<UserRole, string> = {
   student: '/student/dashboard',
   parent: '/parent/dashboard',
   director: '/admin/dashboard',
+  admin_asst: '/admin-asst/dashboard',
 };
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -55,6 +55,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   student: 'Student',
   parent: 'Parent',
   director: 'Director',
+  admin_asst: 'Admin Assistant',
 };
 
 // Default export for convenience
