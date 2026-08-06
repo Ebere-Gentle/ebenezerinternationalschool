@@ -47,11 +47,15 @@ const AdminDashboard: React.FC = () => {
   const [selectedStudentCollections, setSelectedStudentCollections] = useState<any[]>([]);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
 
-  const branchId = user?.branch_id || '11111111-1111-1111-1111-111111111111';
+  const branchId = user?.branch_id || null;
 
   // Fetch all data
   useEffect(() => {
-    fetchAllData();
+    if (branchId) {
+      fetchAllData();
+    } else {
+      setLoading(false);
+    }
   }, [branchId]);
 
   const fetchAllData = async () => {
@@ -80,7 +84,10 @@ const AdminDashboard: React.FC = () => {
         .select('id, first_name, last_name, class_id, current_status, admission_status, gender')
         .eq('branch_id', branchId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching students:', error);
+        return;
+      }
       
       const studentsData = data || [];
       setStudents(studentsData);
@@ -98,6 +105,7 @@ const AdminDashboard: React.FC = () => {
 
   const fetchCollections = async () => {
     try {
+      // Collections table doesn't have branch_id, so we fetch all and filter by student branch
       const { data, error } = await supabase
         .from('collections')
         .select(`
@@ -105,7 +113,8 @@ const AdminDashboard: React.FC = () => {
           students (
             first_name,
             last_name,
-            class_id
+            class_id,
+            branch_id
           )
         `)
         .order('collection_date', { ascending: false });
@@ -115,7 +124,12 @@ const AdminDashboard: React.FC = () => {
         return;
       }
       
-      const formattedCollections = (data || []).map((collection: any) => ({
+      // Filter collections by branch_id through the student relation
+      const filteredData = (data || []).filter((collection: any) => 
+        collection.students?.branch_id === branchId
+      );
+      
+      const formattedCollections = filteredData.map((collection: any) => ({
         ...collection,
         student_name: collection.students 
           ? `${collection.students.first_name} ${collection.students.last_name}`
@@ -139,6 +153,7 @@ const AdminDashboard: React.FC = () => {
       const { data, error } = await supabase
         .from('inventory_items')
         .select('*')
+        .eq('branch_id', branchId)
         .order('item_name', { ascending: true });
 
       if (error) {
@@ -172,7 +187,10 @@ const AdminDashboard: React.FC = () => {
         .eq('status', 'active')
         .order('name');
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching classes:', error);
+        return;
+      }
       
       const classesData = data || [];
       setClasses(classesData);
@@ -193,7 +211,10 @@ const AdminDashboard: React.FC = () => {
         .eq('branch_id', branchId)
         .order('start_date', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching sessions:', error);
+        return;
+      }
       
       const sessionsData = data || [];
       setSessions(sessionsData);
@@ -210,10 +231,14 @@ const AdminDashboard: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, first_name, last_name, email')
+        .select('id, first_name, last_name, email, role')
         .eq('branch_id', branchId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching users:', error);
+        return;
+      }
+      
       setUsers(data || []);
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -223,7 +248,6 @@ const AdminDashboard: React.FC = () => {
   // View collection details - gets all collections for a student
   const handleViewStudentCollections = async (studentId: string, studentName: string) => {
     try {
-      // Fetch all collections for this student
       const { data, error } = await supabase
         .from('collections')
         .select(`
@@ -231,7 +255,8 @@ const AdminDashboard: React.FC = () => {
           students (
             first_name,
             last_name,
-            class_id
+            class_id,
+            branch_id
           )
         `)
         .eq('student_id', studentId)

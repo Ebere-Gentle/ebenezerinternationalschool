@@ -117,9 +117,6 @@ const MainLayout = () => {
   const [isStudent, setIsStudent] = useState(false);
   const [canUploadProfile, setCanUploadProfile] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
-  const [isHoveringSidebar, setIsHoveringSidebar] = useState(false);
-  const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   
   const { user, logout } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
@@ -128,13 +125,12 @@ const MainLayout = () => {
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
-  // Check if mobile
+  // Check if mobile - sidebar closed by default
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
-      if (window.innerWidth < 768) {
-        setSidebarOpen(false);
-      }
+      // Sidebar is closed by default on both desktop and mobile
+      setSidebarOpen(false);
     };
     checkMobile();
     window.addEventListener('resize', checkMobile);
@@ -145,7 +141,6 @@ const MainLayout = () => {
   useEffect(() => {
     if (isMobile) {
       setSidebarOpen(false);
-      setIsMobileNavOpen(false);
     }
   }, [location.pathname, isMobile]);
 
@@ -788,26 +783,6 @@ const MainLayout = () => {
 
   const filteredNavigation = filterNavigation(navigation);
 
-  const getBottomNavItems = () => {
-    const role = userRole.toLowerCase();
-    if (role === 'student') {
-      return filteredNavigation.filter(item => 
-        ['Student Portal', 'Pay Bill', 'My Classes', 'Settings'].includes(item.label)
-      );
-    }
-    if (role === 'parent') {
-      return filteredNavigation.filter(item => 
-        ['Dashboard', 'My Children', 'Pay Bill', 'Settings'].includes(item.label)
-      );
-    }
-    if (role === 'record_keeper' || role === 'admin_asst') {
-      return filteredNavigation.filter(item => 
-        ['Dashboard', 'Students', 'Collections', 'Payment'].includes(item.label)
-      );
-    }
-    return filteredNavigation.slice(0, 4);
-  };
-
   const isActive = (path: string) => {
     if (path === '#') return false;
     if (path === '/dashboard' && location.pathname === '/') return true;
@@ -839,8 +814,8 @@ const MainLayout = () => {
     .find(item => isActive(item.path))?.label || 'Dashboard';
 
   const sidebarVariants = {
-    open: { width: 280, transition: { duration: 0.3, ease: 'easeInOut' } },
-    closed: { width: 80, transition: { duration: 0.3, ease: 'easeInOut' } },
+    open: { width: 260, transition: { duration: 0.3, ease: 'easeInOut' } },
+    closed: { width: 72, transition: { duration: 0.3, ease: 'easeInOut' } },
   };
 
   const mobileSidebarVariants = {
@@ -914,12 +889,7 @@ const MainLayout = () => {
     }
   };
 
-  const shouldShowBottomNav = () => {
-    const role = userRole.toLowerCase();
-    return ['student', 'parent', 'record_keeper', 'admin_asst'].includes(role);
-  };
-
-  // Memoized Profile Image Component to prevent reloading
+  // Memoized Profile Image Component
   const ProfileImage = React.memo(({ className = "w-10 h-10 rounded-xl object-cover shadow-lg" }: { className?: string }) => {
     const [imgError, setImgError] = useState(false);
     const [imgLoading, setImgLoading] = useState(true);
@@ -1021,16 +991,6 @@ const MainLayout = () => {
             <Crown className="w-3 h-3 text-amber-500 fill-amber-500" />
           </div>
         )}
-        
-        {!isStudent && (
-          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-gray-900" />
-        )}
-        
-        {isStudent && (
-          <div className="absolute bottom-0 right-0 p-1 bg-gray-200 dark:bg-gray-700 rounded-full">
-            <Lock className="w-3 h-3 text-gray-500 dark:text-gray-400" />
-          </div>
-        )}
       </div>
     );
   };
@@ -1057,23 +1017,14 @@ const MainLayout = () => {
       {/* Desktop Sidebar - Hidden on mobile */}
       {!isMobile && (
         <motion.aside
-          initial={false}
+          initial="closed"
           animate={sidebarOpen ? 'open' : 'closed'}
           variants={sidebarVariants}
-          onMouseEnter={() => {
-            if (!sidebarOpen) {
-              setIsHoveringSidebar(true);
-            }
-          }}
-          onMouseLeave={() => {
-            setIsHoveringSidebar(false);
-            setHoveredItem(null);
-          }}
           className="fixed top-0 left-0 z-50 h-screen bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden"
         >
           {/* Logo Section */}
-          <div className="flex items-center justify-between h-20 px-4 border-b border-gray-200/50 dark:border-gray-800/50">
-            <div className={`flex items-center gap-3 ${sidebarOpen || isHoveringSidebar ? '' : 'justify-center w-full'}`}>
+          <div className="flex items-center justify-between h-20 px-3 border-b border-gray-200/50 dark:border-gray-800/50">
+            <div className={`flex items-center gap-2 ${sidebarOpen ? 'w-full' : 'justify-center w-full'}`}>
               <div className="relative flex-shrink-0">
                 {schoolLogo ? (
                   <img 
@@ -1098,15 +1049,13 @@ const MainLayout = () => {
                     </span>
                   </div>
                 )}
-                {!isPremium && (
-                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-gray-900 animate-pulse" />
-                )}
               </div>
-              {(sidebarOpen || isHoveringSidebar) && (
+              {sidebarOpen && (
                 <motion.div
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ duration: 0.3 }}
+                  className="flex-1 min-w-0"
                 >
                   <span className={`text-lg font-bold ${isPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
                     Ebenezer School
@@ -1119,14 +1068,14 @@ const MainLayout = () => {
             </div>
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all hover:scale-110 flex-shrink-0"
+              className={`p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all hover:scale-110 flex-shrink-0 ${!sidebarOpen ? 'mx-auto' : ''}`}
             >
               {sidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
             </button>
           </div>
 
           {/* Navigation */}
-          <nav className="px-3 py-4 space-y-1 overflow-y-auto h-[calc(100vh-14rem)]">
+          <nav className="px-2 py-4 space-y-1 overflow-y-auto h-[calc(100vh-14rem)]">
             {filteredNavigation.map((item, index) => {
               const hasChildren = item.children && item.children.length > 0;
               const isExpanded = expandedMenus.includes(item.label);
@@ -1141,19 +1090,17 @@ const MainLayout = () => {
                         isActiveParent
                           ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
                           : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                      } ${!sidebarOpen && !isHoveringSidebar ? 'justify-center' : ''}`}
-                      onMouseEnter={() => setHoveredItem(item.label)}
-                      onMouseLeave={() => setHoveredItem(null)}
+                      } ${!sidebarOpen ? 'justify-center' : ''}`}
                     >
                       <item.icon className="w-5 h-5 flex-shrink-0" />
-                      {(sidebarOpen || isHoveringSidebar) && (
+                      {sidebarOpen && (
                         <>
                           <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
                           <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                         </>
                       )}
                     </button>
-                    {(sidebarOpen || isHoveringSidebar) && isExpanded && (
+                    {sidebarOpen && isExpanded && (
                       <motion.div
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
@@ -1191,7 +1138,6 @@ const MainLayout = () => {
               const active = isActive(item.path);
               const isPayBill = item.label === 'Pay Bill';
               const isAdminAsst = userRole === 'record_keeper' || userRole === 'admin_asst';
-              const showLabel = sidebarOpen || isHoveringSidebar;
               
               return (
                 <motion.div
@@ -1199,9 +1145,6 @@ const MainLayout = () => {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: index * 0.05 }}
-                  className="relative"
-                  onMouseEnter={() => setHoveredItem(item.label)}
-                  onMouseLeave={() => setHoveredItem(null)}
                 >
                   <Link
                     to={item.path}
@@ -1213,10 +1156,10 @@ const MainLayout = () => {
                           ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-lg shadow-teal-500/25'
                           : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
                         : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                    } ${!showLabel ? 'justify-center' : ''}`}
+                    } ${!sidebarOpen ? 'justify-center' : ''}`}
                   >
                     <item.icon className="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" />
-                    {showLabel && (
+                    {sidebarOpen && (
                       <>
                         <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
                         {item.badge && !active && (
@@ -1232,50 +1175,18 @@ const MainLayout = () => {
                         )}
                       </>
                     )}
-                    {!showLabel && active && (
+                    {!sidebarOpen && active && (
                       <div className="absolute -right-0.5 w-1 h-6 bg-gradient-to-b from-blue-500 to-purple-500 rounded-full" />
                     )}
                   </Link>
-                  
-                  {/* Tooltip for collapsed sidebar */}
-                  {!showLabel && hoveredItem === item.label && (
-                    <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 px-3 py-1.5 bg-gray-900 dark:bg-gray-700 text-white text-xs font-medium rounded-lg shadow-lg whitespace-nowrap pointer-events-none">
-                      {item.label}
-                      {item.badge && (
-                        <span className="ml-1.5 px-1.5 py-0.5 text-[8px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full">
-                          {item.badge}
-                        </span>
-                      )}
-                    </div>
-                  )}
                 </motion.div>
               );
             })}
           </nav>
 
-          {/* Upgrade Banner */}
-          {!isPremium && (sidebarOpen || isHoveringSidebar) && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mx-3 mb-2 p-3 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 rounded-xl border border-amber-200/50 dark:border-amber-800/50 cursor-pointer group hover:shadow-lg transition-all"
-              onClick={() => setShowPremiumModal(true)}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <Crown className="w-4 h-4 text-amber-500" />
-                <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Go Premium</span>
-              </div>
-              <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80">Unlock all premium features</p>
-              <div className="mt-2 flex items-center gap-1 text-[10px] font-medium text-white bg-gradient-to-r from-amber-500 to-orange-500 px-2 py-0.5 rounded-full w-fit group-hover:scale-105 transition-transform">
-                Upgrade Now
-                <Sparkles className="w-3 h-3" />
-              </div>
-            </motion.div>
-          )}
-
           {/* User Section */}
-          <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl">
-            {(sidebarOpen || isHoveringSidebar) ? (
+          <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl">
+            {sidebarOpen ? (
               <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
                 <ProfileImageWithUpload size="sm" />
                 <div className="flex-1 min-w-0">
@@ -1286,7 +1197,6 @@ const MainLayout = () => {
                   <p className="text-xs text-gray-500 dark:text-gray-400 capitalize flex items-center gap-1">
                     <Shield className="w-3 h-3" />
                     {getUserRoleDisplay()}
-                    {isPremium && <span className="text-amber-500 text-[10px] font-medium">• Premium</span>}
                   </p>
                 </div>
                 <button
@@ -1476,25 +1386,6 @@ const MainLayout = () => {
               })}
             </nav>
 
-            {!isPremium && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mx-3 mb-2 p-3 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 rounded-xl border border-amber-200/50 dark:border-amber-800/50 cursor-pointer group hover:shadow-lg transition-all"
-                onClick={() => setShowPremiumModal(true)}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <Crown className="w-4 h-4 text-amber-500" />
-                  <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Go Premium</span>
-                </div>
-                <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80">Unlock all premium features</p>
-                <div className="mt-2 flex items-center gap-1 text-[10px] font-medium text-white bg-gradient-to-r from-amber-500 to-orange-500 px-2 py-0.5 rounded-full w-fit group-hover:scale-105 transition-transform">
-                  Upgrade Now
-                  <Sparkles className="w-3 h-3" />
-                </div>
-              </motion.div>
-            )}
-
             <div className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80">
               <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
                 <ProfileImageWithUpload size="sm" />
@@ -1506,7 +1397,6 @@ const MainLayout = () => {
                   <p className="text-xs text-gray-500 dark:text-gray-400 capitalize flex items-center gap-1">
                     <Shield className="w-3 h-3" />
                     {getUserRoleDisplay()}
-                    {isPremium && <span className="text-amber-500 text-[10px] font-medium">• Premium</span>}
                   </p>
                 </div>
                 <button
@@ -1521,154 +1411,8 @@ const MainLayout = () => {
         </>
       )}
 
-      {/* Premium Modal */}
-      <AnimatePresence>
-        {showPremiumModal && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="bg-white dark:bg-gray-900 rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
-            >
-              <div className="relative">
-                <div className="bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500 p-8 text-white rounded-t-3xl">
-                  <button
-                    onClick={() => setShowPremiumModal(false)}
-                    className="absolute top-4 right-4 p-2 hover:bg-white/10 rounded-xl transition-all"
-                  >
-                    <X className="w-6 h-6" />
-                  </button>
-                  <div className="flex items-center gap-3 mb-2">
-                    <Crown className="w-10 h-10" />
-                    <h2 className="text-3xl font-bold">Go Premium</h2>
-                  </div>
-                  <p className="text-white/80 text-lg">Unlock all premium features and enjoy an enhanced experience</p>
-                </div>
-                <div className="p-8">
-                  <div className="mb-8">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                      <Sparkles className="w-5 h-5 text-amber-500" />
-                      Premium Features
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {premiumFeatures.map((feature, index) => (
-                        <motion.div
-                          key={index}
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: index * 0.05 }}
-                          className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-xl"
-                        >
-                          <div className="p-2 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg">
-                            <feature.icon className="w-4 h-4 text-white" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">{feature.label}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400">{feature.description}</p>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="mb-8">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-                      <Rocket className="w-5 h-5 text-purple-500" />
-                      Choose Your Plan
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {premiumPlans.map((plan) => {
-                        const isSelected = selectedPlan === plan.id;
-                        const Icon = plan.icon;
-                        return (
-                          <motion.div
-                            key={plan.id}
-                            whileHover={{ y: -4 }}
-                            className={`relative p-6 rounded-2xl border-2 cursor-pointer transition-all ${
-                              isSelected
-                                ? `border-${plan.color.split('-')[1]}-500 bg-gradient-to-br ${plan.color}/10`
-                                : 'border-gray-200 dark:border-gray-700 hover:border-purple-300'
-                            } ${plan.popular ? 'ring-2 ring-purple-500/50' : ''}`}
-                            onClick={() => setSelectedPlan(plan.id as 'monthly' | 'yearly' | 'lifetime')}
-                          >
-                            {plan.popular && (
-                              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-semibold rounded-full">
-                                Most Popular
-                              </div>
-                            )}
-                            <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center mb-3`}>
-                              <Icon className="w-6 h-6 text-white" />
-                            </div>
-                            <h4 className="text-lg font-bold text-gray-900 dark:text-white">{plan.name}</h4>
-                            <div className="mt-1">
-                              <span className="text-2xl font-bold text-gray-900 dark:text-white">{plan.price}</span>
-                              <span className="text-sm text-gray-500 dark:text-gray-400"> / {plan.period}</span>
-                            </div>
-                            {plan.savings && (
-                              <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full">
-                                {plan.savings}
-                              </span>
-                            )}
-                            <ul className="mt-4 space-y-2">
-                              {plan.features.map((feature, idx) => (
-                                <li key={idx} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-                                  <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
-                                  {feature}
-                                </li>
-                              ))}
-                            </ul>
-                            {isSelected && (
-                              <div className="absolute top-4 right-4">
-                                <CheckCircle className="w-6 h-6 text-green-500" />
-                              </div>
-                            )}
-                          </motion.div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                      <Lock className="w-4 h-4" />
-                      Secure payment • 30-day money-back guarantee
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => setShowPremiumModal(false)}
-                        className="px-6 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleUpgrade}
-                        disabled={isProcessing}
-                        className="px-8 py-2.5 rounded-xl font-medium text-white transition-all flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:shadow-lg hover:shadow-amber-500/25 hover:scale-105"
-                      >
-                        {isProcessing ? (
-                          <>
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            Processing...
-                          </>
-                        ) : (
-                          <>
-                            <Crown className="w-5 h-5" />
-                            Upgrade Now
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
       {/* Main Content */}
-      <div className={`transition-all duration-300 ${!isMobile && sidebarOpen ? 'ml-[280px]' : !isMobile ? 'ml-20' : 'ml-0'} ${shouldShowBottomNav() ? 'pb-20 md:pb-0' : ''}`}>
+      <div className={`transition-all duration-300 ${!isMobile && sidebarOpen ? 'ml-[260px]' : !isMobile ? 'ml-[72px]' : 'ml-0'}`}>
         {/* Navbar */}
         <header className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 shadow-sm">
           <div className="h-16 px-4 sm:px-6 flex items-center justify-between">
@@ -1710,7 +1454,6 @@ const MainLayout = () => {
               >
                 <Search className="w-4 h-4" />
                 <span className="hidden lg:inline">Search...</span>
-                <kbd className="hidden lg:inline px-1.5 py-0.5 text-[10px] bg-gray-200 dark:bg-gray-700 rounded text-gray-500 dark:text-gray-400">⌘K</kbd>
               </button>
 
               {/* Mobile Search */}
@@ -1721,7 +1464,7 @@ const MainLayout = () => {
                 <Search className="w-5 h-5" />
               </button>
 
-              {/* Theme Toggle - Back in navbar */}
+              {/* Theme Toggle */}
               <button
                 onClick={toggleTheme}
                 className="p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all hover:scale-105"
@@ -1902,26 +1645,8 @@ const MainLayout = () => {
                               <Shield className="w-3 h-3" />
                               {getUserRoleDisplay()} • {getUserBranch()}
                             </p>
-                            {isStudent && (
-                              <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 flex items-center gap-1">
-                                <Lock className="w-3 h-3" />
-                                Photo upload disabled for students
-                              </p>
-                            )}
-                            {!isStudent && canUploadProfile && (
-                              <p className="text-[10px] text-green-500 dark:text-green-400 mt-0.5 flex items-center gap-1">
-                                <Camera className="w-3 h-3" />
-                                Click photo to upload
-                              </p>
-                            )}
                           </div>
                         </div>
-                        {isPremium && (
-                          <p className="text-[10px] text-amber-500 font-medium mt-2 flex items-center gap-1">
-                            <Sparkles className="w-3 h-3" />
-                            Premium Member
-                          </p>
-                        )}
                       </div>
 
                       <div className="py-1 max-h-[60vh] overflow-y-auto">
@@ -1985,99 +1710,6 @@ const MainLayout = () => {
                           Settings
                         </Link>
                         
-                        {/* Role-specific quick links */}
-                        {(userRole === 'record_keeper' || userRole === 'admin_asst') && (
-                          <>
-                            <Link
-                              to="/admin-asst/students"
-                              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                              onClick={() => setIsDropdownOpen(false)}
-                            >
-                              <Users className="w-4 h-4" />
-                              Students
-                            </Link>
-                            <Link
-                              to="/admin-asst/collections"
-                              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                              onClick={() => setIsDropdownOpen(false)}
-                            >
-                              <HandHelping className="w-4 h-4" />
-                              Collections
-                            </Link>
-                            <Link
-                              to="/admin-asst/inventory"
-                              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                              onClick={() => setIsDropdownOpen(false)}
-                            >
-                              <Box className="w-4 h-4" />
-                              Inventory
-                            </Link>
-                          </>
-                        )}
-                        
-                        {userRole === 'student' && (
-                          <>
-                            <Link
-                              to="/student/classes"
-                              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                              onClick={() => setIsDropdownOpen(false)}
-                            >
-                              <BookOpen className="w-4 h-4" />
-                              My Classes
-                            </Link>
-                            <Link
-                              to="/student/paybill"
-                              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                              onClick={() => setIsDropdownOpen(false)}
-                            >
-                              <Wallet className="w-4 h-4" />
-                              Pay Bill
-                            </Link>
-                          </>
-                        )}
-                        
-                        {userRole === 'parent' && (
-                          <>
-                            <Link
-                              to="/parent/children"
-                              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                              onClick={() => setIsDropdownOpen(false)}
-                            >
-                              <Users className="w-4 h-4" />
-                              My Children
-                            </Link>
-                            <Link
-                              to="/parent/pay-bill"
-                              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                              onClick={() => setIsDropdownOpen(false)}
-                            >
-                              <Wallet className="w-4 h-4" />
-                              Pay Bill
-                            </Link>
-                          </>
-                        )}
-                        
-                        {userRole === 'teacher' && (
-                          <>
-                            <Link
-                              to="/teacher/classes"
-                              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                              onClick={() => setIsDropdownOpen(false)}
-                            >
-                              <GraduationCap className="w-4 h-4" />
-                              My Classes
-                            </Link>
-                            <Link
-                              to="/teacher/attendance"
-                              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                              onClick={() => setIsDropdownOpen(false)}
-                            >
-                              <Clock className="w-4 h-4" />
-                              Attendance
-                            </Link>
-                          </>
-                        )}
-
                         {!isPremium && (
                           <button
                             onClick={() => {
@@ -2149,7 +1781,7 @@ const MainLayout = () => {
         </header>
 
         {/* Page Content */}
-        <main className="p-3 sm:p-4 md:p-6 pb-24 sm:pb-6">
+        <main className="p-3 sm:p-4 md:p-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -2158,66 +1790,6 @@ const MainLayout = () => {
             <Outlet />
           </motion.div>
         </main>
-
-        {/* Mobile Bottom Navigation */}
-        {isMobile && shouldShowBottomNav() && (
-          <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-t border-gray-200/50 dark:border-gray-800/50 shadow-lg">
-            <div className="flex items-center justify-around h-16 px-2">
-              {getBottomNavItems().slice(0, 4).map((item) => {
-                const active = isActive(item.path);
-                const isPayBill = item.label === 'Pay Bill';
-                const isAdminAsst = userRole === 'record_keeper' || userRole === 'admin_asst';
-                
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-xl transition-all duration-300 min-w-[56px] ${
-                      active
-                        ? isPayBill
-                          ? 'text-green-600 dark:text-green-400'
-                          : isAdminAsst
-                          ? 'text-teal-600 dark:text-teal-400'
-                          : 'text-blue-600 dark:text-blue-400'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                    }`}
-                  >
-                    <div className={`relative ${active ? 'scale-110' : 'scale-100'} transition-transform`}>
-                      <item.icon className="w-5 h-5" />
-                      {item.badge && !active && (
-                        <span className="absolute -top-1 -right-1 w-4 h-4 flex items-center justify-center text-[8px] font-bold text-white bg-gradient-to-r from-green-400 to-emerald-500 rounded-full animate-pulse">
-                          {item.badge}
-                        </span>
-                      )}
-                      {active && (
-                        <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-                      )}
-                    </div>
-                    <span className="text-[10px] font-medium truncate max-w-[60px]">
-                      {item.label === 'Student Portal' ? 'Portal' : 
-                       item.label === 'My Children' ? 'Children' :
-                       item.label}
-                    </span>
-                  </Link>
-                );
-              })}
-              
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="flex flex-col items-center justify-center gap-0.5 px-2 py-1 rounded-xl transition-all duration-300 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 min-w-[56px]"
-              >
-                <div className="relative">
-                  <div className="flex items-center gap-0.5">
-                    <div className="w-1 h-1 bg-gray-400 rounded-full" />
-                    <div className="w-1 h-1 bg-gray-400 rounded-full" />
-                    <div className="w-1 h-1 bg-gray-400 rounded-full" />
-                  </div>
-                </div>
-                <span className="text-[10px] font-medium">More</span>
-              </button>
-            </div>
-          </nav>
-        )}
       </div>
     </div>
   );

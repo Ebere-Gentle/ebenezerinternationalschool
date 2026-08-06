@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -78,6 +77,7 @@ interface Payment {
   student_first_name?: string;
   student_last_name?: string;
   student_admission?: string;
+  student_class_name?: string;
   fee_name?: string;
   metadata?: {
     receipt_url?: string;
@@ -332,11 +332,19 @@ const PaymentsList: React.FC = () => {
           let studentAdmission = 'N/A';
           let studentFirstName = '';
           let studentLastName = '';
+          let studentClassName = 'N/A';
 
           if (payment.student_id) {
+            // Fetch student with class info
             const { data: studentData } = await supabase
               .from('students')
-              .select('first_name, last_name, admission_number')
+              .select(`
+                first_name, 
+                last_name, 
+                admission_number,
+                class_id,
+                class:class_id (name)
+              `)
               .eq('id', payment.student_id)
               .single();
             
@@ -345,6 +353,7 @@ const PaymentsList: React.FC = () => {
               studentLastName = studentData.last_name || '';
               studentName = `${studentData.first_name || ''} ${studentData.last_name || ''}`.trim() || 'Unknown Student';
               studentAdmission = studentData.admission_number || 'N/A';
+              studentClassName = studentData.class?.name || 'N/A';
             }
           }
 
@@ -367,6 +376,7 @@ const PaymentsList: React.FC = () => {
             student_first_name: studentFirstName,
             student_last_name: studentLastName,
             student_admission: studentAdmission,
+            student_class_name: studentClassName,
             fee_name: feeName,
           };
         })
@@ -702,7 +712,6 @@ const PaymentsList: React.FC = () => {
   const formatPaymentForReceipt = (payment: Payment) => {
     return {
       ...payment,
-      // Ensure these fields exist for the receipt modal
       student_id: payment.student_id || '',
       receipt_number: payment.receipt_number || 'N/A',
       amount_paid: payment.amount_paid || 0,
@@ -711,6 +720,7 @@ const PaymentsList: React.FC = () => {
       status: payment.status || 'pending',
       fee_name: payment.fee_name || 'N/A',
       transaction_reference: payment.transaction_reference || 'N/A',
+      student_class_name: payment.student_class_name || 'N/A',
     };
   };
 
@@ -903,6 +913,11 @@ const PaymentsList: React.FC = () => {
                           <p className="text-xs text-gray-500 dark:text-gray-400">
                             {payment.student_name} • {payment.student_admission}
                           </p>
+                          {payment.student_class_name && payment.student_class_name !== 'N/A' && (
+                            <p className="text-xs text-gray-400 dark:text-gray-500">
+                              Class: {payment.student_class_name}
+                            </p>
+                          )}
                           {hasReceiptImage && (
                             <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
                               <Check className="w-3 h-3" />
@@ -1207,15 +1222,12 @@ const PaymentsList: React.FC = () => {
                     <p className="font-medium text-gray-900 dark:text-white">{selectedPayment.student_name}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Amount</p>
-                    <p className="font-medium text-green-600">{formatCurrency(selectedPayment.amount_paid)}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Class</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{selectedPayment.student_class_name || 'N/A'}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Status</p>
-                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(selectedPayment.status)}`}>
-                      {getStatusIcon(selectedPayment.status)}
-                      {selectedPayment.status.charAt(0).toUpperCase() + selectedPayment.status.slice(1)}
-                    </span>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Amount</p>
+                    <p className="font-medium text-green-600">{formatCurrency(selectedPayment.amount_paid)}</p>
                   </div>
                 </div>
               </div>
@@ -1224,7 +1236,7 @@ const PaymentsList: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Receipt Modal - Using reusable component */}
+      {/* Receipt Modal - Using reusable component with full content */}
       <AnimatePresence>
         {showReceiptModal && selectedPayment && (
           <ReceiptModal
@@ -1235,7 +1247,7 @@ const PaymentsList: React.FC = () => {
               last_name: selectedPayment.student_last_name || '',
               student_id: selectedPayment.student_admission || '',
               admission_number: selectedPayment.student_admission || '',
-              class_name: 'N/A',
+              class_name: selectedPayment.student_class_name || 'N/A',
               branch_id: selectedPayment.branch_id || '',
             }}
             schoolInfo={schoolInfo}
@@ -1278,6 +1290,10 @@ const PaymentsList: React.FC = () => {
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Admission Number</p>
                   <p className="font-medium text-gray-900 dark:text-white">{selectedPayment.student_admission}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Class</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{selectedPayment.student_class_name || 'N/A'}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Fee</p>

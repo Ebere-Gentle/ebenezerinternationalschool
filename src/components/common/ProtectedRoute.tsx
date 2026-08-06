@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
@@ -17,6 +16,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   const { isAuthenticated, user, isLoading } = useAuth();
   const location = useLocation();
 
+  // Show loading state
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -25,14 +25,23 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     );
   }
 
+  // Redirect to login if not authenticated
   if (!isAuthenticated || !user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Check role-based access
-  if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
-    // Redirect to appropriate dashboard based on role
-    const roleMap: Record<UserRole, string> = {
+  // If no roles are specified, allow access (but this should rarely happen)
+  if (allowedRoles.length === 0) {
+    return <>{children}</>;
+  }
+
+  // Check if user has the required role
+  const userRole = user.role || 'student';
+  const hasRole = allowedRoles.includes(userRole);
+
+  // If user doesn't have the required role, redirect to their default dashboard
+  if (!hasRole) {
+    const roleMap: Record<string, string> = {
       admin: '/admin/dashboard',
       teacher: '/teacher/dashboard',
       student: '/student/dashboard',
@@ -43,10 +52,11 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
       record_keeper: '/admin-asst/dashboard',
       admin_asst: '/admin-asst/dashboard',
     };
-    const redirectPath = roleMap[user.role] || '/dashboard';
+    const redirectPath = roleMap[userRole] || '/dashboard';
     return <Navigate to={redirectPath} replace />;
   }
 
+  // Only render children if user has the required role
   return <>{children}</>;
 };
 

@@ -1,4 +1,3 @@
-// src/pages/parent/MyChildren.tsx
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -73,6 +72,8 @@ interface Fee {
   session: string;
   term: string;
   assignment_status: string;
+  discount_amount?: number;
+  original_amount?: number;
 }
 
 interface Payment {
@@ -186,8 +187,7 @@ const MyChildren: React.FC = () => {
   }, [user, parentId]);
 
   // ============================================
-  // FIXED: Load ALL assignments (not filtered by session/term)
-  // This matches ParentPayBill behavior
+  // FIXED: Load ALL assignments with correct calculations
   // ============================================
   const loadChildren = async () => {
     if (!parentId) return;
@@ -227,10 +227,7 @@ const MyChildren: React.FC = () => {
           const className = student.classes?.name || 'No Class Assigned';
           const classId = student.class_id || '';
 
-          // ============================================
-          // FIXED: Get ALL active assignments - no session/term filter
-          // This matches ParentPayBill behavior
-          // ============================================
+          // Get ALL active assignments - no session/term filter
           const { data: assignments, error: assignmentsError } = await supabase
             .from('student_fee_assignments')
             .select(`
@@ -268,7 +265,7 @@ const MyChildren: React.FC = () => {
 
           const finalAssignments = assignments || [];
 
-          // Get successful payments
+          // Get ALL successful payments
           const { data: payments } = await supabase
             .from('payments')
             .select(`
@@ -300,38 +297,26 @@ const MyChildren: React.FC = () => {
             .eq('student_id', student.id)
             .eq('is_active', true);
 
-          // Process fees
+          // Process fees with CORRECT calculations - IGNORE assignment.payment_status from DB
           const fees: Fee[] = (finalAssignments || []).map((assignment) => {
+            // Get payments for this assignment
             const assignmentPayments = (payments || []).filter(
               p => p.assignment_id === assignment.id
             );
             
+            // Calculate total paid from payments (THIS IS THE SOURCE OF TRUTH)
             const totalPaidFromPayments = assignmentPayments.reduce((sum, p) => sum + (p.amount_paid || p.amount || 0), 0);
             
             const feeName = assignment.fees?.name || 'Unknown Fee';
             const feeCategory = assignment.fees?.category || 'Uncategorized';
             
-            const originalAmount = assignment.original_amount || 0;
+            // Get the original amount from the fee
+            const originalAmount = assignment.fees?.amount || assignment.original_amount || 0;
+            
+            // Get the amount due (what the student should pay)
             const amountDue = assignment.amount_due || originalAmount;
             
-            let amountPaid = assignment.amount_paid || 0;
-            
-            if (amountPaid === 0 && totalPaidFromPayments > 0) {
-              amountPaid = totalPaidFromPayments;
-            }
-            
-            let balance = Math.max(0, amountDue - amountPaid);
-            
-            if (assignment.payment_status === 'paid') {
-              balance = 0;
-              amountPaid = amountDue;
-            }
-            
-            if (totalPaidFromPayments >= amountDue && balance > 0) {
-              balance = 0;
-              amountPaid = amountDue;
-            }
-            
+            // Check for exemptions
             const feeExemptions = (exemptions || [])
               .filter(e => e.fee_id === assignment.fee_id)
               .map((e: any) => ({
@@ -341,7 +326,26 @@ const MyChildren: React.FC = () => {
                 exemption_reason: e.exemption_reason,
               }));
 
-            // Determine status - include ALL statuses
+            // Calculate discount from exemptions
+            let discountAmount = 0;
+            let effectiveAmount = amountDue;
+            
+            if (feeExemptions.length > 0) {
+              // Get the highest waiver percentage
+              const maxWaiver = Math.max(...feeExemptions.map(e => e.waiver_percentage || 0));
+              if (maxWaiver > 0) {
+                discountAmount = (amountDue * maxWaiver) / 100;
+                effectiveAmount = amountDue - discountAmount;
+              }
+            }
+
+            // AMOUNT PAID: Use total from payments (source of truth)
+            const amountPaid = totalPaidFromPayments;
+            
+            // BALANCE: Calculate from effective amount minus paid
+            let balance = Math.max(0, effectiveAmount - amountPaid);
+
+            // Determine status based on ACTUAL calculations
             let status: 'paid' | 'partial' | 'unpaid' | 'pending' | 'overdue' | 'waived' | 'cancelled' | 'failed' = 'unpaid';
             
             // Check for cancelled or failed from payments
@@ -359,26 +363,25 @@ const MyChildren: React.FC = () => {
               status = 'cancelled';
             } else if (hasFailedPayment) {
               status = 'failed';
-            } else if (balance <= 0 || assignment.payment_status === 'paid') {
-              status = 'paid';
-            } else if (assignment.payment_status === 'pending') {
-              status = 'pending';
-            } else if (assignment.payment_status === 'overdue') {
-              status = 'overdue';
-            } else if (assignment.payment_status === 'waived') {
+            } else if (feeExemptions.length > 0 && discountAmount >= effectiveAmount) {
               status = 'waived';
+            } else if (balance <= 0) {
+              status = 'paid';
             } else if (amountPaid > 0 && balance > 0) {
               status = 'partial';
             } else {
               status = 'unpaid';
             }
 
+            // Ensure balance is never negative
+            if (balance < 0) balance = 0;
+
             return {
               id: assignment.fee_id || assignment.id,
               assignment_id: assignment.id,
               name: feeName,
               category: feeCategory,
-              amount: originalAmount,
+              amount: effectiveAmount, // Show the effective amount (after discount)
               paid: amountPaid,
               balance: balance,
               due_date: assignment.due_date || '',
@@ -399,6 +402,8 @@ const MyChildren: React.FC = () => {
               session: assignment.session || currentSession,
               term: assignment.term || currentTerm,
               assignment_status: assignment.payment_status || 'unpaid',
+              discount_amount: discountAmount,
+              original_amount: originalAmount,
             };
           });
 
@@ -725,7 +730,13 @@ const MyChildren: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-             
+              <button
+                onClick={refreshData}
+                disabled={refreshing}
+                className="p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all"
+              >
+                <RefreshCw className={`w-4 h-4 sm:w-5 sm:h-5 ${refreshing ? 'animate-spin' : ''}`} />
+              </button>
             </div>
           </div>
         </div>
@@ -1134,6 +1145,11 @@ const MyChildren: React.FC = () => {
                               <p className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white">
                                 {formatCurrency(fee.amount)}
                               </p>
+                              {fee.original_amount && fee.original_amount !== fee.amount && (
+                                <p className="text-[8px] text-gray-400 line-through">
+                                  {formatCurrency(fee.original_amount)}
+                                </p>
+                              )}
                             </div>
                             <div>
                               <p className="text-[8px] sm:text-[10px] text-gray-500 dark:text-gray-400">Paid</p>
@@ -1148,6 +1164,13 @@ const MyChildren: React.FC = () => {
                               </p>
                             </div>
                           </div>
+
+                          {fee.discount_amount && fee.discount_amount > 0 && (
+                            <div className="mt-1 text-[8px] sm:text-[10px] text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                              <Shield className="w-2.5 h-2.5" />
+                              Discount: {formatCurrency(fee.discount_amount)} applied
+                            </div>
+                          )}
 
                           <div className="mt-1.5 sm:mt-2">
                             <div className="w-full h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
@@ -1166,40 +1189,6 @@ const MyChildren: React.FC = () => {
                             </div>
                           </div>
 
-                          <div className="mt-1.5 sm:mt-2 flex flex-col xs:flex-row xs:items-center justify-between gap-1 xs:gap-0">
-                            <div className="flex items-center gap-1 text-[8px] sm:text-[10px] text-gray-500 dark:text-gray-400">
-                              <Calendar className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                              {fee.due_date ? formatDate(fee.due_date) : 'No due date'}
-                            </div>
-                            <div className="flex flex-wrap gap-1">
-                              <button
-                                onClick={() => handleFeeClick(fee)}
-                                className="px-1.5 sm:px-2.5 py-0.5 text-[8px] sm:text-[10px] text-blue-600 hover:bg-blue-50 rounded-lg transition-all dark:text-blue-400 dark:hover:bg-blue-900/20"
-                              >
-                                Details
-                              </button>
-                              {!isPaid && !isWaived && !isCancelled && !isFailed && fee.balance > 0 && (
-                                <button
-                                  onClick={() => handlePayment(fee)}
-                                  className="px-1.5 sm:px-2.5 py-0.5 text-[8px] sm:text-[10px] bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all"
-                                >
-                                  Pay Now
-                                </button>
-                              )}
-                              {isPaid && (
-                                <span className="px-1.5 sm:px-2.5 py-0.5 text-[8px] sm:text-[10px] bg-green-100 text-green-600 rounded-lg dark:bg-green-900/30 dark:text-green-400 flex items-center gap-0.5">
-                                  <CheckCircle className="w-2.5 h-2.5" />
-                                  Paid
-                                </span>
-                              )}
-                              {(isCancelled || isFailed) && (
-                                <span className="px-1.5 sm:px-2.5 py-0.5 text-[8px] sm:text-[10px] bg-gray-100 text-gray-600 rounded-lg dark:bg-gray-800 dark:text-gray-400 flex items-center gap-0.5">
-                                  <XCircle className="w-2.5 h-2.5" />
-                                  {isCancelled ? 'Cancelled' : 'Failed'}
-                                </span>
-                              )}
-                            </div>
-                          </div>
                         </motion.div>
                       );
                     })}
@@ -1437,6 +1426,9 @@ const FeeDetailModal: React.FC<FeeDetailModalProps> = ({
               <div className="p-2 sm:p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-center">
                 <p className="text-[8px] sm:text-[10px] text-gray-500 dark:text-gray-400 uppercase">Total</p>
                 <p className="text-sm sm:text-base font-bold text-gray-900 dark:text-white">{formatCurrency(fee.amount)}</p>
+                {fee.original_amount && fee.original_amount !== fee.amount && (
+                  <p className="text-[8px] text-gray-400 line-through">{formatCurrency(fee.original_amount)}</p>
+                )}
               </div>
               <div className="p-2 sm:p-2.5 bg-green-50 dark:bg-green-900/20 rounded-lg text-center">
                 <p className="text-[8px] sm:text-[10px] text-green-600 dark:text-green-400 uppercase">Paid</p>
@@ -1451,6 +1443,15 @@ const FeeDetailModal: React.FC<FeeDetailModalProps> = ({
                 </p>
               </div>
             </div>
+
+            {fee.discount_amount && fee.discount_amount > 0 && (
+              <div className="p-2 sm:p-2.5 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                <p className="text-[8px] sm:text-[10px] text-purple-600 dark:text-purple-400 uppercase">Discount Applied</p>
+                <p className="font-medium text-xs sm:text-sm text-purple-700 dark:text-purple-300">
+                  {formatCurrency(fee.discount_amount)} off
+                </p>
+              </div>
+            )}
 
             {fee.due_date && (
               <div className="p-2 sm:p-2.5 bg-gray-50 dark:bg-gray-700/50 rounded-lg">

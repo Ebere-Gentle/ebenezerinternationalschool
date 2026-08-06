@@ -490,27 +490,6 @@ const StudentProfile: React.FC = () => {
     );
   }
 
-  if (!profile) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 p-4">
-        <div className="text-center max-w-md">
-          <div className="w-24 h-24 mx-auto bg-gradient-to-br from-amber-100 to-orange-100 dark:from-amber-900/30 dark:to-orange-900/30 rounded-full flex items-center justify-center mb-6">
-            <User className="w-12 h-12 text-amber-500" />
-          </div>
-          <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Profile Not Found</h3>
-          <p className="text-gray-500 dark:text-gray-400 mt-2">
-            We couldn't find your student profile. Please contact school administration.
-          </p>
-          <Link
-            to="/student/dashboard"
-            className="inline-block mt-6 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:shadow-lg transition-all"
-          >
-            Back to Dashboard
-          </Link>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-300">
