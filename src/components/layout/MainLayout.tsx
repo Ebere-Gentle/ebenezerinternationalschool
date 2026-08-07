@@ -55,6 +55,7 @@ import {
   Box,
   History,
   ChevronUp,
+  MoreHorizontal,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -117,6 +118,7 @@ const MainLayout = () => {
   const [isStudent, setIsStudent] = useState(false);
   const [canUploadProfile, setCanUploadProfile] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [showAllNavItems, setShowAllNavItems] = useState(false);
   
   const { user, logout } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
@@ -125,10 +127,11 @@ const MainLayout = () => {
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
-  // Check if mobile - sidebar closed by default
+  // Check if mobile
   useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
       // Sidebar is closed by default on both desktop and mobile
       setSidebarOpen(false);
     };
@@ -813,22 +816,6 @@ const MainLayout = () => {
     .flatMap(item => item.children ? item.children : [item])
     .find(item => isActive(item.path))?.label || 'Dashboard';
 
-  const sidebarVariants = {
-    open: { width: 260, transition: { duration: 0.3, ease: 'easeInOut' } },
-    closed: { width: 72, transition: { duration: 0.3, ease: 'easeInOut' } },
-  };
-
-  const mobileSidebarVariants = {
-    open: { 
-      x: 0, 
-      transition: { duration: 0.3, ease: 'easeInOut' } 
-    },
-    closed: { 
-      x: '-100%', 
-      transition: { duration: 0.3, ease: 'easeInOut' } 
-    },
-  };
-
   const getUserName = () => {
     if (userProfile) {
       const firstName = userProfile.first_name || '';
@@ -995,6 +982,23 @@ const MainLayout = () => {
     );
   };
 
+  // Sidebar variants
+  const sidebarVariants = {
+    open: { width: 260, transition: { duration: 0.3, ease: 'easeInOut' } },
+    closed: { width: 72, transition: { duration: 0.3, ease: 'easeInOut' } },
+  };
+
+  const mobileSidebarVariants = {
+    open: { 
+      x: 0, 
+      transition: { duration: 0.3, ease: 'easeInOut' } 
+    },
+    closed: { 
+      x: '-100%', 
+      transition: { duration: 0.3, ease: 'easeInOut' } 
+    },
+  };
+
   if (loadingProfile) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -1023,7 +1027,7 @@ const MainLayout = () => {
           className="fixed top-0 left-0 z-50 h-screen bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden"
         >
           {/* Logo Section */}
-          <div className="flex items-center justify-between h-20 px-3 border-b border-gray-200/50 dark:border-gray-800/50">
+          <div className="flex items-center justify-between h-20 px-3 border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0">
             <div className={`flex items-center gap-2 ${sidebarOpen ? 'w-full' : 'justify-center w-full'}`}>
               <div className="relative flex-shrink-0">
                 {schoolLogo ? (
@@ -1074,8 +1078,8 @@ const MainLayout = () => {
             </button>
           </div>
 
-          {/* Navigation */}
-          <nav className="px-2 py-4 space-y-1 overflow-y-auto h-[calc(100vh-14rem)]">
+          {/* Navigation - Scrollable with Fixed Dropdown */}
+          <nav className="px-2 py-4 space-y-1 overflow-y-auto h-[calc(100vh-14rem)] flex-1">
             {filteredNavigation.map((item, index) => {
               const hasChildren = item.children && item.children.length > 0;
               const isExpanded = expandedMenus.includes(item.label);
@@ -1085,12 +1089,25 @@ const MainLayout = () => {
                 return (
                   <div key={item.label} className="mb-1">
                     <button
-                      onClick={() => sidebarOpen && toggleMenu(item.label)}
+                      onClick={() => {
+                        // Only toggle if sidebar is open
+                        if (sidebarOpen) {
+                          toggleMenu(item.label);
+                        } else {
+                          // If sidebar is closed, open it first
+                          setSidebarOpen(true);
+                          // Then toggle the menu after a small delay
+                          setTimeout(() => {
+                            toggleMenu(item.label);
+                          }, 350);
+                        }
+                      }}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
                         isActiveParent
                           ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
                           : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
                       } ${!sidebarOpen ? 'justify-center' : ''}`}
+                      title={!sidebarOpen ? item.label : ''}
                     >
                       <item.icon className="w-5 h-5 flex-shrink-0" />
                       {sidebarOpen && (
@@ -1157,6 +1174,7 @@ const MainLayout = () => {
                           : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
                         : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
                     } ${!sidebarOpen ? 'justify-center' : ''}`}
+                    title={!sidebarOpen ? item.label : ''}
                   >
                     <item.icon className="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" />
                     {sidebarOpen && (
@@ -1184,8 +1202,8 @@ const MainLayout = () => {
             })}
           </nav>
 
-          {/* User Section */}
-          <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl">
+          {/* User Section - Fixed at bottom */}
+          <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl flex-shrink-0">
             {sidebarOpen ? (
               <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
                 <ProfileImageWithUpload size="sm" />
@@ -1240,9 +1258,10 @@ const MainLayout = () => {
             initial="closed"
             animate={sidebarOpen ? 'open' : 'closed'}
             variants={mobileSidebarVariants}
-            className="fixed top-0 left-0 z-50 h-screen w-[280px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-y-auto"
+            className="fixed top-0 left-0 z-50 h-screen w-[280px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden flex flex-col"
           >
-            <div className="flex items-center justify-between h-20 px-4 border-b border-gray-200/50 dark:border-gray-800/50">
+            {/* Logo Section - Fixed */}
+            <div className="flex items-center justify-between h-20 px-4 border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0">
               <div className="flex items-center gap-3">
                 <div className="relative flex-shrink-0">
                   {schoolLogo ? (
@@ -1286,7 +1305,8 @@ const MainLayout = () => {
               </button>
             </div>
 
-            <nav className="px-3 py-4 space-y-1 overflow-y-auto h-[calc(100vh-14rem)]">
+            {/* Navigation - Scrollable */}
+            <nav className="px-3 py-4 space-y-1 overflow-y-auto flex-1">
               {filteredNavigation.map((item, index) => {
                 const hasChildren = item.children && item.children.length > 0;
                 const isExpanded = expandedMenus.includes(item.label);
@@ -1386,7 +1406,8 @@ const MainLayout = () => {
               })}
             </nav>
 
-            <div className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80">
+            {/* User Section - Fixed at bottom on mobile */}
+            <div className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 flex-shrink-0">
               <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
                 <ProfileImageWithUpload size="sm" />
                 <div className="flex-1 min-w-0">
@@ -1426,6 +1447,24 @@ const MainLayout = () => {
                   <Menu className="w-5 h-5" />
                 </button>
               )}
+              <div className="flex items-center gap-2">
+                {/* Show logo on mobile when sidebar is closed */}
+                {isMobile && !sidebarOpen && (
+                  <div className="relative flex-shrink-0">
+                    {schoolLogo ? (
+                      <img 
+                        src={schoolLogo} 
+                        alt="School Logo" 
+                        className="w-8 h-8 rounded-xl object-cover"
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600">
+                        <School className="w-4 h-4 text-white" />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent truncate max-w-[120px] sm:max-w-xs">
                 {currentPage}
               </h1>

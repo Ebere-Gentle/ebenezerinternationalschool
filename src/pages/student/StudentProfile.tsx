@@ -490,6 +490,22 @@ const StudentProfile: React.FC = () => {
     );
   }
 
+  // ✅ CRITICAL FIX: Check if profile exists before rendering
+  if (!profile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
+        <div className="text-center max-w-md mx-auto p-6">
+         
+  
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Loading...
+            </p>
+           
+          
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 transition-colors duration-300">
@@ -779,9 +795,9 @@ const StudentProfile: React.FC = () => {
                         title="Class Information" 
                         icon={<BookOpen className="w-4 h-4 text-blue-500" />}
                         items={[
-                          { label: 'Class', value: profile.class_name },
-                          { label: 'Class Code', value: profile.class_code },
-                          { label: 'Level', value: profile.class_level, badge: getLevelBadge(profile.class_level || '') },
+                          { label: 'Class', value: profile.class_name || 'N/A' },
+                          { label: 'Class Code', value: profile.class_code || 'N/A' },
+                          { label: 'Level', value: profile.class_level || 'N/A', badge: getLevelBadge(profile.class_level || '') },
                           { label: 'Class Arm', value: profile.class_arm || 'N/A' },
                           { label: 'Department', value: profile.department || 'N/A' },
                         ]}
