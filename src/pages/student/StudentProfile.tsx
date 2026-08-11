@@ -982,7 +982,7 @@ const StudentProfile: React.FC = () => {
           transition={{ delay: 0.5 }}
           className="mt-6 sm:mt-8 text-center text-[10px] sm:text-xs text-gray-400 dark:text-gray-600"
         >
-          <p>© {dayjs().year()} Ebeniza International School. All rights reserved. ✨</p>
+          <p>© {dayjs().year()} Built by Ebenezer International School ICT. All rights reserved. ✨</p>
           <p className="mt-0.5 sm:mt-1 text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500">
             Last updated: {profile.updated_at ? dayjs(profile.updated_at).format('MMM D, YYYY h:mm A') : 'N/A'}
           </p>

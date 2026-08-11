@@ -46,7 +46,8 @@ import {
   Banknote,
   Landmark,
   Smartphone,
-  Eye
+  Eye,
+  Copy
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
@@ -83,6 +84,7 @@ interface Fee {
   student_eligibility: string;
   branch_name?: string;
   class_name?: string;
+  fee_template_id?: string;
 }
 
 interface StudentFeeAssignment {
@@ -260,7 +262,7 @@ const FeeDetail: React.FC = () => {
   }, [assignments]);
 
   // ============================================
-  // FETCH FUNCTIONS - FIXED
+  // FETCH FUNCTIONS
   // ============================================
 
   const fetchFeeDetails = async () => {
@@ -294,7 +296,46 @@ const FeeDetail: React.FC = () => {
         if (classData) className = classData.name;
       }
 
-      setFee({ ...feeData, branch_name: branchName, class_name: className });
+      // ============================================
+      // FIX: Check if fee has breakdown in metadata
+      // If not, try to get it from the template
+      // ============================================
+      let metadata = feeData.metadata || {};
+      
+      // Check if breakdown exists in fee metadata
+      const hasBreakdown = metadata?.fee_breakdown && 
+                           Array.isArray(metadata.fee_breakdown) && 
+                           metadata.fee_breakdown.length > 0;
+      
+      // If no breakdown and fee has a template, fetch from template
+      if (!hasBreakdown && feeData.fee_template_id) {
+        console.log('Fetching breakdown from template:', feeData.fee_template_id);
+        
+        const { data: templateData, error: templateError } = await supabase
+          .from('fee_templates')
+          .select('metadata')
+          .eq('id', feeData.fee_template_id)
+          .single();
+        
+        if (!templateError && templateData?.metadata?.fee_breakdown) {
+          // Copy breakdown from template to fee metadata
+          metadata = {
+            ...metadata,
+            fee_breakdown: templateData.metadata.fee_breakdown,
+            breakdown_from_template: true,
+            template_id: feeData.fee_template_id
+          };
+          
+          console.log('Breakdown loaded from template:', templateData.metadata.fee_breakdown);
+        }
+      }
+
+      setFee({ 
+        ...feeData, 
+        branch_name: branchName, 
+        class_name: className,
+        metadata: metadata 
+      });
     } catch (error: any) {
       console.error('Error fetching fee details:', error);
       toast.error(error.message || 'Failed to load fee details');
@@ -308,7 +349,6 @@ const FeeDetail: React.FC = () => {
     if (!id) return;
     setLoadingAssignments(true);
     try {
-      // Fetch assignments
       const { data, error } = await supabase
         .from('student_fee_assignments')
         .select('*')
@@ -331,7 +371,6 @@ const FeeDetail: React.FC = () => {
         return;
       }
 
-      // Get student details
       const studentIds = data.map(a => a.student_id).filter(Boolean);
       let studentsMap: Record<string, any> = {};
       
@@ -349,7 +388,6 @@ const FeeDetail: React.FC = () => {
         }
       }
 
-      // Get class names
       const classIds = Object.values(studentsMap).map(s => s.class_id).filter(Boolean);
       let classesMap: Record<string, string> = {};
       
@@ -367,7 +405,6 @@ const FeeDetail: React.FC = () => {
         }
       }
 
-      // CRITICAL FIX: Get all payments for this fee to calculate actual paid amounts
       const assignmentIds = data.map(a => a.id);
       let paymentsMap: Record<string, { total_paid: number; status: string }> = {};
       
@@ -379,14 +416,12 @@ const FeeDetail: React.FC = () => {
           .in('status', ['completed', 'paid', 'approved']);
 
         if (!paymentsError && paymentsData) {
-          // Group payments by assignment_id
           paymentsData.forEach(p => {
             if (p.assignment_id) {
               if (!paymentsMap[p.assignment_id]) {
                 paymentsMap[p.assignment_id] = { total_paid: 0, status: 'unpaid' };
               }
               paymentsMap[p.assignment_id].total_paid += p.amount_paid || 0;
-              // If any payment is completed, mark as paid
               if (p.status === 'completed' || p.status === 'paid' || p.status === 'approved') {
                 paymentsMap[p.assignment_id].status = 'paid';
               }
@@ -395,7 +430,6 @@ const FeeDetail: React.FC = () => {
         }
       }
 
-      // Build assignments with student data and payment totals
       const assignmentsWithStudents = data.map((assignment) => {
         const student = studentsMap[assignment.student_id];
         const studentName = student 
@@ -403,12 +437,10 @@ const FeeDetail: React.FC = () => {
           : 'Unknown Student';
         const studentClass = student?.class_id ? classesMap[student.class_id] || '' : '';
 
-        // Get payment info for this assignment
         const paymentInfo = paymentsMap[assignment.id];
         const totalPaid = paymentInfo?.total_paid || 0;
         const balance = Math.max(0, assignment.original_amount - totalPaid - (assignment.discount_amount || 0));
         
-        // Determine status based on actual payments
         let status = assignment.payment_status;
         const amountDue = assignment.original_amount - (assignment.discount_amount || 0);
         if (totalPaid >= amountDue && amountDue > 0) {
@@ -425,7 +457,6 @@ const FeeDetail: React.FC = () => {
           student_id_number: student?.student_id || '',
           student_email: student?.email || '',
           student_class: studentClass,
-          // Override with calculated values from payments
           amount_paid: totalPaid,
           balance: balance,
           payment_status: status,
@@ -510,7 +541,7 @@ const FeeDetail: React.FC = () => {
   };
 
   // ============================================
-  // PAYMENT FUNCTIONS - FIXED with assignment_id
+  // PAYMENT FUNCTIONS
   // ============================================
 
   const handleOpenPaymentModal = (assignment: StudentFeeAssignment) => {
@@ -627,13 +658,12 @@ const FeeDetail: React.FC = () => {
       const newBalance = selectedAssignment.balance - amountPaid;
       const isFullyPaid = newBalance <= 0;
 
-      // CRITICAL FIX: Include assignment_id in payment record
       const paymentData = {
         payment_id: paymentId,
         receipt_number: receiptNumber,
         student_id: selectedAssignment.student_id,
         fee_id: fee.id,
-        assignment_id: selectedAssignment.id, // <-- THIS IS THE KEY FIX
+        assignment_id: selectedAssignment.id,
         amount: selectedAssignment.original_amount,
         amount_paid: amountPaid,
         balance: Math.max(newBalance, 0),
@@ -659,7 +689,6 @@ const FeeDetail: React.FC = () => {
       const { error: insertError } = await supabase.from('payments').insert([paymentData]);
       if (insertError) throw insertError;
 
-      // Update assignment with new totals
       const newPaid = selectedAssignment.amount_paid + amountPaid;
       const newStatus = newBalance <= 0 ? 'paid' : 'partial';
 
@@ -689,7 +718,7 @@ const FeeDetail: React.FC = () => {
   };
 
   // ============================================
-  // WAIVER FUNCTIONS - FIXED with assignment_id
+  // WAIVER FUNCTIONS
   // ============================================
 
   const handleOpenWaiverModal = (assignment: StudentFeeAssignment) => {
@@ -724,7 +753,6 @@ const FeeDetail: React.FC = () => {
       const newBalance = selectedAssignment.balance - waiverAmount;
       const isFullyWaived = newBalance <= 0;
 
-      // Update assignment
       const { error: updateError } = await supabase
         .from('student_fee_assignments')
         .update({
@@ -748,13 +776,12 @@ const FeeDetail: React.FC = () => {
 
       if (updateError) throw updateError;
 
-      // Create a waiver payment record with assignment_id
       await supabase.from('payments').insert([{
         payment_id: `WAV-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         receipt_number: `WAV/${dayjs().format('YYYY')}/${String(Math.floor(Math.random() * 10000)).padStart(4, '0')}`,
         student_id: selectedAssignment.student_id,
         fee_id: fee?.id,
-        assignment_id: selectedAssignment.id, // <-- Include assignment_id
+        assignment_id: selectedAssignment.id,
         amount: selectedAssignment.original_amount,
         amount_paid: waiverAmount,
         balance: Math.max(newBalance, 0),
@@ -788,7 +815,7 @@ const FeeDetail: React.FC = () => {
   };
 
   // ============================================
-  // EXEMPTION FUNCTIONS - FIXED
+  // EXEMPTION FUNCTIONS
   // ============================================
 
   const handleOpenExemptionModal = (assignment: StudentFeeAssignment) => {
@@ -821,7 +848,6 @@ const FeeDetail: React.FC = () => {
     try {
       toast.loading('Creating exemption...');
 
-      // Check if exemption already exists
       const { data: existing } = await supabase
         .from('fee_exemptions')
         .select('id')
@@ -836,7 +862,6 @@ const FeeDetail: React.FC = () => {
         return;
       }
 
-      // Create exemption
       const { error: exemptionError } = await supabase
         .from('fee_exemptions')
         .insert([{
@@ -858,7 +883,6 @@ const FeeDetail: React.FC = () => {
 
       if (exemptionError) throw exemptionError;
 
-      // Update assignment
       const waiverAmount = selectedAssignment.balance * (exemptionPercentage / 100);
       const newBalance = selectedAssignment.balance - waiverAmount;
       const isFullyWaived = newBalance <= 0;
@@ -1170,6 +1194,71 @@ const FeeDetail: React.FC = () => {
               <p className="font-medium text-gray-900 dark:text-white">{fee.description || 'No description provided'}</p>
             </div>
           </div>
+
+          {/* ============================================ */}
+          {/* FEE BREAKDOWN SECTION - WITH TEMPLATE FALLBACK */}
+          {/* ============================================ */}
+          {(() => {
+            const breakdown = fee?.metadata?.fee_breakdown;
+            const hasBreakdown = breakdown && Array.isArray(breakdown) && breakdown.length > 0;
+            const isFromTemplate = fee?.metadata?.breakdown_from_template;
+            
+            return hasBreakdown ? (
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-green-500" />
+                  Fee Breakdown
+                  {isFromTemplate && (
+                    <span className="text-xs font-normal text-blue-500 dark:text-blue-400 ml-2 flex items-center gap-1">
+                      <Copy className="w-3 h-3" />
+                      (from template)
+                    </span>
+                  )}
+                  <span className="text-xs font-normal text-gray-500 dark:text-gray-400 ml-2">
+                    ({breakdown.length} items)
+                  </span>
+                </h3>
+                <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl overflow-hidden">
+                  <table className="w-full">
+                    <thead className="bg-gray-100 dark:bg-gray-700/50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Item</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Amount</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                      {breakdown.map((item: any, index: number) => (
+                        <tr key={index} className="hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
+                          <td className="px-4 py-2.5 text-sm font-medium text-gray-800 dark:text-gray-200">
+                            {item.item || 'Unnamed Item'}
+                          </td>
+                          <td className="px-4 py-2.5 text-sm font-semibold text-gray-900 dark:text-white">
+                            {formatCurrency(item.amount || 0)}
+                          </td>
+                          <td className="px-4 py-2.5 text-sm text-gray-500 dark:text-gray-400">
+                            {item.description || '-'}
+                          </td>
+                        </tr>
+                      ))}
+                      {/* Total Row */}
+                      <tr className="bg-blue-50 dark:bg-blue-900/20">
+                        <td className="px-4 py-3 text-sm font-bold text-gray-900 dark:text-white">
+                          Total
+                        </td>
+                        <td className="px-4 py-3 text-sm font-bold text-blue-600 dark:text-blue-400">
+                          {formatCurrency(breakdown.reduce((sum: number, item: any) => sum + (item.amount || 0), 0))}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                          {breakdown.length} item(s)
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null;
+          })()}
 
           {exemptions.length > 0 && (
             <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">

@@ -24,12 +24,41 @@ import {
   Menu,
   X,
   Home,
+  Moon,
+  User,
+  AlertTriangle,
+  Zap,
+  TrendingUp,
+  RefreshCw,
+  BarChart3,
+  PieChart as PieChartIcon,
+  Activity,
+  CircleDollarSign,
+} from 'lucide-react';
 
-  Zap} from 'lucide-react';
 import {
   getPaymentStatusBadge,
   getCategoryBadge,
 } from '../../utils/paymentUtils';
+
+// Recharts imports
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+} from 'recharts';
 
 dayjs.extend(relativeTime);
 dayjs.extend(isBetween);
@@ -74,6 +103,43 @@ interface StudentWithFees extends Student {
   studentId: string;
 }
 
+// Chart Colors
+const CHART_COLORS = {
+  primary: '#3b82f6',
+  secondary: '#8b5cf6',
+  success: '#22c55e',
+  warning: '#eab308',
+  danger: '#ef4444',
+  info: '#06b6d4',
+  pink: '#ec4899',
+  orange: '#f97316',
+  purple: '#a855f7',
+  teal: '#14b8a6',
+  indigo: '#6366f1',
+  rose: '#f43f5e',
+  amber: '#f59e0b',
+  emerald: '#10b981',
+  cyan: '#06b6d4',
+  violet: '#8b5cf6',
+  fuchsia: '#d946ef',
+  lime: '#84cc16',
+};
+
+const COLORS = [
+  CHART_COLORS.primary,
+  CHART_COLORS.success,
+  CHART_COLORS.warning,
+  CHART_COLORS.danger,
+  CHART_COLORS.info,
+  CHART_COLORS.purple,
+  CHART_COLORS.pink,
+  CHART_COLORS.orange,
+  CHART_COLORS.teal,
+  CHART_COLORS.indigo,
+  CHART_COLORS.rose,
+  CHART_COLORS.amber,
+];
+
 const ParentDashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -83,11 +149,10 @@ const ParentDashboard: React.FC = () => {
   const [students, setStudents] = useState<StudentWithFees[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<StudentWithFees | null>(null);
   const [showStudentDetails, setShowStudentDetails] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'fees' | 'payments'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'fees' | 'payments' | 'analytics'>('overview');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [expandedFee, setExpandedFee] = useState<string | null>(null);
   const [academicInfo, setAcademicInfo] = useState<{ session: string; term: string }>({
     session: '',
     term: ''
@@ -105,66 +170,42 @@ const ParentDashboard: React.FC = () => {
 
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
+  const [chartType, setChartType] = useState<'bar' | 'pie' | 'line' | 'area'>('bar');
 
   const {
     assignments,
     payments,
-    unpaidFees,
-    stats,
-    paymentStats,
     refresh: refreshPaymentData,
     loading: paymentDataLoading,
   } = usePaymentData(selectedStudentId, selectedBranchId, {
-    autoFetch: !!selectedStudentId && !!selectedBranchId
+    autoFetch: !!selectedStudentId && !!selectedBranchId,
   });
 
-  useEffect(() => {
-    if (user) {
-      fetchParentData();
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (selectedStudent && assignments.length > 0) {
-      const totalBalance = assignments.reduce((sum, a) => sum + a.balance, 0);
-      const totalPaid = assignments.reduce((sum, a) => sum + a.amount_paid, 0);
-      const totalDue = assignments.reduce((sum, a) => sum + a.amount_due, 0);
-      const completionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
-
-      setSelectedStudent(prev => prev ? {
-        ...prev,
-        assignments: assignments as any,
-        payments: payments as any,
-        totalBalance,
-        totalPaid,
-        totalDue,
-        completionRate,
-      } : null);
-    }
-  }, [assignments, payments, selectedStudent]);
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [isDarkMode]);
-
-  const fetchParentData = async () => {
-    setLoading(true);
+  // ============================================
+  // FETCH PARENT DATA - FIXED TO REFRESH PROPERLY
+  // ============================================
+  const fetchParentData = async (showToast: boolean = false) => {
+    if (!user?.id) return;
+    
     try {
+      if (showToast) {
+        setRefreshing(true);
+      }
+      
+      // 1. Get parent
       const { data: parentData, error: parentError } = await supabase
         .from('parents')
         .select('*')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .single();
 
       if (parentError) throw parentError;
       setParent(parentData);
 
+      // 2. Get academic period
       await fetchAcademicPeriod(parentData.branch_id);
 
+      // 3. Get students
       const { data: studentsData, error: studentsError } = await supabase
         .from('students')
         .select(`
@@ -179,25 +220,100 @@ const ParentDashboard: React.FC = () => {
 
       if (studentsError) throw studentsError;
 
+      // 4. Process each student with fees
       const studentsWithFees = await Promise.all(
         (studentsData || []).map(async (student) => {
-          const { getStudentPaymentDashboard } = await import('../../services/paymentService');
-          const dashboard = await getStudentPaymentDashboard(student.id, student.branch_id);
+          // Get ALL assignments for this student
+          const { data: assignmentsData, error: assignmentsError } = await supabase
+            .from('student_fee_assignments')
+            .select(`
+              *,
+              fee:fees(
+                id,
+                name,
+                category,
+                amount,
+                due_date,
+                payment_frequency,
+                term,
+                session,
+                metadata
+              )
+            `)
+            .eq('student_id', student.id)
+            .eq('is_active', true);
 
-          const totalBalance = dashboard.assignments
+          if (assignmentsError) {
+            console.error('Error loading assignments:', assignmentsError);
+          }
+
+          // Get ALL successful payments for this student
+          const { data: paymentsData, error: paymentsError } = await supabase
+            .from('payments')
+            .select('*')
+            .eq('student_id', student.id)
+            .in('status', ['success', 'completed', 'approved', 'paid'])
+            .order('payment_date', { ascending: false });
+
+          if (paymentsError) {
+            console.error('Error loading payments:', paymentsError);
+          }
+
+          // Process assignments with CORRECT calculations
+          const processedAssignments = (assignmentsData || []).map((assignment: any) => {
+            // Get payments for this specific assignment
+            const assignmentPayments = (paymentsData || []).filter(
+              (p: any) => p.assignment_id === assignment.id
+            );
+
+            // Calculate total paid from payments (SOURCE OF TRUTH)
+            const totalPaidFromPayments = assignmentPayments.reduce(
+              (sum: number, p: any) => sum + (p.amount_paid || p.amount || 0),
+              0
+            );
+
+            const amountDue = assignment.amount_due || assignment.original_amount || 0;
+            const balance = Math.max(0, amountDue - totalPaidFromPayments);
+
+            // Determine status
+            let paymentStatus = assignment.payment_status || 'unpaid';
+            if (balance <= 0) {
+              paymentStatus = 'paid';
+            } else if (totalPaidFromPayments > 0 && balance > 0) {
+              paymentStatus = 'partial';
+            }
+
+            return {
+              ...assignment,
+              fee_name: assignment.fee?.name || 'Unknown Fee',
+              fee_category: assignment.fee?.category || 'Other',
+              fee_amount: assignment.fee?.amount || 0,
+              amount_paid: totalPaidFromPayments,
+              balance: balance,
+              payment_status: paymentStatus,
+            };
+          });
+
+          const processedPayments = (paymentsData || []).map((p: any) => ({
+            ...p,
+            fee_name: p.fee?.name || 'Unknown Fee',
+          }));
+
+          // Calculate totals
+          const totalBalance = processedAssignments
             .filter(a => a.payment_status !== 'paid' && a.payment_status !== 'waived')
             .reduce((sum, a) => sum + a.balance, 0);
-          const totalPaid = dashboard.assignments
+          const totalPaid = processedAssignments
             .filter(a => a.payment_status !== 'pending')
             .reduce((sum, a) => sum + a.amount_paid, 0);
-          const totalDue = dashboard.assignments.reduce((sum, a) => sum + a.amount_due, 0);
+          const totalDue = processedAssignments.reduce((sum, a) => sum + a.amount_due, 0);
           const completionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
 
           return {
             ...student,
             class_name: student.class?.name || 'Not Assigned',
-            assignments: dashboard.assignments,
-            payments: dashboard.payments,
+            assignments: processedAssignments,
+            payments: processedPayments,
             totalBalance,
             totalPaid,
             totalDue,
@@ -208,22 +324,37 @@ const ParentDashboard: React.FC = () => {
       );
 
       setStudents(studentsWithFees);
-      
+
+      // Auto-select first student if none selected or if selected student changed
       if (studentsWithFees.length > 0) {
-        const firstStudent = studentsWithFees[0];
-        setSelectedStudent(firstStudent);
-        setSelectedStudentId(firstStudent.id);
-        setSelectedBranchId(firstStudent.branch_id);
+        // If we have a selected student, try to keep it
+        if (selectedStudentId) {
+          const existingStudent = studentsWithFees.find(s => s.id === selectedStudentId);
+          if (existingStudent) {
+            setSelectedStudent(existingStudent);
+          } else {
+            // If selected student no longer exists, select first
+            setSelectedStudent(studentsWithFees[0]);
+            setSelectedStudentId(studentsWithFees[0].id);
+            setSelectedBranchId(studentsWithFees[0].branch_id);
+          }
+        } else {
+          // No selected student, select first
+          setSelectedStudent(studentsWithFees[0]);
+          setSelectedStudentId(studentsWithFees[0].id);
+          setSelectedBranchId(studentsWithFees[0].branch_id);
+        }
       }
 
+      // Update summary
       const totalStudents = studentsWithFees.length;
       const totalOutstanding = studentsWithFees.reduce((sum, s) => sum + s.totalBalance, 0);
       const totalPaid = studentsWithFees.reduce((sum, s) => sum + s.totalPaid, 0);
       const totalDue = studentsWithFees.reduce((sum, s) => sum + s.totalDue, 0);
-      const pendingCount = studentsWithFees.reduce((sum, s) => 
+      const pendingCount = studentsWithFees.reduce((sum, s) =>
         sum + s.assignments.filter(a => a.payment_status === 'unpaid' || a.payment_status === 'partial' || a.payment_status === 'pending').length, 0
       );
-      const overdueCount = studentsWithFees.reduce((sum, s) => 
+      const overdueCount = studentsWithFees.reduce((sum, s) =>
         sum + s.assignments.filter(a => a.payment_status === 'overdue').length, 0
       );
       const collectionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
@@ -243,6 +374,10 @@ const ParentDashboard: React.FC = () => {
       toast.error(error.message || 'Failed to load your data');
     } finally {
       setLoading(false);
+      if (showToast) {
+        setRefreshing(false);
+        toast.success('Data refreshed!');
+      }
     }
   };
 
@@ -273,15 +408,54 @@ const ParentDashboard: React.FC = () => {
     }
   };
 
+  // ============================================
+  // REFRESH DATA - UPDATES EVERYTHING
+  // ============================================
   const refreshData = async () => {
-    setRefreshing(true);
-    await fetchParentData();
+    // Force refresh payment data first
     if (selectedStudentId) {
       await refreshPaymentData();
     }
-    setRefreshing(false);
-    toast.success('Data refreshed');
+    // Then refresh parent data
+    await fetchParentData(true);
   };
+
+  // ============================================
+  // EFFECTS
+  // ============================================
+  useEffect(() => {
+    if (user?.id) {
+      fetchParentData(false);
+    }
+  }, [user?.id]);
+
+  // Update selected student when payment data changes
+  useEffect(() => {
+    if (selectedStudent && assignments.length > 0) {
+      const totalBalance = assignments.reduce((sum, a) => sum + a.balance, 0);
+      const totalPaid = assignments.reduce((sum, a) => sum + a.amount_paid, 0);
+      const totalDue = assignments.reduce((sum, a) => sum + a.amount_due, 0);
+      const completionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
+
+      setSelectedStudent(prev => prev ? {
+        ...prev,
+        assignments: assignments as any,
+        payments: payments as any,
+        totalBalance,
+        totalPaid,
+        totalDue,
+        completionRate,
+      } : null);
+    }
+  }, [assignments, payments]);
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-NG', {
@@ -299,6 +473,7 @@ const ParentDashboard: React.FC = () => {
     setSelectedStudentId(student.id);
     setSelectedBranchId(student.branch_id);
     setShowStudentDetails(true);
+    setActiveTab('overview');
   };
 
   const goToPayBill = (studentId: string) => {
@@ -308,6 +483,72 @@ const ParentDashboard: React.FC = () => {
   const goToPaymentHistory = (studentId: string) => {
     navigate(`/parent/payment/${studentId}`);
   };
+
+  // Chart Data Preparation
+  const prepareFeeDistributionData = () => {
+    if (!selectedStudent) return [];
+    const categories = selectedStudent.assignments.reduce((acc: any, a: any) => {
+      const category = a.fee_category || 'Other';
+      if (!acc[category]) acc[category] = { category, amount: 0, count: 0 };
+      acc[category].amount += a.amount_due;
+      acc[category].count += 1;
+      return acc;
+    }, {});
+    return Object.values(categories);
+  };
+
+  const preparePaymentStatusData = () => {
+    if (!selectedStudent) return [];
+    const statuses = selectedStudent.assignments.reduce((acc: any, a: any) => {
+      const status = a.payment_status || 'unpaid';
+      if (!acc[status]) acc[status] = { status, count: 0, amount: 0 };
+      acc[status].count += 1;
+      acc[status].amount += a.balance;
+      return acc;
+    }, {});
+    return Object.values(statuses);
+  };
+
+  const prepareMonthlyPaymentData = () => {
+    if (!selectedStudent) return [];
+    const months: any = {};
+    selectedStudent.payments.forEach((p: any) => {
+      const month = dayjs(p.payment_date).format('MMM YYYY');
+      if (!months[month]) months[month] = { month, amount: 0, count: 0 };
+      months[month].amount += p.amount_paid;
+      months[month].count += 1;
+    });
+    return Object.values(months);
+  };
+
+  const prepareStudentComparisonData = () => {
+    return students.map(s => ({
+      name: `${s.first_name} ${s.last_name}`,
+      balance: s.totalBalance,
+      paid: s.totalPaid,
+      due: s.totalDue,
+      progress: Math.round(s.completionRate),
+    }));
+  };
+
+  const prepareFeeTrendData = () => {
+    if (!selectedStudent) return [];
+    return selectedStudent.assignments
+      .filter((a: any) => a.due_date)
+      .sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+      .map((a: any) => ({
+        name: a.fee_name || 'Fee',
+        due: a.amount_due,
+        balance: a.balance,
+        paid: a.amount_paid,
+      }));
+  };
+
+  const feeDistributionData = prepareFeeDistributionData();
+  const paymentStatusData = preparePaymentStatusData();
+  const monthlyPaymentData = prepareMonthlyPaymentData();
+  const studentComparisonData = prepareStudentComparisonData();
+  const feeTrendData = prepareFeeTrendData();
 
   if (loading) {
     return (
@@ -327,7 +568,7 @@ const ParentDashboard: React.FC = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 transition-colors duration-300">
       
-      {/* Header - Mobile Responsive */}
+      {/* Header */}
       <div className="relative bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl border-b border-white/20 dark:border-slate-700/50 shadow-sm">
         <div className="max-w-[1600px] mx-auto px-3 sm:px-4 lg:px-6 py-3 sm:py-4">
           <div className="flex items-center justify-between gap-2">
@@ -355,7 +596,13 @@ const ParentDashboard: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
-             
+            
+              <button
+                onClick={() => navigate('/parent/profile')}
+                className="p-1.5 sm:p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+              >
+                <User className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
             </div>
           </div>
         </div>
@@ -406,7 +653,7 @@ const ParentDashboard: React.FC = () => {
           )}
         </AnimatePresence>
 
-        {/* Welcome Banner - Mobile Responsive */}
+        {/* Welcome Banner */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -435,8 +682,8 @@ const ParentDashboard: React.FC = () => {
           </div>
         </motion.div>
 
-        {/* Stats Grid - Mobile Responsive (2x2 on mobile, 4 on desktop) */}
-        <div className="grid grid-cols-2 gap-2 sm:gap-4 mb-4 sm:mb-6">
+        {/* Stats Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4 mb-4 sm:mb-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -507,9 +754,45 @@ const ParentDashboard: React.FC = () => {
               </div>
             </div>
           </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg border border-white/20 dark:border-slate-700/50 p-3 sm:p-5"
+          >
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="text-[10px] sm:text-sm text-slate-500 dark:text-slate-400 truncate">Overdue</p>
+                <p className="text-base sm:text-2xl font-bold text-red-500 dark:text-red-400 mt-0.5 sm:mt-1">{summary.overdueCount}</p>
+              </div>
+              <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-br from-orange-500 to-red-500 flex items-center justify-center shadow-lg flex-shrink-0">
+                <AlertTriangle className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
+              </div>
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg border border-white/20 dark:border-slate-700/50 p-3 sm:p-5"
+          >
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="text-[10px] sm:text-sm text-slate-500 dark:text-slate-400 truncate">Collection</p>
+                <p className="text-base sm:text-2xl font-bold text-blue-600 dark:text-blue-400 mt-0.5 sm:mt-1">
+                  {Math.round(summary.collectionRate)}%
+                </p>
+              </div>
+              <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center shadow-lg flex-shrink-0">
+                <TrendingUp className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
+              </div>
+            </div>
+          </motion.div>
         </div>
 
-        {/* Main Content - Mobile Responsive */}
+        {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           
           {/* Left Column - Children List */}
@@ -591,7 +874,7 @@ const ParentDashboard: React.FC = () => {
               )}
             </div>
 
-            {/* Quick Actions - Mobile Responsive */}
+            {/* Quick Actions */}
             <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg border border-white/20 dark:border-slate-700/50 p-3 sm:p-4">
               <h4 className="text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2 sm:mb-3">Quick Actions</h4>
               <div className="grid grid-cols-2 gap-1.5 sm:gap-2">
@@ -638,7 +921,7 @@ const ParentDashboard: React.FC = () => {
             {selectedStudent ? (
               <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl rounded-xl sm:rounded-2xl shadow-lg border border-white/20 dark:border-slate-700/50 overflow-hidden">
                 
-                {/* Student Header - Mobile Responsive */}
+                {/* Student Header */}
                 <div className="p-3 sm:p-4 md:p-6 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
                     <div className="flex items-center gap-3 sm:gap-4 min-w-0">
@@ -672,7 +955,7 @@ const ParentDashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Student Stats - Mobile Responsive */}
+                  {/* Student Stats */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-3 mt-3 sm:mt-4">
                     <div className="bg-white/50 dark:bg-slate-800/50 rounded-lg sm:rounded-xl p-1.5 sm:p-2.5 text-center">
                       <p className="text-[8px] sm:text-xs text-slate-500 dark:text-slate-400">Fees</p>
@@ -701,50 +984,35 @@ const ParentDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Tabs - Mobile Responsive */}
+                {/* Tabs */}
                 <div className="flex gap-0.5 sm:gap-1 p-2 sm:p-3 border-b border-slate-200 dark:border-slate-700 bg-gray-50 dark:bg-gray-800/50 overflow-x-auto">
-                  <button
-                    onClick={() => setActiveTab('overview')}
-                    className={`px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-sm font-medium transition-all whitespace-nowrap ${
-                      activeTab === 'overview'
-                        ? 'bg-white dark:bg-slate-700 shadow-lg text-green-600 dark:text-green-400'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-700/50'
-                    }`}
-                  >
-                    <span className="flex items-center gap-1 sm:gap-2">
-                      <Home className="w-3 h-3 sm:w-4 sm:h-4" />
-                      Overview
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('fees')}
-                    className={`px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-sm font-medium transition-all whitespace-nowrap ${
-                      activeTab === 'fees'
-                        ? 'bg-white dark:bg-slate-700 shadow-lg text-green-600 dark:text-green-400'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-700/50'
-                    }`}
-                  >
-                    <span className="flex items-center gap-1 sm:gap-2">
-                      <FileText className="w-3 h-3 sm:w-4 sm:h-4" />
-                      Fees ({selectedStudent.assignments.length})
-                    </span>
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('payments')}
-                    className={`px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-sm font-medium transition-all whitespace-nowrap ${
-                      activeTab === 'payments'
-                        ? 'bg-white dark:bg-slate-700 shadow-lg text-green-600 dark:text-green-400'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-700/50'
-                    }`}
-                  >
-                    <span className="flex items-center gap-1 sm:gap-2">
-                      <Receipt className="w-3 h-3 sm:w-4 sm:h-4" />
-                      Payments ({selectedStudent.payments.length})
-                    </span>
-                  </button>
+                  {[
+                    { id: 'overview', label: 'Overview', icon: Home },
+                    { id: 'fees', label: `Fees (${selectedStudent.assignments.length})`, icon: FileText },
+                    { id: 'payments', label: `Payments (${selectedStudent.payments.length})`, icon: Receipt },
+                    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+                  ].map((tab) => {
+                    const Icon = tab.icon;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id as any)}
+                        className={`px-2 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-[10px] sm:text-sm font-medium transition-all whitespace-nowrap ${
+                          activeTab === tab.id
+                            ? 'bg-white dark:bg-slate-700 shadow-lg text-green-600 dark:text-green-400'
+                            : 'text-slate-600 dark:text-slate-400 hover:bg-white/50 dark:hover:bg-slate-700/50'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1 sm:gap-2">
+                          <Icon className="w-3 h-3 sm:w-4 sm:h-4" />
+                          <span className="hidden xs:inline">{tab.label}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
 
-                {/* Tab Content - Mobile Responsive */}
+                {/* Tab Content */}
                 <div className="p-3 sm:p-4 md:p-6">
                   
                   {/* Overview Tab */}
@@ -924,6 +1192,370 @@ const ParentDashboard: React.FC = () => {
                             </div>
                           </motion.div>
                         ))
+                      )}
+                    </div>
+                  )}
+
+                  {/* Analytics Tab - Charts */}
+                  {activeTab === 'analytics' && (
+                    <div className="space-y-4 sm:space-y-6">
+                      
+                      {/* Chart Type Selector */}
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                        <span className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300">Chart Type:</span>
+                        <button
+                          onClick={() => setChartType('bar')}
+                          className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all ${
+                            chartType === 'bar' 
+                              ? 'bg-blue-500 text-white' 
+                              : 'bg-gray-100 dark:bg-gray-700 text-slate-600 dark:text-slate-400 hover:bg-gray-200'
+                          }`}
+                        >
+                          <BarChart3 className="w-3.5 h-3.5 sm:w-4 sm:h-4 inline mr-1" />
+                          Bar
+                        </button>
+                        <button
+                          onClick={() => setChartType('pie')}
+                          className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all ${
+                            chartType === 'pie' 
+                              ? 'bg-blue-500 text-white' 
+                              : 'bg-gray-100 dark:bg-gray-700 text-slate-600 dark:text-slate-400 hover:bg-gray-200'
+                          }`}
+                        >
+                          <PieChartIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 inline mr-1" />
+                          Pie
+                        </button>
+                        <button
+                          onClick={() => setChartType('line')}
+                          className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all ${
+                            chartType === 'line' 
+                              ? 'bg-blue-500 text-white' 
+                              : 'bg-gray-100 dark:bg-gray-700 text-slate-600 dark:text-slate-400 hover:bg-gray-200'
+                          }`}
+                        >
+                          <Activity className="w-3.5 h-3.5 sm:w-4 sm:h-4 inline mr-1" />
+                          Line
+                        </button>
+                        <button
+                          onClick={() => setChartType('area')}
+                          className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all ${
+                            chartType === 'area' 
+                              ? 'bg-blue-500 text-white' 
+                              : 'bg-gray-100 dark:bg-gray-700 text-slate-600 dark:text-slate-400 hover:bg-gray-200'
+                          }`}
+                        >
+                          <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 inline mr-1" />
+                          Area
+                        </button>
+                      </div>
+
+                      {/* Fee Distribution Chart */}
+                      {feeDistributionData.length > 0 && (
+                        <div className="bg-white/50 dark:bg-slate-800/50 rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-slate-200 dark:border-slate-700">
+                          <h4 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-white mb-3 sm:mb-4 flex items-center gap-2">
+                            <PieChartIcon className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500" />
+                            Fee Distribution by Category
+                          </h4>
+                          <ResponsiveContainer width="100%" height={300}>
+                            {chartType === 'pie' ? (
+                              <PieChart>
+                                <Pie
+                                  data={feeDistributionData}
+                                  cx="50%"
+                                  cy="50%"
+                                  labelLine={false}
+                                  label={({ category, amount }) => `${category}: ${formatCurrency(amount)}`}
+                                  outerRadius={80}
+                                  fill="#8884d8"
+                                  dataKey="amount"
+                                >
+                                  {feeDistributionData.map((entry: any, index: number) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                                <Legend />
+                              </PieChart>
+                            ) : chartType === 'line' ? (
+                              <LineChart data={feeDistributionData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="category" />
+                                <YAxis tickFormatter={(value: any) => formatCurrency(value)} />
+                                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                                <Legend />
+                                <Line type="monotone" dataKey="amount" stroke={CHART_COLORS.primary} strokeWidth={2} />
+                                <Line type="monotone" dataKey="count" stroke={CHART_COLORS.secondary} strokeWidth={2} />
+                              </LineChart>
+                            ) : chartType === 'area' ? (
+                              <AreaChart data={feeDistributionData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="category" />
+                                <YAxis tickFormatter={(value: any) => formatCurrency(value)} />
+                                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                                <Legend />
+                                <Area type="monotone" dataKey="amount" stackId="1" stroke={CHART_COLORS.primary} fill={CHART_COLORS.primary} fillOpacity={0.3} />
+                                <Area type="monotone" dataKey="count" stackId="1" stroke={CHART_COLORS.secondary} fill={CHART_COLORS.secondary} fillOpacity={0.3} />
+                              </AreaChart>
+                            ) : (
+                              <BarChart data={feeDistributionData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="category" />
+                                <YAxis tickFormatter={(value: any) => formatCurrency(value)} />
+                                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                                <Legend />
+                                <Bar dataKey="amount" fill={CHART_COLORS.primary} />
+                                <Bar dataKey="count" fill={CHART_COLORS.secondary} />
+                              </BarChart>
+                            )}
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+
+                      {/* Payment Status Chart */}
+                      {paymentStatusData.length > 0 && (
+                        <div className="bg-white/50 dark:bg-slate-800/50 rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-slate-200 dark:border-slate-700">
+                          <h4 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-white mb-3 sm:mb-4 flex items-center gap-2">
+                            <CircleDollarSign className="w-4 h-4 sm:w-5 sm:h-5 text-green-500" />
+                            Payment Status Distribution
+                          </h4>
+                          <ResponsiveContainer width="100%" height={250}>
+                            {chartType === 'pie' ? (
+                              <PieChart>
+                                <Pie
+                                  data={paymentStatusData}
+                                  cx="50%"
+                                  cy="50%"
+                                  labelLine={false}
+                                  label={({ status, count }) => `${status}: ${count}`}
+                                  outerRadius={80}
+                                  fill="#8884d8"
+                                  dataKey="count"
+                                >
+                                  {paymentStatusData.map((entry: any, index: number) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip />
+                                <Legend />
+                              </PieChart>
+                            ) : chartType === 'line' ? (
+                              <LineChart data={paymentStatusData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="status" />
+                                <YAxis />
+                                <Tooltip />
+                                <Legend />
+                                <Line type="monotone" dataKey="count" stroke={CHART_COLORS.success} strokeWidth={2} />
+                              </LineChart>
+                            ) : chartType === 'area' ? (
+                              <AreaChart data={paymentStatusData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="status" />
+                                <YAxis />
+                                <Tooltip />
+                                <Legend />
+                                <Area type="monotone" dataKey="count" stroke={CHART_COLORS.success} fill={CHART_COLORS.success} fillOpacity={0.3} />
+                              </AreaChart>
+                            ) : (
+                              <BarChart data={paymentStatusData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="status" />
+                                <YAxis />
+                                <Tooltip />
+                                <Legend />
+                                <Bar dataKey="count" fill={CHART_COLORS.success} />
+                                <Bar dataKey="amount" fill={CHART_COLORS.primary} />
+                              </BarChart>
+                            )}
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+
+                      {/* Monthly Payment Trend */}
+                      {monthlyPaymentData.length > 0 && (
+                        <div className="bg-white/50 dark:bg-slate-800/50 rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-slate-200 dark:border-slate-700">
+                          <h4 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-white mb-3 sm:mb-4 flex items-center gap-2">
+                            <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500" />
+                            Monthly Payment Trend
+                          </h4>
+                          <ResponsiveContainer width="100%" height={250}>
+                            {chartType === 'pie' ? (
+                              <PieChart>
+                                <Pie
+                                  data={monthlyPaymentData}
+                                  cx="50%"
+                                  cy="50%"
+                                  labelLine={false}
+                                  label={({ month, amount }) => `${month}: ${formatCurrency(amount)}`}
+                                  outerRadius={80}
+                                  fill="#8884d8"
+                                  dataKey="amount"
+                                >
+                                  {monthlyPaymentData.map((entry: any, index: number) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                                <Legend />
+                              </PieChart>
+                            ) : chartType === 'line' ? (
+                              <LineChart data={monthlyPaymentData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="month" />
+                                <YAxis tickFormatter={(value: any) => formatCurrency(value)} />
+                                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                                <Legend />
+                                <Line type="monotone" dataKey="amount" stroke={CHART_COLORS.primary} strokeWidth={2} />
+                                <Line type="monotone" dataKey="count" stroke={CHART_COLORS.secondary} strokeWidth={2} />
+                              </LineChart>
+                            ) : chartType === 'area' ? (
+                              <AreaChart data={monthlyPaymentData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="month" />
+                                <YAxis tickFormatter={(value: any) => formatCurrency(value)} />
+                                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                                <Legend />
+                                <Area type="monotone" dataKey="amount" stroke={CHART_COLORS.primary} fill={CHART_COLORS.primary} fillOpacity={0.3} />
+                              </AreaChart>
+                            ) : (
+                              <BarChart data={monthlyPaymentData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="month" />
+                                <YAxis tickFormatter={(value: any) => formatCurrency(value)} />
+                                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                                <Legend />
+                                <Bar dataKey="amount" fill={CHART_COLORS.primary} />
+                              </BarChart>
+                            )}
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+
+                      {/* Student Comparison Chart */}
+                      {studentComparisonData.length > 1 && (
+                        <div className="bg-white/50 dark:bg-slate-800/50 rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-slate-200 dark:border-slate-700">
+                          <h4 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-white mb-3 sm:mb-4 flex items-center gap-2">
+                            <Users className="w-4 h-4 sm:w-5 sm:h-5 text-purple-500" />
+                            Student Comparison
+                          </h4>
+                          <ResponsiveContainer width="100%" height={250}>
+                            {chartType === 'pie' ? (
+                              <PieChart>
+                                <Pie
+                                  data={studentComparisonData}
+                                  cx="50%"
+                                  cy="50%"
+                                  labelLine={false}
+                                  label={({ name, progress }) => `${name}: ${progress}%`}
+                                  outerRadius={80}
+                                  fill="#8884d8"
+                                  dataKey="progress"
+                                >
+                                  {studentComparisonData.map((entry: any, index: number) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip />
+                                <Legend />
+                              </PieChart>
+                            ) : chartType === 'line' ? (
+                              <LineChart data={studentComparisonData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="name" />
+                                <YAxis />
+                                <Tooltip />
+                                <Legend />
+                                <Line type="monotone" dataKey="progress" stroke={CHART_COLORS.purple} strokeWidth={2} />
+                                <Line type="monotone" dataKey="balance" stroke={CHART_COLORS.danger} strokeWidth={2} />
+                              </LineChart>
+                            ) : chartType === 'area' ? (
+                              <AreaChart data={studentComparisonData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="name" />
+                                <YAxis />
+                                <Tooltip />
+                                <Legend />
+                                <Area type="monotone" dataKey="progress" stroke={CHART_COLORS.purple} fill={CHART_COLORS.purple} fillOpacity={0.3} />
+                                <Area type="monotone" dataKey="balance" stroke={CHART_COLORS.danger} fill={CHART_COLORS.danger} fillOpacity={0.3} />
+                              </AreaChart>
+                            ) : (
+                              <BarChart data={studentComparisonData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="name" />
+                                <YAxis />
+                                <Tooltip />
+                                <Legend />
+                                <Bar dataKey="progress" fill={CHART_COLORS.purple} />
+                                <Bar dataKey="balance" fill={CHART_COLORS.danger} />
+                              </BarChart>
+                            )}
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+
+                      {/* Fee Trend Chart */}
+                      {feeTrendData.length > 0 && (
+                        <div className="bg-white/50 dark:bg-slate-800/50 rounded-xl sm:rounded-2xl p-3 sm:p-4 border border-slate-200 dark:border-slate-700">
+                          <h4 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-white mb-3 sm:mb-4 flex items-center gap-2">
+                            <Activity className="w-4 h-4 sm:w-5 sm:h-5 text-teal-500" />
+                            Fee Trend Analysis
+                          </h4>
+                          <ResponsiveContainer width="100%" height={250}>
+                            {chartType === 'pie' ? (
+                              <PieChart>
+                                <Pie
+                                  data={feeTrendData}
+                                  cx="50%"
+                                  cy="50%"
+                                  labelLine={false}
+                                  label={({ name, due }) => `${name}: ${formatCurrency(due)}`}
+                                  outerRadius={80}
+                                  fill="#8884d8"
+                                  dataKey="due"
+                                >
+                                  {feeTrendData.map((entry: any, index: number) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                                <Legend />
+                              </PieChart>
+                            ) : chartType === 'line' ? (
+                              <LineChart data={feeTrendData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="name" />
+                                <YAxis tickFormatter={(value: any) => formatCurrency(value)} />
+                                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                                <Legend />
+                                <Line type="monotone" dataKey="due" stroke={CHART_COLORS.primary} strokeWidth={2} />
+                                <Line type="monotone" dataKey="balance" stroke={CHART_COLORS.danger} strokeWidth={2} />
+                                <Line type="monotone" dataKey="paid" stroke={CHART_COLORS.success} strokeWidth={2} />
+                              </LineChart>
+                            ) : chartType === 'area' ? (
+                              <AreaChart data={feeTrendData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="name" />
+                                <YAxis tickFormatter={(value: any) => formatCurrency(value)} />
+                                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                                <Legend />
+                                <Area type="monotone" dataKey="due" stroke={CHART_COLORS.primary} fill={CHART_COLORS.primary} fillOpacity={0.2} />
+                                <Area type="monotone" dataKey="balance" stroke={CHART_COLORS.danger} fill={CHART_COLORS.danger} fillOpacity={0.2} />
+                                <Area type="monotone" dataKey="paid" stroke={CHART_COLORS.success} fill={CHART_COLORS.success} fillOpacity={0.2} />
+                              </AreaChart>
+                            ) : (
+                              <BarChart data={feeTrendData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="name" />
+                                <YAxis tickFormatter={(value: any) => formatCurrency(value)} />
+                                <Tooltip formatter={(value: any) => formatCurrency(value)} />
+                                <Legend />
+                                <Bar dataKey="due" fill={CHART_COLORS.primary} />
+                                <Bar dataKey="balance" fill={CHART_COLORS.danger} />
+                                <Bar dataKey="paid" fill={CHART_COLORS.success} />
+                              </BarChart>
+                            )}
+                          </ResponsiveContainer>
+                        </div>
                       )}
                     </div>
                   )}

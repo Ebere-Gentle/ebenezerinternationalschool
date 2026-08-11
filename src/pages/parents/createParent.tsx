@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
@@ -6,266 +5,260 @@ import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
 import toast from 'react-hot-toast';
 import {
-  Users,
-  UserPlus,
-  User,
-  Search,
-  X,
-  Loader2,
-  UserCheck,
-  Eye,
-  EyeOff,
-  Copy,
-  RefreshCw,
-  ChevronDown,
-  ChevronUp,
-  Trash2,
-  Save,
-  AlertCircle,
-  CheckCircle,
-  Unlink,
-  Key,
-  Users as UsersIcon,
-  BarChart3,
-  Edit2} from 'lucide-react';
+Users,
+UserPlus,
+User,
+Search,
+X,
+Loader2,
+UserCheck,
+Eye,
+EyeOff,
+Copy,
+RefreshCw,
+ChevronDown,
+ChevronUp,
+Trash2,
+Save,
+AlertCircle,
+CheckCircle,
+Unlink,
+Key,
+Users as UsersIcon,
+BarChart3,
+Edit2,
+RefreshCcw,
+} from 'lucide-react';
 
 // Types
 interface Student {
-  id: string;
-  student_id: string;
-  first_name: string;
-  last_name: string;
-  middle_name: string;
-  email: string;
-  phone_number: string;
-  class_id: string;
-  class_name?: string;
-  admission_date: string;
-  current_status: string;
-  parent_id: string | null;
-  parent: Parent | null;
-  has_parent: boolean;
-  parent_has_login: boolean;
-  parent_user_confirmed: boolean;
+id: string;
+student_id: string;
+first_name: string;
+last_name: string;
+middle_name: string;
+email: string;
+phone_number: string;
+class_id: string;
+class_name?: string;
+admission_date: string;
+current_status: string;
+parent_id: string | null;
+parent: Parent | null;
+has_parent: boolean;
+parent_has_login: boolean;
+parent_user_confirmed: boolean;
 }
 
 interface Parent {
-  id: string;
-  parent_id: string;
-  user_id: string | null;
-  first_name: string;
-  last_name: string;
-  middle_name: string | null;
-  email: string;
-  phone_number: string;
-  address: string | null;
-  occupation: string | null;
-  employer: string | null;
-  is_guardian: boolean;
-  is_primary_contact: boolean;
-  branch_id: string;
-  created_at: string;
-  updated_at: string;
-  created_by: string | null;
-  metadata: any;
-  user_email?: string;
-  user_is_active?: boolean;
-  has_login?: boolean;
-  children?: Student[];
-  child_count?: number;
-}
-
-interface ParentFormData {
-  first_name: string;
-  last_name: string;
-  middle_name: string;
-  email: string;
-  phone_number: string;
-  address: string;
-  occupation: string;
-  employer: string;
-  is_guardian: boolean;
-  is_primary_contact: boolean;
-  password: string;
-  confirm_password: string;
-  student_ids: string[];
+id: string;
+parent_id: string;
+user_id: string | null;
+first_name: string;
+last_name: string;
+middle_name: string | null;
+email: string;
+phone_number: string;
+address: string | null;
+occupation: string | null;
+employer: string | null;
+is_guardian: boolean;
+is_primary_contact: boolean;
+branch_id: string;
+created_at: string;
+updated_at: string;
+created_by: string | null;
+metadata: any;
+user_email?: string;
+user_is_active?: boolean;
+has_login?: boolean;
+children?: Student[];
+child_count?: number;
+pending_auth?: boolean;
 }
 
 const ParentManagement: React.FC = () => {
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [parents, setParents] = useState<Parent[]>([]);
-  const [filteredParents, setFilteredParents] = useState<Parent[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'has_login' | 'no_login'>('all');
-  const [selectedParent, setSelectedParent] = useState<Parent | null>(null);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showViewModal, setShowViewModal] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [loadingAction, setLoadingAction] = useState(false);
-  const [branchId, setBranchId] = useState<string>('');
-  const [expandedParent, setExpandedParent] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  const [loginPassword, setLoginPassword] = useState('');
-  const [showLoginPassword, setShowLoginPassword] = useState(false);
-  const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+const navigate = useNavigate();
+const { user } = useAuth();
+const [loading, setLoading] = useState(true);
+const [parents, setParents] = useState<Parent[]>([]);
+const [filteredParents, setFilteredParents] = useState<Parent[]>([]);
+const [students, setStudents] = useState<Student[]>([]);
+const [searchTerm, setSearchTerm] = useState('');
+const [filterStatus, setFilterStatus] = useState<'all' | 'has_login' | 'no_login' | 'pending_auth'>('all');
+const [selectedParent, setSelectedParent] = useState<Parent | null>(null);
+const [showCreateModal, setShowCreateModal] = useState(false);
+const [showViewModal, setShowViewModal] = useState(false);
+const [showEditModal, setShowEditModal] = useState(false);
+const [showPassword, setShowPassword] = useState(false);
+const [loadingAction, setLoadingAction] = useState(false);
+const [branchId, setBranchId] = useState('');
+const [expandedParent, setExpandedParent] = useState<string | null>(null);
+const [refreshKey, setRefreshKey] = useState(0);
+const [showLoginModal, setShowLoginModal] = useState(false);
+const [loginPassword, setLoginPassword] = useState('');
+const [showLoginPassword, setShowLoginPassword] = useState(false);
+const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
+const [showRetryAuthModal, setShowRetryAuthModal] = useState(false);
+const [retryPassword, setRetryPassword] = useState('');
+const [showRetryPassword, setShowRetryPassword] = useState(false);
 
-  // Form state
-  const [formData, setFormData] = useState<ParentFormData>({
-    first_name: '',
-    last_name: '',
-    middle_name: '',
-    email: '',
-    phone_number: '',
-    address: '',
-    occupation: '',
-    employer: '',
-    is_guardian: false,
-    is_primary_contact: true,
-    password: '',
-    confirm_password: '',
-    student_ids: [],
-  });
+// Form state
+const [formData, setFormData] = useState({
+first_name: '',
+last_name: '',
+middle_name: '',
+email: '',
+phone_number: '',
+address: '',
+occupation: '',
+employer: '',
+is_guardian: false,
+is_primary_contact: true,
+password: '',
+confirm_password: '',
+student_ids: [],
+});
 
-  const [editFormData, setEditFormData] = useState<Partial<ParentFormData>>({
-    first_name: '',
-    last_name: '',
-    middle_name: '',
-    email: '',
-    phone_number: '',
-    address: '',
-    occupation: '',
-    employer: '',
-    is_guardian: false,
-    is_primary_contact: true,
-    student_ids: [],
-  });
+const [editFormData, setEditFormData] = useState<Partial<any>>({
+first_name: '',
+last_name: '',
+middle_name: '',
+email: '',
+phone_number: '',
+address: '',
+occupation: '',
+employer: '',
+is_guardian: false,
+is_primary_contact: true,
+student_ids: [],
+});
 
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  // Load data
-  useEffect(() => {
-    if (user?.id) {
-      loadBranch();
-    }
-  }, [user]);
+// Load data
+useEffect(() => {
+if (user?.id) {
+loadBranch();
+}
+}, [user]);
 
-  useEffect(() => {
-    if (branchId) {
-      loadData();
-    }
-  }, [branchId, refreshKey]);
+useEffect(() => {
+if (branchId) {
+loadData();
+}
+}, [branchId, refreshKey]);
 
-  const loadBranch = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('branch_id')
-        .eq('id', user?.id)
-        .single();
+const loadBranch = async () => {
+try {
+const { data, error } = await supabase
+.from('users')
+.select('branch_id')
+.eq('id', user?.id)
+.single();
 
       if (error) throw error;
       if (data) {
         setBranchId(data.branch_id);
       }
-    } catch (error) {
-      console.error('Error loading branch:', error);
-      toast.error('Failed to load branch');
-    }
-  };
+} catch (error) {
+  console.error('Error loading branch:', error);
+  toast.error('Failed to load branch');
+}
+};
 
-  // FIXED: Load data without nested relationship
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      // 1. Load all parents
-      const { data: parentsData, error: parentsError } = await supabase
-        .from('parents')
-        .select('*')
-        .eq('branch_id', branchId)
-        .order('created_at', { ascending: false });
+// Load data without nested relationship
+const loadData = async () => {
+setLoading(true);
+try {
+// 1. Load all parents
+const { data: parentsData, error: parentsError } = await supabase
+.from('parents')
+.select('*')
+.eq('branch_id', branchId)
+.order('created_at', { ascending: false });
 
-      if (parentsError) throw parentsError;
+    if (parentsError) throw parentsError;
 
-      // 2. Load all students
-      const { data: studentsData, error: studentsError } = await supabase
-        .from('students')
-        .select(`
-          *,
-          class:class_id (
-            name
-          )
-        `)
-        .eq('branch_id', branchId)
-        .eq('current_status', 'active')
-        .order('first_name');
+    // 2. Load all students
+    const { data: studentsData, error: studentsError } = await supabase
+      .from('students')
+      .select(`
+        *,
+        class:class_id (
+          name
+        )
+      `)
+      .eq('branch_id', branchId)
+      .eq('current_status', 'active')
+      .order('first_name');
 
-      if (studentsError) throw studentsError;
+    if (studentsError) throw studentsError;
 
-      // 3. Get user info for parents (for login status)
-      const userIds = [...new Set((parentsData || []).map(p => p.user_id).filter(Boolean))];
-      let userMap: Record<string, { email: string; is_active: boolean }> = {};
+    // 3. Get user info for parents (for login status)
+    const userIds = [...new Set((parentsData || []).map(p => p.user_id).filter(Boolean))];
+    let userMap: Record<string, { email: string; is_active: boolean }> = {};
+    
+    if (userIds.length > 0) {
+      const { data: usersData } = await supabase
+        .from('users')
+        .select('id, email, is_active')
+        .in('id', userIds);
       
-      if (userIds.length > 0) {
-        const { data: usersData } = await supabase
-          .from('users')
-          .select('id, email, is_active')
-          .in('id', userIds);
-        
-        if (usersData) {
-          userMap = usersData.reduce((acc, u) => ({ 
-            ...acc, 
-            [u.id]: { email: u.email, is_active: u.is_active } 
-          }), {});
-        }
+      if (usersData) {
+        userMap = usersData.reduce((acc, u) => ({ 
+          ...acc, 
+          [u.id]: { email: u.email, is_active: u.is_active } 
+        }), {});
       }
-
-      // 4. Map students with class names
-      const studentsWithClass = (studentsData || []).map((s: any) => ({
-        ...s,
-        class_name: s.class?.name || 'Not Assigned',
-        has_parent: !!s.parent_id,
-        parent: null,
-        parent_has_login: false,
-        parent_user_confirmed: false,
-      }));
-
-      setStudents(studentsWithClass);
-
-      // 5. Combine parent data with student count
-      const parentsWithDetails = (parentsData || []).map((p: any) => {
-        const userInfo = p.user_id ? userMap[p.user_id] : null;
-        
-        // Count children for this parent
-        const childrenCount = studentsWithClass.filter(s => s.parent_id === p.id).length;
-        
-        return {
-          ...p,
-          child_count: childrenCount,
-          user_email: userInfo?.email || null,
-          user_is_active: userInfo?.is_active || false,
-          has_login: !!p.user_id,
-        };
-      });
-
-      setParents(parentsWithDetails);
-      setFilteredParents(parentsWithDetails);
-
-    } catch (error: any) {
-      console.error('Error loading data:', error);
-      toast.error(error.message || 'Failed to load data');
-    } finally {
-      setLoading(false);
     }
-  };
 
-  // Filter parents
-  useEffect(() => {
-    let filtered = parents;
+    // 4. Map students with class names
+    const studentsWithClass = (studentsData || []).map((s: any) => ({
+      ...s,
+      class_name: s.class?.name || 'Not Assigned',
+      has_parent: !!s.parent_id,
+      parent: null,
+      parent_has_login: false,
+      parent_user_confirmed: false,
+    }));
+
+    setStudents(studentsWithClass);
+
+    // 5. Combine parent data with student count
+    const parentsWithDetails = (parentsData || []).map((p: any) => {
+      const userInfo = p.user_id ? userMap[p.user_id] : null;
+      
+      // Count children for this parent
+      const childrenCount = studentsWithClass.filter(s => s.parent_id === p.id).length;
+      
+      // Check if parent has pending auth
+      const pendingAuth = p.metadata?.pending_auth === true;
+      
+      return {
+        ...p,
+        child_count: childrenCount,
+        user_email: userInfo?.email || null,
+        user_is_active: userInfo?.is_active || false,
+        has_login: !!p.user_id,
+        pending_auth: pendingAuth,
+      };
+    });
+
+    setParents(parentsWithDetails);
+    setFilteredParents(parentsWithDetails);
+
+} catch (error: any) {
+  console.error('Error loading data:', error);
+  toast.error(error.message || 'Failed to load data');
+} finally {
+  setLoading(false);
+}
+};
+
+// Filter parents
+useEffect(() => {
+let filtered = parents;
 
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
@@ -279,49 +272,55 @@ const ParentManagement: React.FC = () => {
     if (filterStatus === 'has_login') {
       filtered = filtered.filter(p => p.has_login);
     } else if (filterStatus === 'no_login') {
-      filtered = filtered.filter(p => !p.has_login);
+      filtered = filtered.filter(p => !p.has_login && !p.pending_auth);
+    } else if (filterStatus === 'pending_auth') {
+      filtered = filtered.filter(p => p.pending_auth);
     }
 
     setFilteredParents(filtered);
-  }, [searchTerm, filterStatus, parents]);
 
-  const checkEmailExists = async (email: string): Promise<boolean> => {
-    try {
-      const { data: parentData } = await supabase
-        .from('parents')
-        .select('email')
-        .eq('email', email.trim())
-        .maybeSingle();
-      if (parentData) return true;
+}, [searchTerm, filterStatus, parents]);
 
-      const { data: userData } = await supabase
-        .from('users')
-        .select('email')
-        .eq('email', email.trim())
-        .maybeSingle();
-      if (userData) return true;
+const checkEmailExists = async (email: string): Promise<boolean> => {
+try {
+// Check in parents table
+const { data: parentData } = await supabase
+.from('parents')
+.select('email')
+.eq('email', email.trim())
+.maybeSingle();
+if (parentData) return true;
 
-      const { data: studentData } = await supabase
-        .from('students')
-        .select('email')
-        .eq('email', email.trim())
-        .maybeSingle();
-      if (studentData) return true;
+    // Check in users table (auth users)
+    const { data: userData } = await supabase
+      .from('users')
+      .select('email')
+      .eq('email', email.trim())
+      .maybeSingle();
+    if (userData) return true;
 
-      return false;
-    } catch (error) {
-      console.error('Error checking email:', error);
-      return false;
-    }
-  };
+    // Check in students table
+    const { data: studentData } = await supabase
+      .from('students')
+      .select('email')
+      .eq('email', email.trim())
+      .maybeSingle();
+    if (studentData) return true;
 
-  const generateParentId = async (): Promise<string> => {
-    const { data: existingParents } = await supabase
-      .from('parents')
-      .select('parent_id')
-      .eq('branch_id', branchId)
-      .order('parent_id', { ascending: false })
-      .limit(1);
+    return false;
+} catch (error) {
+  console.error('Error checking email:', error);
+  return false;
+}
+};
+
+const generateParentId = async (): Promise<string> => {
+const { data: existingParents } = await supabase
+.from('parents')
+.select('parent_id')
+.eq('branch_id', branchId)
+.order('parent_id', { ascending: false })
+.limit(1);
 
     let nextNumber = 1;
     if (existingParents && existingParents.length > 0) {
@@ -333,10 +332,10 @@ const ParentManagement: React.FC = () => {
     }
 
     return `PAR-${String(nextNumber).padStart(4, '0')}`;
-  };
+};
 
-  const validateForm = (): boolean => {
-    const errors: Record<string, string> = {};
+const validateForm = (): boolean => {
+const errors: Record<string, string> = {};
 
     if (!formData.first_name.trim()) errors.first_name = 'First name is required';
     if (!formData.last_name.trim()) errors.last_name = 'Last name is required';
@@ -360,153 +359,111 @@ const ParentManagement: React.FC = () => {
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
-  };
+};
 
-  const createParent = async () => {
-    if (!validateForm()) return;
+// Generate random password for fallback
+const generateRandomPassword = (length: number = 12): string => {
+  const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=';
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    password += charset.charAt(Math.floor(Math.random() * charset.length));
+  }
+  return password;
+};
 
-    const emailExists = await checkEmailExists(formData.email);
-    if (emailExists) {
-      setFormErrors({ ...formErrors, email: 'This email is already registered' });
-      toast.error('This email is already registered');
-      return;
-    }
+// ============================================================
+// CREATE PARENT USING EDGE FUNCTION
+// ============================================================
 
-    setLoadingAction(true);
-    try {
-      const parentId = await generateParentId();
+const createParent = async () => {
+  if (!validateForm()) return;
 
-      // 1. Create parent record
-      const { data: parentData, error: parentError } = await supabase
-        .from('parents')
-        .insert([{
-          parent_id: parentId,
-          first_name: formData.first_name.trim(),
-          last_name: formData.last_name.trim(),
-          middle_name: formData.middle_name.trim() || null,
-          email: formData.email.trim(),
-          phone_number: formData.phone_number.trim(),
-          address: formData.address.trim() || null,
-          occupation: formData.occupation.trim() || null,
-          employer: formData.employer.trim() || null,
-          is_guardian: formData.is_guardian,
-          is_primary_contact: formData.is_primary_contact,
-          branch_id: branchId,
-          created_by: user?.id,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          metadata: {
-            created_via: 'parent_management',
-            created_by_email: user?.email,
-          }
-        }])
-        .select()
-        .single();
+  const emailExists = await checkEmailExists(formData.email);
+  if (emailExists) {
+    setFormErrors({ ...formErrors, email: 'This email is already registered' });
+    toast.error('This email is already registered');
+    return;
+  }
 
-      if (parentError) throw parentError;
-
-      // 2. Create auth user for parent
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+  setLoadingAction(true);
+  try {
+    // Call the Edge Function
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-parent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
         email: formData.email.trim(),
         password: formData.password,
-        options: {
-          data: {
-            role: 'parent',
-            first_name: formData.first_name.trim(),
-            last_name: formData.last_name.trim(),
-            parent_id: parentData.id,
-          }
-        }
-      });
+        first_name: formData.first_name.trim(),
+        last_name: formData.last_name.trim(),
+        middle_name: formData.middle_name.trim() || null,
+        phone_number: formData.phone_number.trim(),
+        address: formData.address.trim() || null,
+        occupation: formData.occupation.trim() || null,
+        employer: formData.employer.trim() || null,
+        is_guardian: formData.is_guardian,
+        is_primary_contact: formData.is_primary_contact,
+        branch_id: branchId,
+        created_by: user?.id,
+        student_ids: formData.student_ids,
+      }),
+    });
 
-      if (authError) {
-        await supabase.from('parents').delete().eq('id', parentData.id);
-        throw authError;
-      }
+    const result = await response.json();
 
-      // 3. Update parent with user_id
-      if (authData.user) {
-        await supabase
-          .from('parents')
-          .update({ 
-            user_id: authData.user.id,
-            metadata: {
-              ...parentData.metadata,
-              auth_user_created: true,
-              auth_user_id: authData.user.id,
-            }
-          })
-          .eq('id', parentData.id);
-
-        // 4. Create user record in users table
-        await supabase
-          .from('users')
-          .insert([{
-            id: authData.user.id,
-            user_id: parentId,
-            email: formData.email.trim(),
-            phone_number: formData.phone_number.trim(),
-            first_name: formData.first_name.trim(),
-            last_name: formData.last_name.trim(),
-            role: 'parent',
-            branch_id: branchId,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            created_by: user?.id,
-            metadata: {
-              parent_id: parentData.id,
-              created_via: 'parent_management',
-            }
-          }]);
-      }
-
-      // 5. Link students to parent
-      if (formData.student_ids.length > 0) {
-        const { error: linkError } = await supabase
-          .from('students')
-          .update({ parent_id: parentData.id })
-          .in('id', formData.student_ids);
-
-        if (linkError) {
-          console.error('Error linking students:', linkError);
-          toast.warning('Parent created but could not link to some students. Please link manually.');
-        }
-      }
-
-      const studentNames = formData.student_ids.map(id => {
-        const student = students.find(s => s.id === id);
-        return student ? `${student.first_name} ${student.last_name}` : '';
-      }).filter(Boolean).join(', ');
-
-      toast.success(
-        `✅ Parent account created successfully!\n\n` +
-        `Name: ${formData.first_name} ${formData.last_name}\n` +
-        `Email: ${formData.email}\n` +
-        `Password: ${formData.password}\n` +
-        `Linked to: ${studentNames}`,
-        { duration: 8000 }
-      );
-
-      resetForm();
-      setShowCreateModal(false);
-      setSelectedParent(null);
-      setRefreshKey(prev => prev + 1);
-
-    } catch (error: any) {
-      console.error('Error creating parent:', error);
-      toast.error(error.message || 'Failed to create parent account');
-    } finally {
+    if (!response.ok) {
+      console.error('❌ Edge Function error:', result);
+      toast.error(result.error || 'Failed to create parent account');
       setLoadingAction(false);
-    }
-  };
-
-  const updateParent = async () => {
-    if (!selectedParent) return;
-    if (!editFormData.first_name?.trim()) {
-      toast.error('First name is required');
       return;
     }
+
+    if (!result.success) {
+      toast.error(result.message || 'Failed to create parent account');
+      setLoadingAction(false);
+      return;
+    }
+
+    const studentNames = formData.student_ids.map(id => {
+      const student = students.find(s => s.id === id);
+      return student ? `${student.first_name} ${student.last_name}` : '';
+    }).filter(Boolean).join(', ');
+
+    toast.success(
+      `✅ Parent account created successfully!\n\n` +
+      `Name: ${formData.first_name} ${formData.last_name}\n` +
+      `Email: ${formData.email}\n` +
+      `Password: ${formData.password}\n` +
+      `Linked to: ${studentNames}\n\n` +
+      `💡 The parent can now log in with their email and password.`,
+      { duration: 8000 }
+    );
+
+    resetForm();
+    setShowCreateModal(false);
+    setRefreshKey(prev => prev + 1);
+
+  } catch (error: any) {
+    console.error('Error creating parent:', error);
+    toast.error(error.message || 'Failed to create parent account. Please try again.');
+  } finally {
+    setLoadingAction(false);
+  }
+};
+
+// ============================================================
+// UPDATE PARENT
+// ============================================================
+
+const updateParent = async () => {
+if (!selectedParent) return;
+if (!editFormData.first_name?.trim()) {
+toast.error('First name is required');
+return;
+}
 
     setLoadingAction(true);
     try {
@@ -556,113 +513,170 @@ const ParentManagement: React.FC = () => {
     } finally {
       setLoadingAction(false);
     }
-  };
+};
 
-  const createParentLogin = async () => {
-    if (!selectedParent) {
-      toast.error('No parent selected');
-      return;
-    }
+// ============================================================
+// CREATE PARENT LOGIN USING EDGE FUNCTION
+// ============================================================
 
-    if (!loginPassword || loginPassword.length < 6) {
-      toast.error('Password must be at least 6 characters');
-      return;
-    }
+const createParentLogin = async () => {
+  if (!selectedParent) {
+    toast.error('No parent selected');
+    return;
+  }
 
-    setLoadingAction(true);
-    try {
-      const parent = selectedParent;
+  if (!loginPassword || loginPassword.length < 6) {
+    toast.error('Password must be at least 6 characters');
+    return;
+  }
 
-      if (parent.user_id) {
-        toast.error('This parent already has a login');
-        setShowLoginModal(false);
-        setLoginPassword('');
-        return;
-      }
+  setLoadingAction(true);
+  try {
+    const parent = selectedParent;
 
-      const { data: existingAuth } = await supabase
-        .from('users')
-        .select('id')
-        .eq('email', parent.email)
-        .maybeSingle();
-
-      if (existingAuth) {
-        toast.error('This email already has an account');
-        return;
-      }
-
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+    // Call the Edge Function to create auth for existing parent
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-parent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
         email: parent.email,
         password: loginPassword,
-        options: {
-          data: {
-            role: 'parent',
-            first_name: parent.first_name,
-            last_name: parent.last_name,
-            parent_id: parent.id,
-          }
-        }
-      });
+        first_name: parent.first_name,
+        last_name: parent.last_name,
+        middle_name: parent.middle_name || null,
+        phone_number: parent.phone_number,
+        address: parent.address || null,
+        occupation: parent.occupation || null,
+        employer: parent.employer || null,
+        is_guardian: parent.is_guardian,
+        is_primary_contact: parent.is_primary_contact,
+        branch_id: branchId,
+        created_by: user?.id,
+        existing_parent_id: parent.id,
+      }),
+    });
 
-      if (authError) throw authError;
+    const result = await response.json();
 
-      if (authData.user) {
-        await supabase
-          .from('parents')
-          .update({ 
-            user_id: authData.user.id,
-            metadata: {
-              ...parent.metadata,
-              auth_user_created: true,
-              auth_user_id: authData.user.id,
-              login_created_at: new Date().toISOString(),
-            }
-          })
-          .eq('id', parent.id);
-
-        await supabase
-          .from('users')
-          .insert([{
-            id: authData.user.id,
-            user_id: parent.parent_id,
-            email: parent.email,
-            phone_number: parent.phone_number,
-            first_name: parent.first_name,
-            last_name: parent.last_name,
-            role: 'parent',
-            branch_id: branchId,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            created_by: user?.id,
-            metadata: {
-              parent_id: parent.id,
-              created_via: 'parent_management_login',
-            }
-          }]);
-      }
-
-      toast.success(
-        `✅ Login created successfully!\n\n` +
-        `Email: ${parent.email}\n` +
-        `Password: ${loginPassword}`,
-        { duration: 8000 }
-      );
-
-      setShowLoginModal(false);
-      setLoginPassword('');
-      setRefreshKey(prev => prev + 1);
-
-    } catch (error: any) {
-      console.error('Error creating login:', error);
-      toast.error(error.message || 'Failed to create login');
-    } finally {
+    if (!response.ok) {
+      console.error('❌ Edge Function error:', result);
+      toast.error(result.error || 'Failed to create login');
       setLoadingAction(false);
+      return;
     }
-  };
 
-  const unlinkAllChildren = async (parentId: string) => {
-    if (!confirm('Are you sure you want to unlink ALL children from this parent?')) return;
+    if (!result.success) {
+      toast.error(result.message || 'Failed to create login');
+      setLoadingAction(false);
+      return;
+    }
+
+    toast.success(
+      `✅ Login created successfully!\n\n` +
+      `Email: ${parent.email}\n` +
+      `Password: ${loginPassword}`,
+      { duration: 8000 }
+    );
+
+    setShowLoginModal(false);
+    setLoginPassword('');
+    setRefreshKey(prev => prev + 1);
+
+  } catch (error: any) {
+    console.error('Error creating login:', error);
+    toast.error(error.message || 'Failed to create login. Please try again.');
+  } finally {
+    setLoadingAction(false);
+  }
+};
+
+// ============================================================
+// RETRY AUTH CREATION USING EDGE FUNCTION
+// ============================================================
+
+const retryAuthCreation = async () => {
+  if (!selectedParent) {
+    toast.error('No parent selected');
+    return;
+  }
+
+  if (!retryPassword || retryPassword.length < 6) {
+    toast.error('Password must be at least 6 characters');
+    return;
+  }
+
+  setLoadingAction(true);
+  try {
+    const parent = selectedParent;
+
+    // Call the Edge Function
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-parent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        email: parent.email,
+        password: retryPassword,
+        first_name: parent.first_name,
+        last_name: parent.last_name,
+        middle_name: parent.middle_name || null,
+        phone_number: parent.phone_number,
+        address: parent.address || null,
+        occupation: parent.occupation || null,
+        employer: parent.employer || null,
+        is_guardian: parent.is_guardian,
+        is_primary_contact: parent.is_primary_contact,
+        branch_id: branchId,
+        created_by: user?.id,
+        existing_parent_id: parent.id,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      console.error('❌ Edge Function error:', result);
+      toast.error(result.error || 'Failed to create auth');
+      setLoadingAction(false);
+      return;
+    }
+
+    if (!result.success) {
+      toast.error(result.message || 'Failed to create auth');
+      setLoadingAction(false);
+      return;
+    }
+
+    toast.success(
+      `✅ Login created successfully!\n\n` +
+      `Email: ${parent.email}\n` +
+      `Password: ${retryPassword}`,
+      { duration: 8000 }
+    );
+
+    setShowRetryAuthModal(false);
+    setRetryPassword('');
+    setRefreshKey(prev => prev + 1);
+
+  } catch (error: any) {
+    console.error('Error creating auth:', error);
+    toast.error(error.message || 'Failed to create auth. Please try again.');
+  } finally {
+    setLoadingAction(false);
+  }
+};
+
+// ============================================================
+// UNLINK ALL CHILDREN
+// ============================================================
+
+const unlinkAllChildren = async (parentId: string) => {
+if (!confirm('Are you sure you want to unlink ALL children from this parent?')) return;
 
     setLoadingAction(true);
     try {
@@ -681,18 +695,24 @@ const ParentManagement: React.FC = () => {
     } finally {
       setLoadingAction(false);
     }
-  };
+};
 
-  const deleteParent = async (parentId: string) => {
-    if (!confirm('Are you sure you want to delete this parent account? This action cannot be undone.')) return;
+// ============================================================
+// DELETE PARENT
+// ============================================================
+
+const deleteParent = async (parentId: string) => {
+if (!confirm('Are you sure you want to delete this parent account? This action cannot be undone.')) return;
 
     setLoadingAction(true);
     try {
+      // First unlink all children
       await supabase
         .from('students')
         .update({ parent_id: null })
         .eq('parent_id', parentId);
 
+      // Then delete the parent
       const { error } = await supabase
         .from('parents')
         .delete()
@@ -710,40 +730,47 @@ const ParentManagement: React.FC = () => {
     } finally {
       setLoadingAction(false);
     }
-  };
+};
 
-  const resetForm = () => {
-    setFormData({
-      first_name: '',
-      last_name: '',
-      middle_name: '',
-      email: '',
-      phone_number: '',
-      address: '',
-      occupation: '',
-      employer: '',
-      is_guardian: false,
-      is_primary_contact: true,
-      password: '',
-      confirm_password: '',
-      student_ids: [],
-    });
-    setFormErrors({});
-  };
+// ============================================================
+// RESET FORM
+// ============================================================
 
-  const openCreateModal = () => {
-    setSelectedStudents([]);
-    setFormData({
-      ...formData,
-      student_ids: [],
-    });
-    setShowCreateModal(true);
-  };
+const resetForm = () => {
+setFormData({
+first_name: '',
+last_name: '',
+middle_name: '',
+email: '',
+phone_number: '',
+address: '',
+occupation: '',
+employer: '',
+is_guardian: false,
+is_primary_contact: true,
+password: '',
+confirm_password: '',
+student_ids: [],
+});
+setFormErrors({});
+};
 
-  const openEditModal = (parent: Parent) => {
-    // Get children for this parent
-    const children = students.filter(s => s.parent_id === parent.id);
-    const childIds = children.map(c => c.id);
+// ============================================================
+// MODAL HANDLERS
+// ============================================================
+
+const openCreateModal = () => {
+setSelectedStudents([]);
+setFormData({
+...formData,
+student_ids: [],
+});
+setShowCreateModal(true);
+};
+
+const openEditModal = (parent: Parent) => {
+const children = students.filter(s => s.parent_id === parent.id);
+const childIds = children.map(c => c.id);
 
     setSelectedParent(parent);
     setEditFormData({
@@ -760,70 +787,95 @@ const ParentManagement: React.FC = () => {
       student_ids: childIds,
     });
     setShowEditModal(true);
-  };
+};
 
-  const viewParentDetails = (parent: Parent) => {
-    setSelectedParent(parent);
-    setShowViewModal(true);
-  };
+const viewParentDetails = (parent: Parent) => {
+setSelectedParent(parent);
+setShowViewModal(true);
+};
 
-  const openLoginModal = (parent: Parent) => {
-    setSelectedParent(parent);
-    setLoginPassword('');
-    setShowLoginModal(true);
-  };
+const openLoginModal = (parent: Parent) => {
+setSelectedParent(parent);
+setLoginPassword('');
+setShowLoginModal(true);
+};
 
-  const toggleStudentSelection = (studentId: string, isEdit = false) => {
-    if (isEdit) {
-      setEditFormData(prev => ({
-        ...prev,
-        student_ids: prev.student_ids?.includes(studentId)
-          ? prev.student_ids.filter(id => id !== studentId)
-          : [...(prev.student_ids || []), studentId],
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        student_ids: prev.student_ids.includes(studentId)
-          ? prev.student_ids.filter(id => id !== studentId)
-          : [...prev.student_ids, studentId],
-      }));
-    }
-  };
+const openRetryAuthModal = (parent: Parent) => {
+setSelectedParent(parent);
+setRetryPassword('');
+setShowRetryAuthModal(true);
+};
 
-  const toggleExpand = (parentId: string) => {
-    setExpandedParent(expandedParent === parentId ? null : parentId);
-  };
+// ============================================================
+// TOGGLE FUNCTIONS
+// ============================================================
 
-  const getChildrenForParent = (parentId: string) => {
-    return students.filter(s => s.parent_id === parentId);
-  };
+const toggleStudentSelection = (studentId: string, isEdit = false) => {
+if (isEdit) {
+setEditFormData(prev => ({
+...prev,
+student_ids: prev.student_ids?.includes(studentId)
+? prev.student_ids.filter(id => id !== studentId)
+: [...(prev.student_ids || []), studentId],
+}));
+} else {
+setFormData(prev => ({
+...prev,
+student_ids: prev.student_ids.includes(studentId)
+? prev.student_ids.filter(id => id !== studentId)
+: [...prev.student_ids, studentId],
+}));
+}
+};
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success('Copied to clipboard!');
-  };
+const toggleExpand = (parentId: string) => {
+setExpandedParent(expandedParent === parentId ? null : parentId);
+};
 
-  const getStatusBadge = (parent: Parent) => {
-    if (parent.has_login) {
-      return {
-        label: 'Has Login',
-        color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-        icon: CheckCircle,
-      };
-    } else {
-      return {
-        label: 'No Login',
-        color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-        icon: AlertCircle,
-      };
-    }
-  };
+// ============================================================
+// HELPER FUNCTIONS
+// ============================================================
 
-  const StatsCards = () => {
-    const total = parents.length;
-    const hasLogin = parents.filter(p => p.has_login).length;
-    const totalChildren = students.filter(s => s.parent_id).length;
+const getChildrenForParent = (parentId: string) => {
+return students.filter(s => s.parent_id === parentId);
+};
+
+const copyToClipboard = (text: string) => {
+navigator.clipboard.writeText(text);
+toast.success('Copied to clipboard!');
+};
+
+const getStatusBadge = (parent: Parent) => {
+if (parent.has_login) {
+return {
+label: 'Has Login',
+color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+icon: CheckCircle,
+};
+} else if (parent.pending_auth) {
+return {
+label: 'Pending Auth',
+color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+icon: AlertCircle,
+};
+} else {
+return {
+label: 'No Login',
+color: 'bg-gray-100 text-gray-700 dark:bg-gray-700/50 dark:text-gray-400',
+icon: AlertCircle,
+};
+}
+};
+
+// ============================================================
+// STATS CARDS
+// ============================================================
+
+const StatsCards = () => {
+const total = parents.length;
+const hasLogin = parents.filter(p => p.has_login).length;
+const pendingAuth = parents.filter(p => p.pending_auth).length;
+const totalChildren = students.filter(s => s.parent_id).length;
 
     return (
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
@@ -868,11 +920,11 @@ const ParentManagement: React.FC = () => {
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Total Children</p>
-              <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{totalChildren}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Pending Auth</p>
+              <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{pendingAuth}</p>
             </div>
-            <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
-              <UsersIcon className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+            <div className="w-12 h-12 bg-yellow-100 dark:bg-yellow-900/30 rounded-xl flex items-center justify-center">
+              <AlertCircle className="w-6 h-6 text-yellow-600 dark:text-yellow-400" />
             </div>
           </div>
         </motion.div>
@@ -885,57 +937,63 @@ const ParentManagement: React.FC = () => {
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Avg Children/Parent</p>
-              <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
-                {total > 0 ? (totalChildren / total).toFixed(1) : '0'}
-              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Total Children</p>
+              <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{totalChildren}</p>
             </div>
-            <div className="w-12 h-12 bg-amber-100 dark:bg-amber-900/30 rounded-xl flex items-center justify-center">
-              <BarChart3 className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+            <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
+              <UsersIcon className="w-6 h-6 text-purple-600 dark:text-purple-400" />
             </div>
           </div>
         </motion.div>
       </div>
     );
-  };
+};
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-        <span className="ml-3 text-gray-600 dark:text-gray-400">Loading...</span>
-      </div>
-    );
-  }
+// ============================================================
+// LOADING STATE
+// ============================================================
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+if (loading) {
+return (
+<div className="flex items-center justify-center min-h-[60vh]">
+<Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+</div>
+);
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+
+return (
+<div className="space-y-6">
+
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6"
+        className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
       >
         <div>
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
             Parent Management
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
             Manage parent accounts and link them to students
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setRefreshKey(prev => prev + 1)}
             className="p-2.5 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-md transition-all"
           >
-            <RefreshCw className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+            <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
           </button>
           <button
             onClick={openCreateModal}
-            className="px-4 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all shadow-lg shadow-blue-500/25 flex items-center gap-2"
+            className="px-4 py-2.5 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-xl font-medium hover:opacity-90 transition-all shadow-lg shadow-purple-500/25 flex items-center gap-2"
           >
-            <UserPlus className="w-4 h-4" />
+            <UserPlus className="w-5 h-5" />
             Add Parent
           </button>
         </div>
@@ -948,7 +1006,7 @@ const ParentManagement: React.FC = () => {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm border border-gray-200 dark:border-gray-700 mb-6"
+        className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm border border-gray-200 dark:border-gray-700"
       >
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1 relative">
@@ -958,18 +1016,19 @@ const ParentManagement: React.FC = () => {
               placeholder="Search parents by name, ID or email..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
+              className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all dark:text-white"
             />
           </div>
           <div className="flex gap-2">
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value as any)}
-              className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
+              className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all dark:text-white"
             >
               <option value="all">All Parents</option>
               <option value="has_login">Has Login</option>
               <option value="no_login">No Login</option>
+              <option value="pending_auth">Pending Auth</option>
             </select>
           </div>
         </div>
@@ -1063,7 +1122,16 @@ const ParentManagement: React.FC = () => {
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
-                            {!parent.has_login && (
+                            {parent.pending_auth && (
+                              <button
+                                onClick={() => openRetryAuthModal(parent)}
+                                className="p-1.5 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 transition-all"
+                                title="Retry auth creation"
+                              >
+                                <RefreshCcw className="w-4 h-4" />
+                              </button>
+                            )}
+                            {!parent.has_login && !parent.pending_auth && (
                               <button
                                 onClick={() => openLoginModal(parent)}
                                 className="p-1.5 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 transition-all"
@@ -1126,7 +1194,16 @@ const ParentManagement: React.FC = () => {
                                 <div className="bg-white dark:bg-gray-800 rounded-xl p-4">
                                   <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Quick Actions</h4>
                                   <div className="space-y-2">
-                                    {!parent.has_login && (
+                                    {parent.pending_auth && (
+                                      <button
+                                        onClick={() => openRetryAuthModal(parent)}
+                                        className="w-full px-4 py-2 bg-yellow-600 text-white text-sm font-medium rounded-lg hover:bg-yellow-700 transition-all flex items-center justify-center gap-2"
+                                      >
+                                        <RefreshCcw className="w-4 h-4" />
+                                        Retry Auth
+                                      </button>
+                                    )}
+                                    {!parent.has_login && !parent.pending_auth && (
                                       <button
                                         onClick={() => openLoginModal(parent)}
                                         className="w-full px-4 py-2 bg-yellow-600 text-white text-sm font-medium rounded-lg hover:bg-yellow-700 transition-all flex items-center justify-center gap-2"
@@ -1734,9 +1811,11 @@ const ParentManagement: React.FC = () => {
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                         selectedParent.has_login 
                           ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                          : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                          : selectedParent.pending_auth
+                          ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                          : 'bg-gray-100 text-gray-700 dark:bg-gray-700/50 dark:text-gray-400'
                       }`}>
-                        {selectedParent.has_login ? '✅ Has Login' : '❌ No Login'}
+                        {selectedParent.has_login ? '✅ Has Login' : selectedParent.pending_auth ? '⏳ Pending Auth' : '❌ No Login'}
                       </span>
                       {selectedParent.is_guardian && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
@@ -1826,7 +1905,19 @@ const ParentManagement: React.FC = () => {
                     <Edit2 className="w-4 h-4" />
                     Edit
                   </button>
-                  {!selectedParent.has_login && (
+                  {selectedParent.pending_auth && (
+                    <button
+                      onClick={() => {
+                        setShowViewModal(false);
+                        openRetryAuthModal(selectedParent);
+                      }}
+                      className="flex-1 px-4 py-2.5 bg-yellow-600 text-white rounded-xl font-medium hover:bg-yellow-700 transition-all flex items-center justify-center gap-2"
+                    >
+                      <RefreshCcw className="w-4 h-4" />
+                      Retry Auth
+                    </button>
+                  )}
+                  {!selectedParent.has_login && !selectedParent.pending_auth && (
                     <button
                       onClick={() => {
                         setShowViewModal(false);
@@ -1936,6 +2027,104 @@ const ParentManagement: React.FC = () => {
                         <>
                           <Key className="w-4 h-4" />
                           Create Login
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Retry Auth Modal */}
+      <AnimatePresence>
+        {showRetryAuthModal && selectedParent && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full"
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                    <RefreshCcw className="w-5 h-5 text-yellow-500" />
+                    Retry Auth Creation
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setShowRetryAuthModal(false);
+                      setRetryPassword('');
+                    }}
+                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-4">
+                    <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                      Creating login for: <strong>{selectedParent.first_name} {selectedParent.last_name}</strong>
+                    </p>
+                    <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
+                      Email: {selectedParent.email}
+                    </p>
+                    <p className="text-xs text-yellow-500 dark:text-yellow-500 mt-1">
+                      ⚠️ This parent was created but auth failed. Retry to create their login.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Password *
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showRetryPassword ? 'text' : 'password'}
+                        value={retryPassword}
+                        onChange={(e) => setRetryPassword(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-yellow-500 focus:border-transparent transition-all dark:text-white pr-10"
+                        placeholder="Min 6 characters"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRetryPassword(!showRetryPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                      >
+                        {showRetryPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">Password must be at least 6 characters</p>
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button
+                      onClick={() => {
+                        setShowRetryAuthModal(false);
+                        setRetryPassword('');
+                      }}
+                      className="px-6 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={retryAuthCreation}
+                      disabled={loadingAction || retryPassword.length < 6}
+                      className="flex-1 px-8 py-2.5 bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl font-medium hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      {loadingAction ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCcw className="w-4 h-4" />
+                          Create Auth
                         </>
                       )}
                     </button>

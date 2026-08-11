@@ -8,6 +8,7 @@ import {
   Edit, 
   Trash2, 
   Download,
+  Printer,
   ChevronLeft,
   ChevronRight,
   Loader2,
@@ -18,10 +19,14 @@ import {
   MapPin,
   Calendar,
   ChevronDown,
-  X
+  X,
+  FileJson,
+  Table,
+  FileText
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import toast from 'react-hot-toast';
+import dayjs from 'dayjs';
 
 interface Student {
   id: string;
@@ -48,22 +53,70 @@ interface Student {
 const StudentsList: React.FC = () => {
   const navigate = useNavigate();
   const [students, setStudents] = useState<Student[]>([]);
+  const [allStudents, setAllStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedStudent, setExpandedStudent] = useState<string | null>(null);
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
   const pageSize = 10;
 
   useEffect(() => {
     fetchStudents();
   }, [currentPage, searchTerm, statusFilter]);
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setShowExportDropdown(false);
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
   const fetchStudents = async () => {
     setLoading(true);
     try {
+      // First, get all students without filter for export
+      let allQuery = supabase
+        .from('students')
+        .select(`
+          *,
+          classes!fk_students_class (
+            name,
+            code
+          )
+        `);
+
+      if (searchTerm) {
+        allQuery = allQuery.or(
+          `first_name.ilike.%${searchTerm}%,` +
+          `last_name.ilike.%${searchTerm}%,` +
+          `email.ilike.%${searchTerm}%,` +
+          `admission_number.ilike.%${searchTerm}%`
+        );
+      }
+
+      if (statusFilter !== 'all') {
+        allQuery = allQuery.eq('current_status', statusFilter);
+      }
+
+      const { data: allData, error: allError } = await allQuery;
+
+      if (allError) throw allError;
+
+      const formattedAllStudents = allData?.map((item: any) => ({
+        ...item,
+        class_name: item.classes?.name || 'Not Assigned',
+      })) || [];
+
+      setAllStudents(formattedAllStudents);
+
+      // Then get paginated results
       let query = supabase
         .from('students')
         .select(`
@@ -142,21 +195,232 @@ const StudentsList: React.FC = () => {
     }
   };
 
-  const exportStudents = () => {
-    toast.success('Export started. Download will begin shortly.');
+  // ============================================
+  // EXPORT FUNCTIONS - Export ALL students
+  // ============================================
+  
+  const exportStudentsJSON = async () => {
+    if (allStudents.length === 0) {
+      toast.error('No students to export');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      // Create a clean copy of all student data
+      const cleanData = allStudents.map(student => ({
+        ...student,
+        class_name: student.class_name || 'Not Assigned',
+        date_of_birth: student.date_of_birth ? dayjs(student.date_of_birth).format('YYYY-MM-DD') : null,
+        created_at: dayjs(student.created_at).format('YYYY-MM-DD HH:mm:ss'),
+      }));
+
+      const blob = new Blob(
+        [JSON.stringify(cleanData, null, 2)],
+        { type: 'application/json' }
+      );
+      
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `students_export_${dayjs().format('YYYY-MM-DD')}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`Exported ${allStudents.length} students as JSON`);
+      setShowExportDropdown(false);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export students');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportStudentsCSV = async () => {
+    if (allStudents.length === 0) {
+      toast.error('No students to export');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      // Define the fields you want to export
+      const fields = [
+        'student_id', 'admission_number', 'first_name', 'last_name', 
+        'gender', 'date_of_birth', 'email', 'phone_number', 
+        'class_name', 'admission_status', 'current_status', 'home_address'
+      ];
+      
+      // Create CSV header
+      let csv = fields.join(',') + '\n';
+      
+      // Create CSV rows for ALL students
+      allStudents.forEach(student => {
+        const row = fields.map(field => {
+          let value = student[field as keyof Student] || '';
+          // Handle special fields
+          if (field === 'date_of_birth' && value) {
+            value = dayjs(value).format('YYYY-MM-DD');
+          }
+          if (field === 'class_name') {
+            value = student.class_name || 'Not Assigned';
+          }
+          // Escape strings with commas or quotes
+          if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+            return `"${value.replace(/"/g, '""')}"`;
+          }
+          return String(value);
+        });
+        csv += row.join(',') + '\n';
+      });
+      
+      // Create blob and download
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `students_export_${dayjs().format('YYYY-MM-DD')}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`Exported ${allStudents.length} students as CSV`);
+      setShowExportDropdown(false);
+    } catch (error) {
+      console.error('CSV export error:', error);
+      toast.error('Failed to export CSV');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // ============================================
+  // PRINT FUNCTION - Print ALL students
+  // ============================================
+  
+  const printStudentsList = async () => {
+    if (allStudents.length === 0) {
+      toast.error('No students to print');
+      return;
+    }
+
+    try {
+      // Create a printable version of all students
+      const printContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Students List</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 40px; max-width: 1200px; margin: 0 auto; }
+            h1 { color: #1a56db; border-bottom: 2px solid #1a56db; padding-bottom: 10px; }
+            .header { text-align: center; margin-bottom: 30px; }
+            .meta { display: flex; justify-content: space-between; margin-bottom: 20px; color: #6b7280; font-size: 14px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th { background: #1a56db; color: white; padding: 10px; text-align: left; }
+            td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; }
+            tr:nth-child(even) { background: #f9fafb; }
+            .status-badge { 
+              display: inline-block; 
+              padding: 2px 10px; 
+              border-radius: 9999px; 
+              font-size: 11px; 
+              font-weight: 600;
+            }
+            .status-active { background: #d1fae5; color: #065f46; }
+            .status-inactive { background: #f3f4f6; color: #374151; }
+            .status-transferred { background: #fef3c7; color: #92400e; }
+            .status-suspended { background: #fee2e2; color: #991b1b; }
+            .status-pending { background: #dbeafe; color: #1e40af; }
+            .footer { text-align: center; margin-top: 30px; color: #6b7280; font-size: 12px; }
+            @media print {
+              .no-print { display: none; }
+              .status-badge { break-inside: avoid; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Students List</h1>
+            <p>Total Students: ${allStudents.length}</p>
+          </div>
+          <div class="meta">
+            <span>Generated: ${new Date().toLocaleString()}</span>
+            <span>Status Filter: ${statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}</span>
+            ${searchTerm ? `<span>Search: ${searchTerm}</span>` : ''}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Admission</th>
+                <th>Student Name</th>
+                <th>Class</th>
+                <th>Gender</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allStudents.map((student, index) => `
+                <tr>
+                  <td>${index + 1}</td>
+                  <td>${student.admission_number || 'N/A'}</td>
+                  <td>${student.first_name} ${student.middle_name || ''} ${student.last_name}</td>
+                  <td>${student.class_name || 'N/A'}</td>
+                  <td>${student.gender || 'N/A'}</td>
+                  <td>${student.email || 'N/A'}</td>
+                  <td>${student.phone_number || 'N/A'}</td>
+                  <td>
+                    <span class="status-badge status-${student.current_status}">
+                      ${student.current_status?.charAt(0).toUpperCase() + student.current_status?.slice(1) || 'Active'}
+                    </span>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="footer">
+            Printed on ${new Date().toLocaleString()} • Page 1 of 1
+          </div>
+        </body>
+        </html>
+      `;
+      
+      // Open print window
+      const printWindow = window.open('', '_blank', 'width=1000,height=800');
+      if (printWindow) {
+        printWindow.document.write(printContent);
+        printWindow.document.close();
+        printWindow.focus();
+        printWindow.print();
+      } else {
+        toast.error('Please allow popups to print');
+      }
+    } catch (error) {
+      console.error('Print error:', error);
+      toast.error('Failed to print student list');
+    }
   };
 
   const toggleExpand = (studentId: string) => {
     setExpandedStudent(expandedStudent === studentId ? null : studentId);
   };
 
+  // Fix: Use valid enum values for student_status_type
+  // The valid values are: 'active', 'inactive', 'transferred', 'suspended'
+  // 'pending' is not a valid value for current_status
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
       inactive: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
       transferred: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
       suspended: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-      pending: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
     };
     return colors[status] || colors.active;
   };
@@ -167,9 +431,19 @@ const StudentsList: React.FC = () => {
       inactive: 'bg-gray-500',
       transferred: 'bg-yellow-500',
       suspended: 'bg-red-500',
-      pending: 'bg-blue-500',
     };
     return colors[status] || colors.active;
+  };
+
+  // Get admission status color - 'pending' is valid for admission_status
+  const getAdmissionStatusColor = (status: string) => {
+    const colors: Record<string, string> = {
+      pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+      admitted: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+      rejected: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+      withdrawn: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
+    };
+    return colors[status] || colors.pending;
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
@@ -192,14 +466,57 @@ const StudentsList: React.FC = () => {
             Manage all students across branches
           </p>
         </div>
-        <div className="flex items-center gap-2 sm:gap-3">
-          <button
-            onClick={exportStudents}
-            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-sm sm:text-base border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
-          >
-            <Download className="w-4 h-4" />
-            <span className="hidden xs:inline">Export</span>
-          </button>
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          {/* Export Dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowExportDropdown(!showExportDropdown);
+              }}
+              disabled={exporting}
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-sm sm:text-base border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all disabled:opacity-50"
+            >
+              {exporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              <span className="hidden xs:inline">{exporting ? 'Exporting...' : 'Export'}</span>
+              <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4" />
+            </button>
+            
+            {showExportDropdown && (
+              <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden z-10">
+                <button
+                  onClick={exportStudentsJSON}
+                  disabled={exporting}
+                  className="flex items-center gap-3 px-4 py-2.5 w-full text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-50"
+                >
+                  <FileJson className="w-4 h-4" />
+                  Export as JSON
+                </button>
+                <button
+                  onClick={exportStudentsCSV}
+                  disabled={exporting}
+                  className="flex items-center gap-3 px-4 py-2.5 w-full text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-50"
+                >
+                  <Table className="w-4 h-4" />
+                  Export as CSV
+                </button>
+                <button
+                  onClick={printStudentsList}
+                  className="flex items-center gap-3 px-4 py-2.5 w-full text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-all border-t border-gray-200 dark:border-gray-700"
+                >
+                  <Printer className="w-4 h-4" />
+                  Print List
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Register Button */}
           <Link
             to="/students/register"
             className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-sm sm:text-base bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all shadow-lg shadow-blue-500/25"
@@ -257,7 +574,7 @@ const StudentsList: React.FC = () => {
             </button>
           </div>
           <div className="flex flex-wrap gap-2">
-            {['all', 'active', 'pending', 'inactive', 'transferred', 'suspended'].map((status) => (
+            {['all', 'active', 'inactive', 'transferred', 'suspended'].map((status) => (
               <button
                 key={status}
                 onClick={() => {
@@ -270,9 +587,22 @@ const StudentsList: React.FC = () => {
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                 }`}
               >
-                {status}
+                {status === 'all' ? 'All' : status}
               </button>
             ))}
+          </div>
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Admission Status</h4>
+            <div className="flex flex-wrap gap-2">
+              {['pending', 'admitted', 'rejected', 'withdrawn'].map((status) => (
+                <span
+                  key={status}
+                  className={`px-3 py-1 text-xs rounded-full capitalize ${getAdmissionStatusColor(status)}`}
+                >
+                  {status}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -290,7 +620,7 @@ const StudentsList: React.FC = () => {
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-3 sm:p-4 border border-gray-200 dark:border-gray-700">
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Pending</p>
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Pending Admission</p>
           <p className="text-lg sm:text-2xl font-bold text-yellow-600 dark:text-yellow-400">
             {students.filter(s => s.admission_status === 'pending').length}
           </p>
@@ -342,10 +672,13 @@ const StudentsList: React.FC = () => {
                       <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                         {student.admission_number}
                       </p>
-                      <div className="mt-1">
+                      <div className="mt-1 flex flex-wrap gap-1">
                         <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(student.current_status)}`}>
                           <span className={`w-1.5 h-1.5 rounded-full ${getStatusDotColor(student.current_status)}`}></span>
                           {student.current_status?.charAt(0).toUpperCase() + student.current_status?.slice(1) || 'Active'}
+                        </span>
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${getAdmissionStatusColor(student.admission_status)}`}>
+                          {student.admission_status}
                         </span>
                       </div>
                     </div>
@@ -502,10 +835,15 @@ const StudentsList: React.FC = () => {
                       {student.class_name}
                     </td>
                     <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(student.current_status)}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${getStatusDotColor(student.current_status)}`}></span>
-                        {student.current_status?.charAt(0).toUpperCase() + student.current_status?.slice(1) || 'Active'}
-                      </span>
+                      <div className="flex flex-col gap-1">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(student.current_status)}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${getStatusDotColor(student.current_status)}`}></span>
+                          {student.current_status?.charAt(0).toUpperCase() + student.current_status?.slice(1) || 'Active'}
+                        </span>
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getAdmissionStatusColor(student.admission_status)}`}>
+                          {student.admission_status}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-1">

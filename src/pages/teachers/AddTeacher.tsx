@@ -24,12 +24,22 @@ import {
   RefreshCw,
   Scan,
   Fingerprint as FingerprintIcon,
-  Mic} from 'lucide-react';
+  Mic
+} from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
 import toast from 'react-hot-toast';
 import dayjs from 'dayjs';
-import type { v4 as uuidv4 } from 'uuid';
+import LoadingSpinner from '../../components/common/LoadingSpinner';
+
+// Helper function to generate UUID (since we don't have the actual uuid import)
+const generateUUID = (): string => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
 
 interface TeacherFormData {
   // Personal Information
@@ -126,6 +136,7 @@ const AddTeacher: React.FC = () => {
   const isEditing = !!id;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState({
     personal: true,
@@ -333,6 +344,7 @@ const AddTeacher: React.FC = () => {
 
   const fetchTeacher = async (teacherId: string) => {
     setLoading(true);
+    setError(null);
     try {
       const { data, error } = await supabase
         .from('teachers')
@@ -340,7 +352,16 @@ const AddTeacher: React.FC = () => {
         .eq('id', teacherId)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === 'PGRST116') {
+          setError('Teacher not found');
+          toast.error('Teacher not found');
+          navigate('/teachers');
+        } else {
+          throw error;
+        }
+        return;
+      }
 
       if (data) {
         setFormData({
@@ -420,10 +441,42 @@ const AddTeacher: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Error fetching teacher:', error);
+      setError(error.message || 'Failed to load teacher data');
       toast.error(error.message || 'Failed to load teacher data');
     } finally {
       setLoading(false);
     }
+  };
+
+  // ============================================
+  // HELPER FUNCTIONS FOR DATA CLEANING
+  // ============================================
+  
+  const cleanDataForSubmission = (data: any): any => {
+    const cleaned: any = {};
+
+    Object.keys(data).forEach((key) => {
+      const value = data[key];
+      
+      // Handle empty strings - convert to null
+      if (value === '' || value === undefined) {
+        cleaned[key] = null;
+      } 
+      // Handle arrays - ensure they're arrays
+      else if (Array.isArray(value)) {
+        cleaned[key] = value.length > 0 ? value : [];
+      }
+      // Handle objects - clean nested objects
+      else if (value && typeof value === 'object' && !Array.isArray(value)) {
+        cleaned[key] = cleanDataForSubmission(value);
+      }
+      // Handle other values
+      else {
+        cleaned[key] = value;
+      }
+    });
+
+    return cleaned;
   };
 
   const generateEmployeeNumber = async (branchId: string) => {
@@ -449,7 +502,7 @@ const AddTeacher: React.FC = () => {
   const uploadPhoto = async (file: File): Promise<{ url: string; publicId: string } | null> => {
     try {
       const fileExt = file.name.split('.').pop();
-      const fileName = `${uuidv4()}.${fileExt}`;
+      const fileName = `${generateUUID()}.${fileExt}`;
       const filePath = `teachers/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
@@ -477,13 +530,11 @@ const AddTeacher: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       toast.error('Photo size should be less than 5MB');
       return;
     }
 
-    // Validate file type
     if (!['image/jpeg', 'image/png', 'image/jpg', 'image/webp'].includes(file.type)) {
       toast.error('Please upload a valid image file (JPEG, PNG, or WebP)');
       return;
@@ -491,7 +542,6 @@ const AddTeacher: React.FC = () => {
 
     setUploadingPhoto(true);
     try {
-      // Create preview
       const reader = new FileReader();
       reader.onload = (e) => {
         setPhotoPreview(e.target?.result as string);
@@ -525,14 +575,12 @@ const AddTeacher: React.FC = () => {
 
     setEnrollingBiometrics(true);
     try {
-      // Simulate biometric enrollment process
-      // In a real implementation, this would interface with a biometric device
       await new Promise(resolve => setTimeout(resolve, 2000));
 
       const enrollmentData = {
-        fingerprint_template: `FP_${uuidv4()}`,
-        facial_data: `FACE_${uuidv4()}`,
-        voice_data: `VOICE_${uuidv4()}`,
+        fingerprint_template: `FP_${generateUUID()}`,
+        facial_data: `FACE_${generateUUID()}`,
+        voice_data: `VOICE_${generateUUID()}`,
         enrollment_date: new Date().toISOString(),
         last_verified: new Date().toISOString(),
         device_id: biometricsDevice,
@@ -563,11 +611,12 @@ const AddTeacher: React.FC = () => {
     }
 
     setSaving(true);
+    setError(null);
+    
     try {
       let photoUrl = formData.photo_url;
       let photoPublicId = formData.photo_public_id;
 
-      // Upload photo if new photo selected
       if (photoFile) {
         const uploadResult = await uploadPhoto(photoFile);
         if (uploadResult) {
@@ -576,26 +625,62 @@ const AddTeacher: React.FC = () => {
         }
       }
 
+      // Clean the data - convert empty strings to null
+      const cleanedFormData = cleanDataForSubmission(formData);
+
       const teacherData = {
-        ...formData,
+        ...cleanedFormData,
         photo_url: photoUrl,
         photo_public_id: photoPublicId,
         branch_id: userBranchId,
         updated_at: new Date().toISOString(),
+        // Ensure date fields are properly handled
+        date_of_birth: cleanedFormData.date_of_birth || null,
+        employment_date: cleanedFormData.employment_date || null,
+        contract_start_date: cleanedFormData.contract_start_date || null,
+        contract_end_date: cleanedFormData.contract_end_date || null,
+        probation_end_date: cleanedFormData.probation_end_date || null,
+        confirmation_date: cleanedFormData.confirmation_date || null,
+        certificate_issue_date: cleanedFormData.certificate_issue_date || null,
+        certificate_expiry_date: cleanedFormData.certificate_expiry_date || null,
+        // Ensure nested objects are properly structured
+        emergency_contact: cleanedFormData.emergency_contact || null,
+        biometrics_data: cleanedFormData.biometrics_data || null,
+        work_schedule: cleanedFormData.work_schedule || null,
       };
 
+      console.log('📤 Saving teacher data:', JSON.stringify(teacherData, null, 2));
+
       if (isEditing) {
-        const { error } = await supabase
+        const { error: updateError } = await supabase
           .from('teachers')
           .update(teacherData)
           .eq('id', id);
 
-        if (error) throw error;
+        if (updateError) {
+          console.error('❌ Supabase error:', updateError);
+          
+          if (updateError.code === '23505') {
+            toast.error('Duplicate record. Please check unique fields like email.');
+          } else if (updateError.code === '22007') {
+            toast.error('Invalid date format. Please check date fields.');
+          } else if (updateError.code === '23502') {
+            toast.error('Missing required field. Please fill in all required fields.');
+          } else if (updateError.code === '42501') {
+            toast.error('Permission denied. Please contact administrator.');
+          } else {
+            toast.error(updateError.message || 'Failed to update teacher');
+          }
+          setSaving(false);
+          return;
+        }
+
         toast.success('Teacher updated successfully!');
       } else {
         const employeeNumber = await generateEmployeeNumber(userBranchId);
         const teacherId = await generateTeacherId(userBranchId);
-        const { error } = await supabase
+        
+        const { error: insertError } = await supabase
           .from('teachers')
           .insert([{
             ...teacherData,
@@ -605,13 +690,31 @@ const AddTeacher: React.FC = () => {
             created_by: user?.id,
           }]);
 
-        if (error) throw error;
+        if (insertError) {
+          console.error('❌ Supabase error:', insertError);
+          
+          if (insertError.code === '23505') {
+            toast.error('Duplicate record. Please check unique fields like email.');
+          } else if (insertError.code === '22007') {
+            toast.error('Invalid date format. Please check date fields.');
+          } else if (insertError.code === '23502') {
+            toast.error('Missing required field. Please fill in all required fields.');
+          } else if (insertError.code === '42501') {
+            toast.error('Permission denied. Please contact administrator.');
+          } else {
+            toast.error(insertError.message || 'Failed to add teacher');
+          }
+          setSaving(false);
+          return;
+        }
+
         toast.success('Teacher added successfully!');
       }
 
       navigate('/teachers');
     } catch (error: any) {
       console.error('Error saving teacher:', error);
+      setError(error.message || 'Failed to save teacher');
       toast.error(error.message || 'Failed to save teacher');
     } finally {
       setSaving(false);
@@ -709,36 +812,76 @@ const AddTeacher: React.FC = () => {
     </button>
   );
 
+  // Show loading spinner
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        <LoadingSpinner size="lg" text="Loading teacher data..." />
+      </div>
+    );
+  }
+
+  // Show error with loading spinner
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <LoadingSpinner size="lg" text="Loading teacher data..." />
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-20">
+    <div className="max-w-6xl mx-auto space-y-6 pb-20 px-2 sm:px-0">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <button
-          onClick={() => navigate('/teachers')}
-          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            {isEditing ? 'Edit Teacher' : 'Add New Teacher'}
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
-            {isEditing ? 'Update teacher information' : 'Add a new teacher to your school'}
-          </p>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/teachers')}
+            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              {isEditing ? 'Edit Teacher' : 'Add New Teacher'}
+            </h1>
+            <p className="text-gray-500 dark:text-gray-400 mt-1">
+              {isEditing ? 'Update teacher information' : 'Add a new teacher to your school'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/teachers')}
+            className="flex items-center gap-2 px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+          >
+            <X className="w-4 h-4" />
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="teacher-form"
+            disabled={saving}
+            className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {isEditing ? 'Saving...' : 'Adding...'}
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" />
+                {isEditing ? 'Update Teacher' : 'Add Teacher'}
+              </>
+            )}
+          </button>
         </div>
       </div>
 
       {/* Form */}
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form id="teacher-form" onSubmit={handleSubmit} className="space-y-4">
         {/* Section 1: Personal Information with Photo */}
         <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-2xl border border-white/20 dark:border-gray-700/50 shadow-xl overflow-hidden">
           <SectionHeader
@@ -1820,87 +1963,94 @@ const AddTeacher: React.FC = () => {
       </form>
 
       {/* Biometrics Modal */}
-      {showBiometricsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <AnimatePresence>
+        {showBiometricsModal && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
           >
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                <FingerprintIcon className="w-5 h-5 text-teal-600 dark:text-teal-400" />
-                Enroll Biometrics
-              </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                Enter the device ID to enroll teacher's biometrics
-              </p>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Device ID / Name
-                </label>
-                <input
-                  type="text"
-                  value={biometricsDevice}
-                  onChange={(e) => setBiometricsDevice(e.target.value)}
-                  placeholder="e.g., DEV-001, Fingerprint Scanner 1"
-                  className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all dark:text-white"
-                />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md"
+            >
+              <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <FingerprintIcon className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+                  Enroll Biometrics
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  Enter the device ID to enroll teacher's biometrics
+                </p>
               </div>
 
-              <div className="bg-teal-50 dark:bg-teal-900/20 rounded-xl p-4">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-teal-600 dark:text-teal-400 mt-0.5" />
-                  <div className="text-sm text-teal-700 dark:text-teal-300">
-                    <p className="font-medium">Biometrics Enrollment Process:</p>
-                    <ol className="list-decimal list-inside mt-1 space-y-1">
-                      <li>Place finger on the scanner</li>
-                      <li>Stand for facial recognition</li>
-                      <li>Speak for voice verification</li>
-                      <li>Wait for confirmation</li>
-                    </ol>
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Device ID / Name
+                  </label>
+                  <input
+                    type="text"
+                    value={biometricsDevice}
+                    onChange={(e) => setBiometricsDevice(e.target.value)}
+                    placeholder="e.g., DEV-001, Fingerprint Scanner 1"
+                    className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all dark:text-white"
+                  />
+                </div>
+
+                <div className="bg-teal-50 dark:bg-teal-900/20 rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-teal-600 dark:text-teal-400 mt-0.5" />
+                    <div className="text-sm text-teal-700 dark:text-teal-300">
+                      <p className="font-medium">Biometrics Enrollment Process:</p>
+                      <ol className="list-decimal list-inside mt-1 space-y-1">
+                        <li>Place finger on the scanner</li>
+                        <li>Stand for facial recognition</li>
+                        <li>Speak for voice verification</li>
+                        <li>Wait for confirmation</li>
+                      </ol>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 dark:border-gray-700">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowBiometricsModal(false);
-                  setBiometricsDevice('');
-                }}
-                className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleBiometricsEnrollment}
-                disabled={enrollingBiometrics || !biometricsDevice.trim()}
-                className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-xl font-medium hover:opacity-90 transition-all shadow-lg shadow-teal-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {enrollingBiometrics ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Enrolling...
-                  </>
-                ) : (
-                  <>
-                    <FingerprintIcon className="w-4 h-4" />
-                    Enroll Now
-                  </>
-                )}
-              </button>
-            </div>
+              <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBiometricsModal(false);
+                    setBiometricsDevice('');
+                  }}
+                  className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBiometricsEnrollment}
+                  disabled={enrollingBiometrics || !biometricsDevice.trim()}
+                  className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-teal-500 to-cyan-500 text-white rounded-xl font-medium hover:opacity-90 transition-all shadow-lg shadow-teal-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {enrollingBiometrics ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Enrolling...
+                    </>
+                  ) : (
+                    <>
+                      <FingerprintIcon className="w-4 h-4" />
+                      Enroll Now
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
     </div>
   );
 };

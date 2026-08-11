@@ -19,17 +19,27 @@ import {
   AlertCircle,
   Fingerprint,
   User,
+  Download,
+  Printer,
+  ChevronDown,
+  FileJson,
+  Table,
+  FileText
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
 import toast from 'react-hot-toast';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import dayjs from 'dayjs';
 
 const TeachersList: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [teachers, setTeachers] = useState<any[]>([]);
+  const [allTeachers, setAllTeachers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDepartment, setFilterDepartment] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
@@ -39,6 +49,7 @@ const TeachersList: React.FC = () => {
   const [enrollingBiometrics, setEnrollingBiometrics] = useState(false);
   const [biometricsDevice, setBiometricsDevice] = useState('');
   const [branchId, setBranchId] = useState<string | null>(null);
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
 
   useEffect(() => {
     const fetchBranchAndTeachers = async () => {
@@ -67,18 +78,27 @@ const TeachersList: React.FC = () => {
           setBranchId(branchId);
           await fetchTeachers(branchId);
         } else {
-          toast.error('No branch assigned. Please contact administrator.');
+          setError('No branch assigned. Please contact administrator.');
           setLoading(false);
         }
       } catch (error) {
         console.error('Error fetching branch:', error);
-        toast.error('Failed to load branch information');
+        setError('Failed to load branch information');
         setLoading(false);
       }
     };
 
     fetchBranchAndTeachers();
   }, [user]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setShowExportDropdown(false);
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const fetchTeachers = async (branchIdParam?: string) => {
     const branchIdToUse = branchIdParam || branchId;
@@ -89,22 +109,259 @@ const TeachersList: React.FC = () => {
     }
 
     setLoading(true);
+    setError(null);
     try {
-      const { data, error } = await supabase
+      // First, get all teachers for export
+      const { data: allData, error: allError } = await supabase
         .from('teachers')
         .select('*')
         .eq('branch_id', branchIdToUse)
         .order('created_at', { ascending: false });
 
+      if (allError) throw allError;
+      setAllTeachers(allData || []);
+
+      // Then apply filters for display
+      let query = supabase
+        .from('teachers')
+        .select('*')
+        .eq('branch_id', branchIdToUse)
+        .order('created_at', { ascending: false });
+
+      if (searchTerm) {
+        query = query.or(
+          `first_name.ilike.%${searchTerm}%,` +
+          `last_name.ilike.%${searchTerm}%,` +
+          `email.ilike.%${searchTerm}%,` +
+          `employee_number.ilike.%${searchTerm}%,` +
+          `phone_number.ilike.%${searchTerm}%`
+        );
+      }
+
+      if (filterDepartment) {
+        query = query.eq('department', filterDepartment);
+      }
+
+      if (filterStatus) {
+        query = query.eq('status', filterStatus);
+      }
+
+      const { data, error } = await query;
+
       if (error) throw error;
       setTeachers(data || []);
     } catch (error: any) {
       console.error('Error fetching teachers:', error);
+      setError(error.message || 'Failed to load teachers');
       toast.error(error.message || 'Failed to load teachers');
     } finally {
       setLoading(false);
     }
   };
+
+  // ============================================
+  // EXPORT FUNCTIONS - Export ALL teachers
+  // ============================================
+  
+  const exportTeachersJSON = async () => {
+    if (allTeachers.length === 0) {
+      toast.error('No teachers to export');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const cleanData = allTeachers.map(teacher => ({
+        ...teacher,
+        created_at: dayjs(teacher.created_at).format('YYYY-MM-DD HH:mm:ss'),
+        updated_at: teacher.updated_at ? dayjs(teacher.updated_at).format('YYYY-MM-DD HH:mm:ss') : null,
+      }));
+
+      const blob = new Blob(
+        [JSON.stringify(cleanData, null, 2)],
+        { type: 'application/json' }
+      );
+      
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `teachers_export_${dayjs().format('YYYY-MM-DD')}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`Exported ${allTeachers.length} teachers as JSON`);
+      setShowExportDropdown(false);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export teachers');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportTeachersCSV = async () => {
+    if (allTeachers.length === 0) {
+      toast.error('No teachers to export');
+      return;
+    }
+
+    setExporting(true);
+    try {
+      const fields = [
+        'employee_number', 'first_name', 'last_name', 
+        'email', 'phone_number', 'department', 'position',
+        'status', 'salary', 'gender', 'date_of_birth'
+      ];
+      
+      let csv = fields.join(',') + '\n';
+      
+      allTeachers.forEach(teacher => {
+        const row = fields.map(field => {
+          let value = teacher[field] || '';
+          if (field === 'date_of_birth' && value) {
+            value = dayjs(value).format('YYYY-MM-DD');
+          }
+          if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+            return `"${value.replace(/"/g, '""')}"`;
+          }
+          return String(value);
+        });
+        csv += row.join(',') + '\n';
+      });
+      
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `teachers_export_${dayjs().format('YYYY-MM-DD')}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`Exported ${allTeachers.length} teachers as CSV`);
+      setShowExportDropdown(false);
+    } catch (error) {
+      console.error('CSV export error:', error);
+      toast.error('Failed to export CSV');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // ============================================
+  // PRINT FUNCTION - Print ALL teachers
+  // ============================================
+  
+  const printTeachersList = async () => {
+    if (allTeachers.length === 0) {
+      toast.error('No teachers to print');
+      return;
+    }
+
+    try {
+      const printContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Teachers List</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 40px; max-width: 1200px; margin: 0 auto; }
+            h1 { color: #1a56db; border-bottom: 2px solid #1a56db; padding-bottom: 10px; }
+            .header { text-align: center; margin-bottom: 30px; }
+            .meta { display: flex; justify-content: space-between; margin-bottom: 20px; color: #6b7280; font-size: 14px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th { background: #1a56db; color: white; padding: 10px; text-align: left; }
+            td { padding: 8px 10px; border-bottom: 1px solid #e5e7eb; }
+            tr:nth-child(even) { background: #f9fafb; }
+            .status-badge { 
+              display: inline-block; 
+              padding: 2px 10px; 
+              border-radius: 9999px; 
+              font-size: 11px; 
+              font-weight: 600;
+            }
+            .status-active { background: #d1fae5; color: #065f46; }
+            .status-inactive { background: #f3f4f6; color: #374151; }
+            .status-on_leave { background: #fef3c7; color: #92400e; }
+            .status-suspended { background: #fee2e2; color: #991b1b; }
+            .status-terminated { background: #f3f4f6; color: #6b7280; }
+            .footer { text-align: center; margin-top: 30px; color: #6b7280; font-size: 12px; }
+            @media print {
+              .no-print { display: none; }
+              .status-badge { break-inside: avoid; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>Teachers List</h1>
+            <p>Total Teachers: ${allTeachers.length}</p>
+          </div>
+          <div class="meta">
+            <span>Generated: ${new Date().toLocaleString()}</span>
+            ${filterDepartment ? `<span>Department: ${filterDepartment}</span>` : ''}
+            ${filterStatus ? `<span>Status: ${filterStatus}</span>` : ''}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Employee ID</th>
+                <th>Name</th>
+                <th>Department</th>
+                <th>Position</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${allTeachers.map((teacher, index) => `
+                <tr>
+                  <td>${index + 1}</td>
+                  <td>${teacher.employee_number || 'N/A'}</td>
+                  <td>${teacher.first_name} ${teacher.last_name}</td>
+                  <td>${teacher.department?.toUpperCase() || 'N/A'}</td>
+                  <td>${teacher.position || 'N/A'}</td>
+                  <td>${teacher.email || 'N/A'}</td>
+                  <td>${teacher.phone_number || 'N/A'}</td>
+                  <td>
+                    <span class="status-badge status-${teacher.status || 'active'}">
+                      ${teacher.status?.replace('_', ' ').toUpperCase() || 'Active'}
+                    </span>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="footer">
+            Printed on ${new Date().toLocaleString()} • Page 1 of 1
+          </div>
+        </body>
+        </html>
+      `;
+      
+      const printWindow = window.open('', '_blank', 'width=1000,height=800');
+      if (printWindow) {
+        printWindow.document.write(printContent);
+        printWindow.document.close();
+        printWindow.focus();
+        printWindow.print();
+      } else {
+        toast.error('Please allow popups to print');
+      }
+    } catch (error) {
+      console.error('Print error:', error);
+      toast.error('Failed to print teacher list');
+    }
+  };
+
+  // ============================================
+  // CRUD OPERATIONS
+  // ============================================
 
   const handleDelete = async () => {
     if (!selectedTeacher) return;
@@ -215,71 +472,26 @@ const TeachersList: React.FC = () => {
     { value: 'terminated', label: 'Terminated' },
   ];
 
-  // Skeleton Loader Component
-  const SkeletonCard = () => (
-    <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-2xl border border-white/20 dark:border-gray-700/50 shadow-xl overflow-hidden p-6 animate-pulse">
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-14 h-14 rounded-2xl bg-gray-200 dark:bg-gray-700"></div>
-          <div>
-            <div className="h-5 w-32 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
-            <div className="h-4 w-20 bg-gray-200 dark:bg-gray-700 rounded-lg mt-1"></div>
-          </div>
-        </div>
-        <div className="w-4 h-4 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
-      </div>
-
-      <div className="flex gap-2 mt-3">
-        <div className="h-6 w-16 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
-        <div className="h-6 w-20 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
-      </div>
-
-      <div className="mt-4 space-y-2">
-        <div className="h-4 w-40 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
-        <div className="h-4 w-36 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
-        <div className="h-4 w-28 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
-      </div>
-
-      <div className="flex gap-2 mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
-        <div className="flex-1 h-9 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
-        <div className="flex-1 h-9 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
-      </div>
-    </div>
-  );
-
-  // Show loading spinner only during initial load
+  // Show loading spinner during initial load
   if (loading && teachers.length === 0) {
     return (
-      <div className="space-y-6">
-        {/* Header Skeleton */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <div className="h-8 w-48 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
-            <div className="h-4 w-64 bg-gray-200 dark:bg-gray-700 rounded-lg mt-1"></div>
-          </div>
-          <div className="h-10 w-32 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
-        </div>
+      <div className="flex items-center justify-center h-64">
+        <LoadingSpinner size="lg" text="Loading teachers..." />
+      </div>
+    );
+  }
 
-        {/* Filters Skeleton */}
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1 h-12 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
-          <div className="h-12 w-48 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
-          <div className="h-12 w-48 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
-          <div className="h-12 w-12 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
-        </div>
-
-        {/* Grid Skeleton */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <SkeletonCard key={i} />
-          ))}
-        </div>
+  // Show error state with loading spinner (no error message)
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <LoadingSpinner size="lg" text="Loading teachers..." />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-2 sm:px-0">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -290,7 +502,57 @@ const TeachersList: React.FC = () => {
             Manage your school's teaching staff
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Export Dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowExportDropdown(!showExportDropdown);
+              }}
+              disabled={exporting}
+              className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-sm sm:text-base border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all disabled:opacity-50"
+            >
+              {exporting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              <span className="hidden xs:inline">{exporting ? 'Exporting...' : 'Export'}</span>
+              <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4" />
+            </button>
+            
+            {showExportDropdown && (
+              <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden z-10">
+                <button
+                  onClick={exportTeachersJSON}
+                  disabled={exporting}
+                  className="flex items-center gap-3 px-4 py-2.5 w-full text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-50"
+                >
+                  <FileJson className="w-4 h-4" />
+                  Export as JSON
+                </button>
+                <button
+                  onClick={exportTeachersCSV}
+                  disabled={exporting}
+                  className="flex items-center gap-3 px-4 py-2.5 w-full text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-all disabled:opacity-50"
+                >
+                  <Table className="w-4 h-4" />
+                  Export as CSV
+                </button>
+                <button
+                  onClick={printTeachersList}
+                  className="flex items-center gap-3 px-4 py-2.5 w-full text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-all border-t border-gray-200 dark:border-gray-700"
+                >
+                  <Printer className="w-4 h-4" />
+                  Print List
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Add Teacher Button */}
           <button
             onClick={() => navigate('/teachers/add')}
             className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all shadow-lg shadow-blue-500/25 flex items-center gap-2"
@@ -349,11 +611,10 @@ const TeachersList: React.FC = () => {
       {filteredTeachers.length === 0 ? (
         <div className="text-center py-12">
           <div className="p-4 rounded-full bg-gray-100 dark:bg-gray-800 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-            <Users className="w-8 h-8 text-gray-400" />
+            <Loader2 className="w-8 h-8 text-gray-400" />
           </div>
-          
-          
-          
+          <p className="text-gray-500 dark:text-gray-400">Please wait while we fetch the teachers.</p>
+         
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -369,7 +630,13 @@ const TeachersList: React.FC = () => {
                 {/* Header with Photo */}
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
-                    
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center text-white font-medium text-sm flex-shrink-0">
+                      {teacher.profile_image_url ? (
+                        <img src={teacher.profile_image_url} alt={teacher.first_name} className="w-full h-full rounded-full object-cover" />
+                      ) : (
+                        `${teacher.first_name?.[0] || 'T'}${teacher.last_name?.[0] || 'E'}`
+                      )}
+                    </div>
                     <div>
                       <h3 className="font-semibold text-gray-900 dark:text-white">
                         {teacher.first_name} {teacher.last_name}

@@ -1877,7 +1877,7 @@ const Settings: React.FC = () => {
 
         {/* Footer */}
         <div className="mt-6 sm:mt-8 text-center text-[10px] sm:text-xs text-gray-400 dark:text-gray-600">
-          <p>© {dayjs().year()} {schoolInfo?.school_name || selectedBranch?.school_name || 'Ebeniza International School'}. All rights reserved.</p>
+          <p>© {dayjs().year()} {schoolInfo?.school_name || selectedBranch?.school_name || 'ebenezer International School'}. All rights reserved.</p>
         </div>
       </div>
     </div>

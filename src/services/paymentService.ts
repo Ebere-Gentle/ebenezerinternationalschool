@@ -1,35 +1,6 @@
-import { supabase } from '../config/supabase/client';
-import dayjs from 'dayjs';
+// paymentService.ts
 
-export interface PaymentWithDetails {
-  id: string;
-  payment_id: string;
-  receipt_number: string;
-  student_id: string;
-  fee_id: string;
-  assignment_id: string;
-  amount: number;
-  amount_paid: number;
-  balance: number;
-  payment_method: string;
-  payment_date: string;
-  due_date: string;
-  status: 'pending' | 'completed' | 'failed' | 'refunded' | 'paid' | 'approved' | 'rejected';
-  transaction_reference: string;
-  gateway_reference?: string;
-  failure_reason?: string;
-  rejection_reason?: string;
-  payment_proof_url?: string;
-  payment_proof_path?: string;
-  branch_id: string;
-  created_at: string;
-  updated_at: string;
-  fee_name?: string;
-  fee_category?: string;
-  student_name?: string;
-  student_admission?: string;
-  class_name?: string;
-}
+import { supabase } from '../config/supabase/client';
 
 export interface FeeAssignmentWithDetails {
   id: string;
@@ -42,15 +13,58 @@ export interface FeeAssignmentWithDetails {
   amount_due: number;
   amount_paid: number;
   balance: number;
-  payment_status: 'unpaid' | 'partial' | 'paid' | 'overdue' | 'waived' | 'pending';
+  payment_status: string;
   assigned_date: string;
   due_date: string | null;
   is_active: boolean;
-  term: string | null;
-  session: string | null;
-  fee_name: string;
-  fee_category: string;
+  term: string;
+  session: string;
+  academic_session_id: string | null;
+  payment_frequency: string;
+  assigned_from_fee: boolean;
+  metadata: any;
+  fee_name?: string;
+  fee_category?: string;
   fee_description?: string;
+  fee_amount?: number;
+}
+
+export interface PaymentWithDetails {
+  id: string;
+  receipt_number: string;
+  student_id: string;
+  assignment_id: string;
+  fee_id: string;
+  amount: number;
+  amount_paid: number;
+  balance: number;
+  payment_method: string;
+  payment_date: string;
+  status: string;
+  transaction_reference: string;
+  gateway_reference: string | null;
+  failure_reason: string | null;
+  payment_proof_url: string | null;
+  branch_id: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  metadata: any;
+  fee_name?: string;
+}
+
+export interface UnpaidFeeSummary {
+  fee_id: string;
+  fee_name: string;
+  category: string;
+  amount_due: number;
+  amount_paid: number;
+  balance: number;
+  due_date: string | null;
+  term: string;
+  session: string;
+  is_overdue: boolean;
+  days_overdue: number;
 }
 
 export interface PaymentStats {
@@ -64,307 +78,7 @@ export interface PaymentStats {
   totalDue: number;
 }
 
-export interface UnpaidFeeSummary {
-  id: string;
-  name: string;
-  amount: number;
-  category: string;
-  due_date: string;
-  balance: number;
-  is_overdue: boolean;
-  payment_status: 'unpaid' | 'partial' | 'pending' | 'paid';
-  assignment_id: string;
-  fee_id: string;
-}
-
-export async function calculateStudentFeeBalances(
-  studentId: string,
-  branchId: string,
-  options?: {
-    session?: string;
-    term?: string;
-    includePaid?: boolean;
-  }
-): Promise<FeeAssignmentWithDetails[]> {
-  try {
-    let query = supabase
-      .from('student_fee_assignments')
-      .select(`
-        *,
-        fees!inner (
-          id,
-          name,
-          category,
-          description,
-          amount
-        )
-      `)
-      .eq('student_id', studentId)
-      .eq('is_active', true);
-
-    if (options?.session) {
-      query = query.eq('session', options.session);
-    }
-    if (options?.term) {
-      query = query.eq('term', options.term);
-    }
-
-    const { data: assignments, error: assignmentsError } = await query;
-
-    if (assignmentsError) throw assignmentsError;
-    if (!assignments || assignments.length === 0) {
-      return [];
-    }
-
-    // Get ONLY successful/completed payments
-    const { data: allPayments, error: paymentsError } = await supabase
-      .from('payments')
-      .select('*')
-      .eq('student_id', studentId)
-      .in('status', ['completed', 'paid', 'approved']);
-
-    if (paymentsError) throw paymentsError;
-
-    // Also get pending payments to detect them
-    const { data: pendingPayments } = await supabase
-      .from('payments')
-      .select('*')
-      .eq('student_id', studentId)
-      .eq('status', 'pending');
-
-    const pendingAssignmentIds = new Set(
-      pendingPayments?.map(p => p.assignment_id) || []
-    );
-
-    const results: FeeAssignmentWithDetails[] = assignments.map(assignment => {
-      // Only use successful payments for this assignment
-      const assignmentPayments = (allPayments || []).filter(
-        p => p.assignment_id === assignment.id
-      );
-      
-      const totalCompletedPaid = assignmentPayments.reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-
-      const hasPending = pendingAssignmentIds.has(assignment.id);
-
-      // Calculate amounts based ONLY on successful payments
-      let amountPaid = totalCompletedPaid;
-      let balance = Math.max(0, assignment.amount_due - totalCompletedPaid);
-      let effectiveStatus: 'unpaid' | 'partial' | 'paid' | 'overdue' | 'waived' | 'pending';
-      
-      if (assignment.payment_status === 'waived') {
-        effectiveStatus = 'waived';
-        balance = 0;
-        amountPaid = assignment.amount_due;
-      } else if (hasPending) {
-        effectiveStatus = 'pending';
-      } else if (totalCompletedPaid >= assignment.amount_due) {
-        effectiveStatus = 'paid';
-        balance = 0;
-        amountPaid = assignment.amount_due;
-      } else if (totalCompletedPaid > 0 && balance > 0) {
-        effectiveStatus = 'partial';
-      } else {
-        // Check if overdue
-        if (assignment.due_date && dayjs(assignment.due_date).isBefore(dayjs()) && balance > 0) {
-          effectiveStatus = 'overdue';
-        } else {
-          effectiveStatus = 'unpaid';
-        }
-      }
-
-      return {
-        id: assignment.id,
-        assignment_id: assignment.assignment_id || assignment.id,
-        student_id: assignment.student_id,
-        fee_id: assignment.fee_id,
-        branch_id: assignment.branch_id,
-        original_amount: assignment.original_amount || assignment.amount_due,
-        discount_amount: assignment.discount_amount || 0,
-        amount_due: assignment.amount_due,
-        amount_paid: amountPaid,
-        balance: balance,
-        payment_status: effectiveStatus,
-        assigned_date: assignment.assigned_date,
-        due_date: assignment.due_date,
-        is_active: assignment.is_active,
-        term: assignment.term,
-        session: assignment.session,
-        fee_name: assignment.fees?.name || 'Unknown Fee',
-        fee_category: assignment.fees?.category || 'Other',
-        fee_description: assignment.fees?.description || '',
-      };
-    });
-
-    if (!options?.includePaid) {
-      return results.filter(r => r.payment_status !== 'paid' && r.payment_status !== 'waived');
-    }
-
-    return results;
-  } catch (error) {
-    console.error('Error calculating student fee balances:', error);
-    throw error;
-  }
-}
-
-export async function getStudentPayments(
-  studentId: string,
-  options?: {
-    limit?: number;
-    offset?: number;
-    status?: string[];
-    search?: string;
-  }
-): Promise<{ payments: PaymentWithDetails[]; total: number; stats: PaymentStats }> {
-  try {
-    let query = supabase
-      .from('payments')
-      .select('*', { count: 'exact' })
-      .eq('student_id', studentId);
-
-    if (options?.status && options.status.length > 0) {
-      query = query.in('status', options.status);
-    }
-
-    if (options?.search) {
-      query = query.or(
-        `receipt_number.ilike.%${options.search}%,` +
-        `transaction_reference.ilike.%${options.search}%`
-      );
-    }
-
-    query = query.order('payment_date', { ascending: false });
-
-    if (options?.limit) {
-      query = query.range(options.offset || 0, (options.offset || 0) + options.limit - 1);
-    }
-
-    const { data: payments, error, count } = await query;
-
-    if (error) throw error;
-
-    const feeIds = [...new Set(payments?.map(p => p.fee_id).filter(Boolean) || [])];
-    let feeNameMap: Record<string, { name: string; category: string }> = {};
-
-    if (feeIds.length > 0) {
-      const { data: fees } = await supabase
-        .from('fees')
-        .select('id, name, category')
-        .in('id', feeIds);
-
-      if (fees) {
-        feeNameMap = fees.reduce((acc, fee) => {
-          acc[fee.id] = { name: fee.name, category: fee.category || 'Other' };
-          return acc;
-        }, {} as Record<string, { name: string; category: string }>);
-      }
-    }
-
-    const paymentsWithDetails = (payments || []).map(payment => ({
-      ...payment,
-      fee_name: payment.fee_id ? feeNameMap[payment.fee_id]?.name || 'N/A' : 'N/A',
-      fee_category: payment.fee_id ? feeNameMap[payment.fee_id]?.category || 'Other' : 'Other',
-    }));
-
-    // Calculate stats - ONLY count successful payments for totalPaid
-    const successfulPayments = paymentsWithDetails.filter(p => 
-      p.status === 'completed' || p.status === 'paid' || p.status === 'approved'
-    );
-    
-    const stats: PaymentStats = {
-      total: paymentsWithDetails.length,
-      completed: successfulPayments.length,
-      pending: paymentsWithDetails.filter(p => p.status === 'pending').length,
-      failed: paymentsWithDetails.filter(p => p.status === 'failed' || p.status === 'rejected').length,
-      rejected: paymentsWithDetails.filter(p => p.status === 'rejected').length,
-      // ONLY sum successful payments for totalPaid
-      totalPaid: successfulPayments.reduce((sum, p) => sum + p.amount_paid, 0),
-      totalBalance: 0,
-      totalDue: 0,
-    };
-
-    return {
-      payments: paymentsWithDetails,
-      total: count || 0,
-      stats,
-    };
-  } catch (error) {
-    console.error('Error getting student payments:', error);
-    throw error;
-  }
-}
-
-export async function getUnpaidFees(
-  studentId: string,
-  branchId: string,
-  options?: {
-    session?: string;
-    term?: string;
-    includePending?: boolean;
-  }
-): Promise<UnpaidFeeSummary[]> {
-  try {
-    const assignments = await calculateStudentFeeBalances(studentId, branchId, {
-      session: options?.session,
-      term: options?.term,
-      includePaid: false,
-    });
-
-    // Get pending payments to mark them
-    const { data: pendingPayments } = await supabase
-      .from('payments')
-      .select('assignment_id, status')
-      .eq('student_id', studentId)
-      .eq('status', 'pending');
-
-    const pendingAssignmentIds = new Set(
-      pendingPayments?.map(p => p.assignment_id) || []
-    );
-
-    const unpaidFees: UnpaidFeeSummary[] = assignments
-      .filter(a => {
-        if (a.payment_status === 'paid' || a.payment_status === 'waived') return false;
-        if (!options?.includePending && pendingAssignmentIds.has(a.id)) return false;
-        return true;
-      })
-      .map(a => ({
-        id: a.id,
-        name: a.fee_name,
-        amount: a.amount_due,
-        category: a.fee_category,
-        due_date: a.due_date || '',
-        balance: a.balance,
-        is_overdue: a.due_date ? dayjs(a.due_date).isBefore(dayjs()) && a.balance > 0 : false,
-        payment_status: pendingAssignmentIds.has(a.id) ? 'pending' : 
-          a.payment_status === 'partial' ? 'partial' : 'unpaid',
-        assignment_id: a.assignment_id,
-        fee_id: a.fee_id,
-      }))
-      .sort((a, b) => {
-        if (a.payment_status === 'pending' && b.payment_status !== 'pending') return -1;
-        if (b.payment_status === 'pending' && a.payment_status !== 'pending') return 1;
-        if (a.is_overdue && !b.is_overdue) return -1;
-        if (!a.is_overdue && b.is_overdue) return 1;
-        if (a.due_date && b.due_date) {
-          return dayjs(a.due_date).diff(dayjs(b.due_date));
-        }
-        return 0;
-      });
-
-    return unpaidFees;
-  } catch (error) {
-    console.error('Error getting unpaid fees:', error);
-    throw error;
-  }
-}
-
-export async function getStudentPaymentDashboard(
-  studentId: string,
-  branchId: string,
-  options?: {
-    session?: string;
-    term?: string;
-  }
-): Promise<{
+export interface StudentPaymentDashboard {
   assignments: FeeAssignmentWithDetails[];
   payments: PaymentWithDetails[];
   unpaidFees: UnpaidFeeSummary[];
@@ -380,53 +94,420 @@ export async function getStudentPaymentDashboard(
     totalBalance: number;
     collectionRate: number;
   };
-}> {
+}
+
+// ============================================
+// SYNC MISSING ASSIGNMENTS
+// ============================================
+export async function syncStudentAssignments(
+  studentId: string,
+  branchId: string,
+  classId?: string
+): Promise<{ created: number; fees: any[] }> {
   try {
-    const allAssignments = await calculateStudentFeeBalances(studentId, branchId, {
-      session: options?.session,
-      term: options?.term,
-      includePaid: true,
+    let created = 0;
+    const createdFees = [];
+
+    // Get all active fees for this branch
+    const { data: fees, error: feesError } = await supabase
+      .from('fees')
+      .select('*')
+      .eq('branch_id', branchId)
+      .eq('status', 'active');
+
+    if (feesError) {
+      console.error('Error fetching fees for sync:', feesError);
+      return { created: 0, fees: [] };
+    }
+
+    // Get existing assignments for this student
+    const { data: existingAssignments, error: existingError } = await supabase
+      .from('student_fee_assignments')
+      .select('fee_id')
+      .eq('student_id', studentId);
+
+    if (existingError) {
+      console.error('Error fetching existing assignments:', existingError);
+      return { created: 0, fees: [] };
+    }
+
+    const existingFeeIds = new Set(existingAssignments.map(a => a.fee_id));
+
+    // Filter fees that apply to this student and don't have assignments
+    const applicableFees = fees.filter(fee => {
+      // Skip if already assigned
+      if (existingFeeIds.has(fee.id)) return false;
+
+      // Check if fee applies to this student
+      if (fee.target_type === 'all') return true;
+
+      if (fee.target_type === 'class' && classId) {
+        return fee.target_ids?.includes(classId);
+      }
+
+      if (fee.target_type === 'student') {
+        return fee.target_ids?.includes(studentId);
+      }
+
+      return false;
     });
 
-    const unpaidFees = await getUnpaidFees(studentId, branchId, {
-      session: options?.session,
-      term: options?.term,
-      includePending: true,
-    });
+    if (applicableFees.length === 0) {
+      return { created: 0, fees: [] };
+    }
 
-    const { payments, stats: paymentStats } = await getStudentPayments(studentId);
+    // Get the next assignment number
+    const { data: lastAssignment } = await supabase
+      .from('student_fee_assignments')
+      .select('assignment_id')
+      .order('assignment_id', { ascending: false })
+      .limit(1);
 
-    // Calculate stats based on assignments (which already filter out failed payments)
-    const totalAmountDue = allAssignments.reduce((sum, a) => sum + a.amount_due, 0);
-    // Only count successful payments from the payment stats
-    const totalAmountPaid = paymentStats.totalPaid;
-    const totalBalance = allAssignments
-      .filter(a => a.payment_status !== 'paid' && a.payment_status !== 'waived' && a.payment_status !== 'pending')
-      .reduce((sum, a) => sum + a.balance, 0);
-    
+    let nextNumber = 1;
+    if (lastAssignment && lastAssignment.length > 0 && lastAssignment[0].assignment_id) {
+      const match = lastAssignment[0].assignment_id.match(/ASN-(\d+)-(\d+)/);
+      if (match) {
+        nextNumber = parseInt(match[2]) + 1;
+      }
+    }
+
+    const currentYear = new Date().getFullYear();
+
+    // Create assignments
+    for (const fee of applicableFees) {
+      const assignmentId = `ASN-${currentYear}-${String(nextNumber).padStart(5, '0')}`;
+
+      const { error: insertError } = await supabase
+        .from('student_fee_assignments')
+        .insert({
+          assignment_id: assignmentId,
+          student_id: studentId,
+          fee_id: fee.id,
+          branch_id: branchId,
+          original_amount: fee.amount,
+          discount_amount: 0,
+          amount_due: fee.amount,
+          amount_paid: 0,
+          balance: fee.amount,
+          payment_status: 'unpaid',
+          due_date: fee.due_date,
+          term: fee.term || 'Current Term',
+          session: fee.session || 'Current Session',
+          academic_session_id: fee.academic_session_id,
+          payment_frequency: fee.payment_frequency || 'termly',
+          assigned_from_fee: true,
+          is_active: true,
+          assigned_date: new Date().toISOString(),
+          metadata: {
+            fee_name: fee.name,
+            category: fee.category,
+            target_type: fee.target_type,
+            target_ids: fee.target_ids,
+            created_from: 'payment_service_sync'
+          }
+        });
+
+      if (insertError) {
+        console.error(`Error creating assignment for fee ${fee.name}:`, insertError);
+      } else {
+        created++;
+        createdFees.push(fee);
+        nextNumber++;
+      }
+    }
+
+    return { created, fees: createdFees };
+  } catch (error) {
+    console.error('Error syncing student assignments:', error);
+    return { created: 0, fees: [] };
+  }
+}
+
+// ============================================
+// GET STUDENT PAYMENT DASHBOARD (UPDATED)
+// ============================================
+export async function getStudentPaymentDashboard(
+  studentId: string,
+  branchId: string,
+  options: { session?: string; term?: string } = {}
+): Promise<StudentPaymentDashboard> {
+  try {
+    // First, get the student's class
+    const { data: student, error: studentError } = await supabase
+      .from('students')
+      .select('class_id')
+      .eq('id', studentId)
+      .single();
+
+    if (studentError) {
+      console.error('Error fetching student:', studentError);
+      // Continue without class_id
+    }
+
+    const classId = student?.class_id;
+
+    // SYNC: Check for missing assignments and create them
+    await syncStudentAssignments(studentId, branchId, classId);
+
+    // Now fetch assignments with fee details
+    let query = supabase
+      .from('student_fee_assignments')
+      .select(`
+        *,
+        fee:fees(
+          id,
+          name,
+          category,
+          amount,
+          due_date,
+          payment_frequency,
+          term,
+          session,
+          metadata,
+          target_type,
+          target_ids,
+          description
+        )
+      `)
+      .eq('student_id', studentId)
+      .eq('is_active', true);
+
+    if (options.session) {
+      query = query.eq('session', options.session);
+    }
+
+    if (options.term) {
+      query = query.eq('term', options.term);
+    }
+
+    const { data: assignmentsData, error: assignmentsError } = await query;
+
+    if (assignmentsError) {
+      console.error('Error fetching assignments:', assignmentsError);
+      throw assignmentsError;
+    }
+
+    // Process assignments with fee details
+    const processedAssignments: FeeAssignmentWithDetails[] = (assignmentsData || []).map((item: any) => ({
+      ...item,
+      fee_name: item.fee?.name || 'Unknown Fee',
+      fee_category: item.fee?.category || 'Other',
+      fee_description: item.fee?.description || '',
+      fee_amount: item.fee?.amount || 0,
+    }));
+
+    // Get payments
+    const { data: paymentsData, error: paymentsError } = await supabase
+      .from('payments')
+      .select(`
+        *,
+        fee:fees(
+          id,
+          name,
+          category
+        )
+      `)
+      .eq('student_id', studentId)
+      .order('payment_date', { ascending: false });
+
+    if (paymentsError) {
+      console.error('Error fetching payments:', paymentsError);
+    }
+
+    const processedPayments: PaymentWithDetails[] = (paymentsData || []).map((item: any) => ({
+      ...item,
+      fee_name: item.fee?.name || 'Unknown Fee',
+    }));
+
+    // Calculate unpaid fees summary
+    const unpaidFees: UnpaidFeeSummary[] = processedAssignments
+      .filter(a => a.balance > 0 && a.payment_status !== 'pending')
+      .map(a => {
+        const isOverdue = a.due_date ? new Date(a.due_date) < new Date() : false;
+        const daysOverdue = isOverdue ? Math.floor((Date.now() - new Date(a.due_date!).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+        return {
+          fee_id: a.fee_id,
+          fee_name: a.fee_name || 'Unknown Fee',
+          category: a.fee_category || 'Other',
+          amount_due: a.amount_due,
+          amount_paid: a.amount_paid,
+          balance: a.balance,
+          due_date: a.due_date,
+          term: a.term,
+          session: a.session,
+          is_overdue: isOverdue,
+          days_overdue: daysOverdue,
+        };
+      });
+
+    // Calculate stats
+    const totalAssignments = processedAssignments.length;
+    const paidAssignments = processedAssignments.filter(a => a.payment_status === 'paid' || a.balance === 0).length;
+    const unpaidAssignments = processedAssignments.filter(a => a.balance > 0 && a.payment_status !== 'pending').length;
+    const partialAssignments = processedAssignments.filter(a => a.payment_status === 'partial').length;
+    const pendingAssignments = processedAssignments.filter(a => a.payment_status === 'pending').length;
+    const overdueAssignments = processedAssignments.filter(a => a.payment_status === 'overdue' || (a.due_date && new Date(a.due_date) < new Date() && a.balance > 0)).length;
+    const totalAmountDue = processedAssignments.reduce((sum, a) => sum + a.amount_due, 0);
+    const totalAmountPaid = processedAssignments.reduce((sum, a) => sum + a.amount_paid, 0);
+    const totalBalance = processedAssignments.reduce((sum, a) => sum + a.balance, 0);
     const collectionRate = totalAmountDue > 0 ? (totalAmountPaid / totalAmountDue) * 100 : 0;
 
-    const stats = {
-      totalAssignments: allAssignments.length,
-      paidAssignments: allAssignments.filter(a => a.payment_status === 'paid' || a.payment_status === 'waived').length,
-      unpaidAssignments: allAssignments.filter(a => a.payment_status === 'unpaid').length,
-      partialAssignments: allAssignments.filter(a => a.payment_status === 'partial').length,
-      pendingAssignments: allAssignments.filter(a => a.payment_status === 'pending').length,
-      overdueAssignments: allAssignments.filter(a => a.payment_status === 'overdue').length,
-      totalAmountDue,
-      totalAmountPaid,
-      totalBalance,
-      collectionRate,
-    };
-
     return {
-      assignments: allAssignments,
-      payments,
+      assignments: processedAssignments,
+      payments: processedPayments,
       unpaidFees,
-      stats,
+      stats: {
+        totalAssignments,
+        paidAssignments,
+        unpaidAssignments,
+        partialAssignments,
+        pendingAssignments,
+        overdueAssignments,
+        totalAmountDue,
+        totalAmountPaid,
+        totalBalance,
+        collectionRate,
+      },
     };
   } catch (error) {
-    console.error('Error getting student payment dashboard:', error);
-    throw error;
+    console.error('Error in getStudentPaymentDashboard:', error);
+    // Return empty data structure
+    return {
+      assignments: [],
+      payments: [],
+      unpaidFees: [],
+      stats: {
+        totalAssignments: 0,
+        paidAssignments: 0,
+        unpaidAssignments: 0,
+        partialAssignments: 0,
+        pendingAssignments: 0,
+        overdueAssignments: 0,
+        totalAmountDue: 0,
+        totalAmountPaid: 0,
+        totalBalance: 0,
+        collectionRate: 0,
+      },
+    };
+  }
+}
+
+// ============================================
+// OTHER EXISTING FUNCTIONS
+// ============================================
+export async function getStudentPayments(studentId: string) {
+  try {
+    const { data, error } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('student_id', studentId)
+      .order('payment_date', { ascending: false });
+
+    if (error) throw error;
+
+    const completed = data.filter(p => p.status === 'completed' || p.status === 'success').length;
+    const pending = data.filter(p => p.status === 'pending' || p.status === 'processing').length;
+    const failed = data.filter(p => p.status === 'failed').length;
+    const rejected = data.filter(p => p.status === 'rejected').length;
+    const totalPaid = data.filter(p => p.status === 'completed' || p.status === 'success').reduce((sum, p) => sum + p.amount_paid, 0);
+    const totalDue = data.reduce((sum, p) => sum + p.amount, 0);
+    const totalBalance = data.reduce((sum, p) => sum + (p.balance || 0), 0);
+
+    return {
+      data,
+      stats: {
+        total: data.length,
+        completed,
+        pending,
+        failed,
+        rejected,
+        totalPaid,
+        totalBalance,
+        totalDue,
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching payments:', error);
+    return {
+      data: [],
+      stats: {
+        total: 0,
+        completed: 0,
+        pending: 0,
+        failed: 0,
+        rejected: 0,
+        totalPaid: 0,
+        totalBalance: 0,
+        totalDue: 0,
+      },
+    };
+  }
+}
+
+export async function getUnpaidFees(studentId: string) {
+  try {
+    const { data, error } = await supabase
+      .from('student_fee_assignments')
+      .select(`
+        *,
+        fee:fees(
+          id,
+          name,
+          category,
+          amount,
+          due_date
+        )
+      `)
+      .eq('student_id', studentId)
+      .eq('is_active', true)
+      .eq('payment_status', 'unpaid');
+
+    if (error) throw error;
+
+    return (data || []).map((item: any) => ({
+      ...item,
+      fee_name: item.fee?.name || 'Unknown Fee',
+      fee_category: item.fee?.category || 'Other',
+    }));
+  } catch (error) {
+    console.error('Error fetching unpaid fees:', error);
+    return [];
+  }
+}
+
+export async function calculateStudentFeeBalances(studentId: string) {
+  try {
+    const { data, error } = await supabase
+      .from('student_fee_assignments')
+      .select('*')
+      .eq('student_id', studentId)
+      .eq('is_active', true);
+
+    if (error) throw error;
+
+    let totalDue = 0;
+    let totalPaid = 0;
+    let totalBalance = 0;
+
+    (data || []).forEach(a => {
+      totalDue += a.amount_due || 0;
+      totalPaid += a.amount_paid || 0;
+      totalBalance += a.balance || 0;
+    });
+
+    return {
+      totalDue,
+      totalPaid,
+      totalBalance,
+      count: data?.length || 0,
+    };
+  } catch (error) {
+    console.error('Error calculating balances:', error);
+    return {
+      totalDue: 0,
+      totalPaid: 0,
+      totalBalance: 0,
+      count: 0,
+    };
   }
 }

@@ -129,7 +129,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   const schoolName = schoolInfo?.name || 'Ebenezer International School';
   const schoolAddress = schoolInfo?.address || '42 Allen Avenue, Ikeja, Lagos';
   const schoolPhone = schoolInfo?.phone || '+234 800 000 0000';
-  const schoolEmail = schoolInfo?.email || 'info@ebeniza.edu.ng';
+  const schoolEmail = schoolInfo?.email || 'info@ebenezer.edu.ng';
   const schoolMotto = schoolInfo?.motto || 'Excellence in Education';
 
   useEffect(() => {

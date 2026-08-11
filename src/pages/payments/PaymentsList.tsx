@@ -36,7 +36,11 @@ import {
   Image,
   ZoomIn,
   ZoomOut,
-  RotateCw
+  RotateCw,
+  Calendar as CalendarIcon,
+  BookOpen,
+  Hash,
+  Filter
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
@@ -79,6 +83,13 @@ interface Payment {
   student_admission?: string;
   student_class_name?: string;
   fee_name?: string;
+  // Session/Term fields
+  academic_session?: string;
+  academic_term?: string;
+  term_id?: string;
+  session_id?: string;
+  fee_term?: string;
+  fee_session?: string;
   metadata?: {
     receipt_url?: string;
     receipt_path?: string;
@@ -90,6 +101,22 @@ interface Payment {
     proof_url?: string;
     payment_type?: string;
     submitted_at?: string;
+    term?: string;
+    session?: string;
+    term_id?: string;
+    session_id?: string;
+    fee_term?: string;
+    fee_session?: string;
+    fee_name?: string;
+    fee_id?: string;
+    reference?: string;
+    student_name?: string;
+    student_id?: string;
+    assignment_id?: string;
+    payment_method?: string;
+    transaction_reference?: string;
+    approved_at?: string;
+    approved_by?: string;
   };
 }
 
@@ -130,6 +157,10 @@ interface SchoolInfo {
   };
 }
 
+// Available sessions and terms for filters
+const AVAILABLE_SESSIONS = ['2024/2025', '2025/2026', '2026/2027', '2027/2028'];
+const AVAILABLE_TERMS = ['First Term', 'Second Term', 'Third Term'];
+
 const PaymentsList: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -149,6 +180,8 @@ const PaymentsList: React.FC = () => {
     paymentChange: 0,
   });
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [sessionFilter, setSessionFilter] = useState<string>('all');
+  const [termFilter, setTermFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
     start: dayjs().subtract(30, 'days').format('YYYY-MM-DD'),
     end: dayjs().format('YYYY-MM-DD'),
@@ -174,6 +207,24 @@ const PaymentsList: React.FC = () => {
 
   const pageSize = 10;
 
+  // Helper function to extract term/session from payment
+  const extractSessionAndTerm = useCallback((payment: any) => {
+    let session = payment.academic_session || '';
+    let term = payment.academic_term || '';
+    let termId = payment.term_id || '';
+    let sessionId = payment.session_id || '';
+
+    // If columns are empty, try to get from metadata
+    if (!session && payment.metadata) {
+      session = payment.metadata.session || payment.metadata.fee_session || '';
+      term = payment.metadata.term || payment.metadata.fee_term || '';
+      termId = payment.metadata.term_id || '';
+      sessionId = payment.metadata.session_id || '';
+    }
+
+    return { session, term, termId, sessionId };
+  }, []);
+
   // Fetch school info from database (branch-specific)
   useEffect(() => {
     const fetchSchoolInfo = async () => {
@@ -191,9 +242,9 @@ const PaymentsList: React.FC = () => {
             setSchoolInfo({
               id: '',
               school_id: 'BRANCH-001',
-              school_name: branchData.name || 'Ebeniza International School',
+              school_name: branchData.name || 'ebenezer International School',
               address: branchData.address || '42 Allen Avenue, Ikeja, Lagos',
-              email: branchData.email || 'info@ebeniza.edu.ng',
+              email: branchData.email || 'info@ebenezer.edu.ng',
               website: '',
               phone_number: branchData.phone || '+234 800 000 0000',
               logo_url: branchData.logo_url || '',
@@ -226,10 +277,10 @@ const PaymentsList: React.FC = () => {
           setSchoolInfo({
             id: '',
             school_id: 'EBE-001',
-            school_name: 'Ebeniza International School',
+            school_name: 'ebenezer International School',
             address: '42 Allen Avenue, Ikeja, Lagos',
-            email: 'info@ebeniza.edu.ng',
-            website: 'www.ebeniza.edu.ng',
+            email: 'info@ebenezer.edu.ng',
+            website: 'www.ebenezer.edu.ng',
             phone_number: '+234 800 000 0000',
             logo_url: '',
             motto: 'Excellence in Education',
@@ -311,11 +362,14 @@ const PaymentsList: React.FC = () => {
         query = query.eq('status', statusFilter);
       }
 
+      // FIX 1: Date range with inclusive end date
       if (dateRange.start) {
         query = query.gte('payment_date', dateRange.start);
       }
       if (dateRange.end) {
-        query = query.lte('payment_date', dateRange.end);
+        // Add 1 day to include the full end date
+        const endDatePlusOne = dayjs(dateRange.end).add(1, 'day').format('YYYY-MM-DD');
+        query = query.lt('payment_date', endDatePlusOne);
       }
 
       const from = (currentPage - 1) * pageSize;
@@ -358,17 +412,28 @@ const PaymentsList: React.FC = () => {
           }
 
           let feeName = 'N/A';
+          let feeTerm = '';
+          let feeSession = '';
           if (payment.fee_id) {
             const { data: feeData } = await supabase
               .from('fees')
-              .select('name')
+              .select('name, term, session, academic_session_id')
               .eq('id', payment.fee_id)
               .single();
             
             if (feeData) {
               feeName = feeData.name;
+              feeTerm = feeData.term || '';
+              feeSession = feeData.session || '';
             }
           }
+
+          // Extract session/term from payment or metadata
+          const { session, term, termId, sessionId } = extractSessionAndTerm(payment);
+
+          // Use fee data if available, otherwise use extracted data
+          const finalSession = feeSession || session || payment.academic_session || '';
+          const finalTerm = feeTerm || term || payment.academic_term || '';
 
           return {
             ...payment,
@@ -377,27 +442,52 @@ const PaymentsList: React.FC = () => {
             student_last_name: studentLastName,
             student_admission: studentAdmission,
             student_class_name: studentClassName,
-            fee_name: feeName,
+            fee_name: feeName || payment.metadata?.fee_name || 'N/A',
+            academic_session: finalSession,
+            academic_term: finalTerm,
+            term_id: termId || payment.term_id || '',
+            session_id: sessionId || payment.session_id || '',
+            fee_term: finalTerm,
+            fee_session: finalSession,
           };
         })
       );
 
+      // Apply session and term filters (client-side since they may come from metadata)
       let filteredPayments = paymentsWithDetails;
+      
+      if (sessionFilter !== 'all') {
+        filteredPayments = filteredPayments.filter(p => 
+          p.academic_session === sessionFilter || p.fee_session === sessionFilter
+        );
+      }
+      
+      if (termFilter !== 'all') {
+        filteredPayments = filteredPayments.filter(p => 
+          p.academic_term === termFilter || p.fee_term === termFilter
+        );
+      }
+
       if (searchTerm) {
         const term = searchTerm.toLowerCase();
-        filteredPayments = paymentsWithDetails.filter(p => 
+        filteredPayments = filteredPayments.filter(p => 
           p.receipt_number?.toLowerCase().includes(term) ||
           p.transaction_reference?.toLowerCase().includes(term) ||
           p.student_name?.toLowerCase().includes(term) ||
           p.student_first_name?.toLowerCase().includes(term) ||
           p.student_last_name?.toLowerCase().includes(term) ||
           p.student_admission?.toLowerCase().includes(term) ||
-          p.payment_id?.toLowerCase().includes(term)
+          p.payment_id?.toLowerCase().includes(term) ||
+          p.fee_name?.toLowerCase().includes(term) ||
+          p.academic_session?.toLowerCase().includes(term) ||
+          p.academic_term?.toLowerCase().includes(term)
         );
       }
 
       setPayments(filteredPayments);
-      setTotalCount(searchTerm ? filteredPayments.length : count || 0);
+      setTotalCount(searchTerm || sessionFilter !== 'all' || termFilter !== 'all' 
+        ? filteredPayments.length 
+        : count || 0);
     } catch (error: any) {
       console.error('Error fetching payments:', error);
       setFetchError(error.message || 'Failed to fetch payments');
@@ -406,7 +496,7 @@ const PaymentsList: React.FC = () => {
       setLoading(false);
       setIsInitialLoad(false);
     }
-  }, [userBranchId, statusFilter, dateRange, currentPage, searchTerm]);
+  }, [userBranchId, statusFilter, dateRange, currentPage, searchTerm, sessionFilter, termFilter, extractSessionAndTerm]);
 
   const fetchPaymentStats = useCallback(async () => {
     if (!userBranchId) return;
@@ -587,22 +677,122 @@ const PaymentsList: React.FC = () => {
   const handleRotate = useCallback(() => setImageRotation(prev => (prev + 90) % 360), []);
   const handleReset = useCallback(() => { setImageZoom(1); setImageRotation(0); }, []);
 
+  // FIX 2: Updated handleApprovePayment with session/term population
   const handleApprovePayment = async (paymentId: string) => {
     setProcessing(true);
     try {
+      // First, get the payment to find its fee_id and assignment_id
+      const { data: payment, error: fetchError } = await supabase
+        .from('payments')
+        .select('fee_id, assignment_id, student_id, branch_id, metadata')
+        .eq('id', paymentId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      let academicSession = '';
+      let academicTerm = '';
+      let termId = '';
+
+      // Try to get from fee
+      if (payment?.fee_id) {
+        const { data: feeData } = await supabase
+          .from('fees')
+          .select('academic_session_id, session, term, term_id')
+          .eq('id', payment.fee_id)
+          .single();
+        
+        if (feeData) {
+          academicSession = feeData.session || '';
+          academicTerm = feeData.term || '';
+          termId = feeData.term_id || feeData.academic_session_id || '';
+        }
+      }
+
+      // If not found in fee, try from assignment
+      if (!academicSession && payment?.assignment_id) {
+        const { data: assignmentData } = await supabase
+          .from('student_fee_assignments')
+          .select('academic_session_id, term, session')
+          .eq('id', payment.assignment_id)
+          .single();
+        
+        if (assignmentData) {
+          academicSession = assignmentData.session || '';
+          academicTerm = assignmentData.term || '';
+          termId = assignmentData.academic_session_id || '';
+        }
+      }
+
+      // If still not found, try from the branch's current session
+      if (!academicSession && payment?.branch_id) {
+        const { data: branchData } = await supabase
+          .from('branches')
+          .select('current_session_id, current_term')
+          .eq('id', payment.branch_id)
+          .single();
+        
+        if (branchData) {
+          // Try to get session details
+          if (branchData.current_session_id) {
+            const { data: sessionData } = await supabase
+              .from('academic_sessions')
+              .select('session_name, term_name, id')
+              .eq('id', branchData.current_session_id)
+              .single();
+            
+            if (sessionData) {
+              academicSession = sessionData.session_name || '';
+              academicTerm = sessionData.term_name || '';
+              termId = sessionData.id || '';
+            }
+          }
+        }
+      }
+
+      // Update the payment with status, approval info, AND session/term data
+      const updateData: any = {
+        status: 'completed',
+        approved_by: user?.id,
+        approved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      // Only add session/term fields if we have values
+      if (academicSession) {
+        updateData.academic_session = academicSession;
+      }
+      if (academicTerm) {
+        updateData.academic_term = academicTerm;
+      }
+      if (termId) {
+        updateData.term_id = termId;
+        // Also update session_id if we have the term ID
+        updateData.session_id = termId;
+      }
+
+      // Update metadata with session/term info
+      const currentMetadata = payment?.metadata || {};
+      updateData.metadata = {
+        ...currentMetadata,
+        term: academicTerm || currentMetadata?.term || '',
+        session: academicSession || currentMetadata?.session || '',
+        term_id: termId || currentMetadata?.term_id || '',
+        session_id: termId || currentMetadata?.session_id || '',
+        fee_term: academicTerm || currentMetadata?.fee_term || '',
+        fee_session: academicSession || currentMetadata?.fee_session || '',
+        approved_at: new Date().toISOString(),
+        approved_by: user?.id,
+      };
+
       const { error } = await supabase
         .from('payments')
-        .update({
-          status: 'completed',
-          approved_by: user?.id,
-          approved_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', paymentId);
 
       if (error) throw error;
 
-      toast.success('Payment approved successfully!');
+      toast.success('Payment approved successfully! Session and term data populated.');
       setShowApproveModal(false);
       fetchPayments();
       fetchPaymentStats();
@@ -683,6 +873,7 @@ const PaymentsList: React.FC = () => {
       card: <CreditCard className="w-4 h-4 text-gray-400" />,
       pos: <Smartphone className="w-4 h-4 text-gray-400" />,
       wallet: <Wallet className="w-4 h-4 text-gray-400" />,
+      paystack: <CreditCard className="w-4 h-4 text-gray-400" />,
     };
     return methods[method] || <CreditCard className="w-4 h-4 text-gray-400" />;
   }, []);
@@ -722,6 +913,18 @@ const PaymentsList: React.FC = () => {
       transaction_reference: payment.transaction_reference || 'N/A',
       student_class_name: payment.student_class_name || 'N/A',
     };
+  };
+
+  // Clear all filters
+  const clearFilters = () => {
+    setStatusFilter('all');
+    setSessionFilter('all');
+    setTermFilter('all');
+    setSearchTerm('');
+    setDateRange({
+      start: dayjs().subtract(30, 'days').format('YYYY-MM-DD'),
+      end: dayjs().format('YYYY-MM-DD'),
+    });
   };
 
   if (isInitialLoad && loading) {
@@ -794,58 +997,104 @@ const PaymentsList: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4 print:hidden">
-        <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1);
-            }}
-            placeholder="Search by receipt, reference, student, or admission..."
-            className="w-full pl-10 pr-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
-          />
+      <div className="flex flex-col gap-3 print:hidden">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Search by receipt, reference, student, admission, or session..."
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
+            >
+              <option value="all">All Status</option>
+              <option value="completed">Completed</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+              <option value="processing">Processing</option>
+            </select>
+            
+            {/* Session Filter */}
+            <select
+              value={sessionFilter}
+              onChange={(e) => {
+                setSessionFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
+            >
+              <option value="all">All Sessions</option>
+              {AVAILABLE_SESSIONS.map(session => (
+                <option key={session} value={session}>{session}</option>
+              ))}
+            </select>
+            
+            {/* Term Filter */}
+            <select
+              value={termFilter}
+              onChange={(e) => {
+                setTermFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
+            >
+              <option value="all">All Terms</option>
+              {AVAILABLE_TERMS.map(term => (
+                <option key={term} value={term}>{term}</option>
+              ))}
+            </select>
+          </div>
         </div>
+        
         <div className="flex flex-wrap items-center gap-3">
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setCurrentPage(1);
-            }}
-            className="px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
-          >
-            <option value="all">All Status</option>
-            <option value="completed">Completed</option>
-            <option value="pending">Pending</option>
-            <option value="failed">Failed</option>
-            <option value="processing">Processing</option>
-          </select>
-          <input
-            type="date"
-            value={dateRange.start}
-            onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-            className="px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
-          />
-          <span className="text-gray-500 dark:text-gray-400">to</span>
-          <input
-            type="date"
-            value={dateRange.end}
-            onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-            className="px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
-          />
+          <div className="flex items-center gap-2">
+            <CalendarIcon className="w-4 h-4 text-gray-400" />
+            <input
+              type="date"
+              value={dateRange.start}
+              onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
+            />
+            <span className="text-gray-500 dark:text-gray-400">to</span>
+            <input
+              type="date"
+              value={dateRange.end}
+              onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
+            />
+          </div>
+          
+          {(statusFilter !== 'all' || sessionFilter !== 'all' || termFilter !== 'all' || searchTerm) && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
+            >
+              <X className="w-4 h-4" />
+              Clear Filters
+            </button>
+          )}
+          
           <button
             onClick={() => {
-              setDateRange({
-                start: dayjs().subtract(30, 'days').format('YYYY-MM-DD'),
-                end: dayjs().format('YYYY-MM-DD'),
-              });
-              setStatusFilter('all');
-              setSearchTerm('');
+              fetchPayments();
+              toast.success('Refreshed!');
             }}
             className="p-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+            title="Refresh"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -862,7 +1111,7 @@ const PaymentsList: React.FC = () => {
                   Receipt / Student
                 </th>
                 <th className="hidden md:table-cell px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Fee
+                  Fee / Session
                 </th>
                 <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Amount
@@ -932,7 +1181,28 @@ const PaymentsList: React.FC = () => {
                         </div>
                       </td>
                       <td className="hidden md:table-cell px-4 sm:px-6 py-4">
-                        <p className="text-sm text-gray-600 dark:text-gray-300">{payment.fee_name}</p>
+                        <div>
+                          <p className="text-sm font-medium text-gray-900 dark:text-white">{payment.fee_name}</p>
+                          {(payment.academic_session || payment.fee_session) && (
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <BookOpen className="w-3 h-3 text-gray-400" />
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
+                                {payment.academic_session || payment.fee_session}
+                              </span>
+                              {(payment.academic_term || payment.fee_term) && (
+                                <span className="text-xs text-gray-400 dark:text-gray-500">
+                                  • {payment.academic_term || payment.fee_term}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {payment.term_id && (
+                            <span className="inline-flex items-center gap-1 text-xs text-purple-500 dark:text-purple-400">
+                              <Hash className="w-3 h-3" />
+                              ID: {payment.term_id.substring(0, 8)}...
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 sm:px-6 py-4">
                         <div>
@@ -1229,6 +1499,28 @@ const PaymentsList: React.FC = () => {
                     <p className="text-xs text-gray-500 dark:text-gray-400">Amount</p>
                     <p className="font-medium text-green-600">{formatCurrency(selectedPayment.amount_paid)}</p>
                   </div>
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Session</p>
+                    <p className="font-medium text-gray-900 dark:text-white">
+                      {selectedPayment.academic_session || selectedPayment.fee_session || 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Term</p>
+                    <p className="font-medium text-gray-900 dark:text-white">
+                      {selectedPayment.academic_term || selectedPayment.fee_term || 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Term ID</p>
+                    <p className="font-medium text-gray-900 dark:text-white text-xs">
+                      {selectedPayment.term_id ? selectedPayment.term_id.substring(0, 12) + '...' : 'N/A'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Fee</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{selectedPayment.fee_name}</p>
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -1332,6 +1624,30 @@ const PaymentsList: React.FC = () => {
                     {dayjs(selectedPayment.payment_date).format('MMMM D, YYYY h:mm A')}
                   </p>
                 </div>
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Academic Session</p>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    {selectedPayment.academic_session || selectedPayment.fee_session || 'N/A'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Academic Term</p>
+                  <p className="font-medium text-gray-900 dark:text-white">
+                    {selectedPayment.academic_term || selectedPayment.fee_term || 'N/A'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Term ID</p>
+                  <p className="font-medium text-gray-900 dark:text-white text-sm">
+                    {selectedPayment.term_id || 'N/A'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Session ID</p>
+                  <p className="font-medium text-gray-900 dark:text-white text-sm">
+                    {selectedPayment.session_id || 'N/A'}
+                  </p>
+                </div>
                 {selectedPayment.approved_at && (
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">Approved At</p>
@@ -1407,6 +1723,18 @@ const PaymentsList: React.FC = () => {
                 <span className="text-gray-500 dark:text-gray-400">Amount:</span>
                 <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(selectedPayment.amount_paid)}</span>
               </div>
+              {selectedPayment.academic_session && (
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-gray-500 dark:text-gray-400">Session:</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{selectedPayment.academic_session}</span>
+                </div>
+              )}
+              {selectedPayment.academic_term && (
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-gray-500 dark:text-gray-400">Term:</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{selectedPayment.academic_term}</span>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -1452,6 +1780,18 @@ const PaymentsList: React.FC = () => {
                 <span className="text-gray-500 dark:text-gray-400">Amount:</span>
                 <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(selectedPayment.amount_paid)}</span>
               </div>
+              {selectedPayment.academic_session && (
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-gray-500 dark:text-gray-400">Session:</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{selectedPayment.academic_session}</span>
+                </div>
+              )}
+              {selectedPayment.academic_term && (
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-gray-500 dark:text-gray-400">Term:</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{selectedPayment.academic_term}</span>
+                </div>
+              )}
             </div>
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">

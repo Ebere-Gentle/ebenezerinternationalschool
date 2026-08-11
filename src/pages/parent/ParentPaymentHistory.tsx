@@ -176,7 +176,7 @@ const ParentPaymentHistory: React.FC = () => {
             name: branchData.name || 'Ebenezer International School',
             address: branchData.address || '42 Allen Avenue, Ikeja, Lagos',
             phone: branchData.phone || '+234 800 000 0000',
-            email: branchData.email || 'info@ebeniza.edu.ng',
+            email: branchData.email || 'info@ebenezer.edu.ng',
             logo_url: branchData.logo_url || '',
             motto: 'Excellence in Education',
             academic_session: '2026/2027',
@@ -193,7 +193,7 @@ const ParentPaymentHistory: React.FC = () => {
           name: data.school_name || 'Ebenezer International School',
           address: data.address || '42 Allen Avenue, Ikeja, Lagos',
           phone: data.phone_number || '+234 800 000 0000',
-          email: data.email || 'info@ebeniza.edu.ng',
+          email: data.email || 'info@ebenezer.edu.ng',
           logo_url: data.logo_url || '',
           motto: data.motto || 'Excellence in Education',
           academic_session: data.academic_session || '2026/2027',
@@ -412,7 +412,7 @@ const ParentPaymentHistory: React.FC = () => {
                 ${schoolInfo?.motto ? `<p class="text-sm text-gray">"${schoolInfo.motto}"</p>` : ''}
                 <div class="text-sm text-gray">
                   <p>${schoolInfo?.address || '42 Allen Avenue, Ikeja, Lagos'}</p>
-                  <p>${schoolInfo?.phone || '+234 800 000 0000'} | ${schoolInfo?.email || 'info@ebeniza.edu.ng'}</p>
+                  <p>${schoolInfo?.phone || '+234 800 000 0000'} | ${schoolInfo?.email || 'info@ebenezer.edu.ng'}</p>
                 </div>
               </div>
               <div class="text-center mb-4">

@@ -159,3 +159,20 @@ eis-school-management
 └─ vite.config.ts
 
 ```
+
+<!-- 
+USERNAME:ebenezerinternationalowo@gmail.com
+PASSWORD:ebenezerinternationalowo@gmail.com
+
+USENAME:donpedro.ev@gmail.com
+PASSWORD:12345
+
+USENAME:david@gmail.com
+PASSWORD:12345
+
+USENAME:emenike11@gmail.com
+PASSWORD:12345
+
+
+pedro@parent.com
+1234567 -->

@@ -135,7 +135,7 @@ export class PaystackService {
       this.config = {
         publicKey: publicKey,
         secretKey: secretKey,
-        merchantEmail: data.paystack_merchant_email || 'finance@ebeniza.edu.ng',
+        merchantEmail: data.paystack_merchant_email || 'finance@ebenezer.edu.ng',
         callbackUrl: data.paystack_callback_url || `${window.location.origin}/payment/verify`,
       };
 
@@ -191,7 +191,7 @@ export class PaystackService {
       return {
         bankName: gateway.bank_name || 'Zenith Bank',
         accountNumber: gateway.bank_account_number || '1012345678',
-        accountName: gateway.bank_account_name || 'Ebeniza International School',
+        accountName: gateway.bank_account_name || 'ebenezer International School',
         sortCode: gateway.bank_sort_code || '057',
         instructions: gateway.payment_instructions || 'Please use your child\'s admission number as reference.',
       };

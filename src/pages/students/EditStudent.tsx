@@ -39,12 +39,16 @@ import {
   School,
   Bus as BusIcon,
   Home as HomeIcon,
-  PlusCircle
+  PlusCircle,
+  Printer,
+  ChevronDown,
+  Download
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
 import toast from 'react-hot-toast';
 import dayjs from 'dayjs';
+import LoadingSpinner from '../../components/common/LoadingSpinner';
 
 // Zod schema matching your actual database columns
 const studentEditSchema = z.object({
@@ -173,6 +177,7 @@ const EditStudent: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [student, setStudent] = useState<Student | null>(null);
   const [classes, setClasses] = useState<Array<{ id: string; name: string; code: string; level: string; class_code: string }>>([]);
@@ -181,6 +186,7 @@ const EditStudent: React.FC = () => {
   const [busRoutes, setBusRoutes] = useState<Array<{ id: string; name: string }>>([]);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
 
   const {
     register,
@@ -265,8 +271,18 @@ const EditStudent: React.FC = () => {
       loadOptions(branchId);
     } else {
       setLoading(false);
+      setError('No branch found. Please contact administrator.');
     }
   }, [user, id]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setShowDownloadDropdown(false);
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const loadOptions = async (branchId: string) => {
     try {
@@ -283,11 +299,13 @@ const EditStudent: React.FC = () => {
 
   const loadAllData = async (branchId: string, studentId: string) => {
     setLoading(true);
+    setError(null);
     try {
       await loadOptions(branchId);
       await fetchStudentData(studentId);
     } catch (error: any) {
       console.error('Error loading data:', error);
+      setError(error.message || 'Failed to load student data. Please try again.');
       toast.error(error.message || 'Failed to load data');
     } finally {
       setLoading(false);
@@ -302,109 +320,124 @@ const EditStudent: React.FC = () => {
         .eq('id', studentId)
         .single();
 
-      if (error) throw error;
-
-      if (data) {
-        setStudent(data);
-        
-        if (data.passport_url) {
-          setPhotoPreview(data.passport_url);
+      if (error) {
+        console.error('Supabase error fetching student:', error);
+        if (error.code === 'PGRST116') {
+          setError('Student not found. The student may have been deleted.');
+        } else {
+          setError(error.message || 'Failed to fetch student data.');
         }
-        
-        // Build form data
-        const formData: any = {
-          id: data.id || '',
-          student_id: data.student_id || '',
-          admission_number: data.admission_number || '',
-          user_id: data.user_id ?? null,
-          branch_id: data.branch_id || '',
-          session_id: data.session_id ?? null,
-          parent_id: data.parent_id ?? null,
-          created_by: data.created_by ?? null,
-          
-          first_name: data.first_name || '',
-          last_name: data.last_name || '',
-          middle_name: data.middle_name ?? null,
-          other_names: data.other_names ?? null,
-          gender: data.gender || 'male',
-          date_of_birth: data.date_of_birth || dayjs().format('YYYY-MM-DD'),
-          place_of_birth: data.place_of_birth ?? null,
-          nationality: data.nationality || 'Nigerian',
-          state_of_origin: data.state_of_origin ?? null,
-          lga: data.lga ?? null,
-          religion: data.religion ?? null,
-          blood_group: data.blood_group ?? null,
-          genotype: data.genotype ?? null,
-          passport_url: data.passport_url ?? null,
-          
-          email: data.email ?? null,
-          phone_number: data.phone_number ?? null,
-          home_address: data.home_address || '',
-          residential_address: data.residential_address ?? null,
-          
-          department: data.department ?? null,
-          class_id: data.class_id ?? null,
-          class_arm: data.class_arm ?? null,
-          house_id: data.house_id ?? null,
-          club_id: data.club_id ?? null,
-          admission_date: data.admission_date || dayjs().format('YYYY-MM-DD'),
-          admission_status: data.admission_status || 'pending',
-          current_status: data.current_status || 'active',
-          previous_school: data.previous_school ?? null,
-          transfer_status: data.transfer_status === true,
-          
-          transportation_status: data.transportation_status === true,
-          pickup_location: data.pickup_location ?? null,
-          bus_route_id: data.bus_route_id ?? null,
-          
-          doctor_name: data.doctor_name ?? null,
-          hospital_name: data.hospital_name ?? null,
-          allergies: data.allergies ?? null,
-          medical_conditions: data.medical_conditions ?? null,
-          special_needs: data.special_needs ?? null,
-          
-          guardian_info: data.guardian_info || {},
-          emergency_contact: data.emergency_contact || {},
-          documents: data.documents || [],
-          metadata: data.metadata || {},
-          medical_info: data.medical_info || {},
-          
-          qr_code_data: data.qr_code_data ?? null,
-          barcode_data: data.barcode_data ?? null,
-          
-          created_at: data.created_at || '',
-          updated_at: data.updated_at || '',
-        };
-        
-        // Extract guardian_info fields
-        if (data.guardian_info && typeof data.guardian_info === 'object') {
-          formData.father_name = data.guardian_info?.father_name ?? null;
-          formData.father_phone = data.guardian_info?.father_phone ?? null;
-          formData.father_email = data.guardian_info?.father_email ?? null;
-          formData.father_occupation = data.guardian_info?.father_occupation ?? null;
-          formData.mother_name = data.guardian_info?.mother_name ?? null;
-          formData.mother_phone = data.guardian_info?.mother_phone ?? null;
-          formData.mother_email = data.guardian_info?.mother_email ?? null;
-          formData.mother_occupation = data.guardian_info?.mother_occupation ?? null;
-          formData.guardian_name = data.guardian_info?.guardian_name ?? null;
-          formData.guardian_phone = data.guardian_info?.guardian_phone ?? null;
-          formData.guardian_email = data.guardian_info?.guardian_email ?? null;
-          formData.guardian_address = data.guardian_info?.guardian_address ?? null;
-          formData.guardian_relationship = data.guardian_info?.relationship ?? null;
-        }
-        
-        // Extract emergency_contact fields
-        if (data.emergency_contact && typeof data.emergency_contact === 'object') {
-          formData.emergency_contact_name = data.emergency_contact?.name ?? null;
-          formData.emergency_contact_phone = data.emergency_contact?.phone ?? null;
-        }
-        
-        reset(formData);
+        throw error;
       }
+
+      if (!data) {
+        setError('Student not found.');
+        throw new Error('Student not found');
+      }
+
+      setStudent(data);
+      
+      if (data.passport_url) {
+        setPhotoPreview(data.passport_url);
+      }
+      
+      // Build form data
+      const formData: any = {
+        id: data.id || '',
+        student_id: data.student_id || '',
+        admission_number: data.admission_number || '',
+        user_id: data.user_id ?? null,
+        branch_id: data.branch_id || '',
+        session_id: data.session_id ?? null,
+        parent_id: data.parent_id ?? null,
+        created_by: data.created_by ?? null,
+        
+        first_name: data.first_name || '',
+        last_name: data.last_name || '',
+        middle_name: data.middle_name ?? null,
+        other_names: data.other_names ?? null,
+        gender: data.gender || 'male',
+        date_of_birth: data.date_of_birth || dayjs().format('YYYY-MM-DD'),
+        place_of_birth: data.place_of_birth ?? null,
+        nationality: data.nationality || 'Nigerian',
+        state_of_origin: data.state_of_origin ?? null,
+        lga: data.lga ?? null,
+        religion: data.religion ?? null,
+        blood_group: data.blood_group ?? null,
+        genotype: data.genotype ?? null,
+        passport_url: data.passport_url ?? null,
+        
+        email: data.email ?? null,
+        phone_number: data.phone_number ?? null,
+        home_address: data.home_address || '',
+        residential_address: data.residential_address ?? null,
+        
+        department: data.department ?? null,
+        class_id: data.class_id ?? null,
+        class_arm: data.class_arm ?? null,
+        house_id: data.house_id ?? null,
+        club_id: data.club_id ?? null,
+        admission_date: data.admission_date || dayjs().format('YYYY-MM-DD'),
+        admission_status: data.admission_status || 'pending',
+        current_status: data.current_status || 'active',
+        previous_school: data.previous_school ?? null,
+        transfer_status: data.transfer_status === true,
+        
+        transportation_status: data.transportation_status === true,
+        pickup_location: data.pickup_location ?? null,
+        bus_route_id: data.bus_route_id ?? null,
+        
+        doctor_name: data.doctor_name ?? null,
+        hospital_name: data.hospital_name ?? null,
+        allergies: data.allergies ?? null,
+        medical_conditions: data.medical_conditions ?? null,
+        special_needs: data.special_needs ?? null,
+        
+        guardian_info: data.guardian_info || {},
+        emergency_contact: data.emergency_contact || {},
+        documents: data.documents || [],
+        metadata: data.metadata || {},
+        medical_info: data.medical_info || {},
+        
+        qr_code_data: data.qr_code_data ?? null,
+        barcode_data: data.barcode_data ?? null,
+        
+        created_at: data.created_at || '',
+        updated_at: data.updated_at || '',
+      };
+      
+      // Extract guardian_info fields
+      if (data.guardian_info && typeof data.guardian_info === 'object') {
+        formData.father_name = data.guardian_info?.father_name ?? null;
+        formData.father_phone = data.guardian_info?.father_phone ?? null;
+        formData.father_email = data.guardian_info?.father_email ?? null;
+        formData.father_occupation = data.guardian_info?.father_occupation ?? null;
+        formData.mother_name = data.guardian_info?.mother_name ?? null;
+        formData.mother_phone = data.guardian_info?.mother_phone ?? null;
+        formData.mother_email = data.guardian_info?.mother_email ?? null;
+        formData.mother_occupation = data.guardian_info?.mother_occupation ?? null;
+        formData.guardian_name = data.guardian_info?.guardian_name ?? null;
+        formData.guardian_phone = data.guardian_info?.guardian_phone ?? null;
+        formData.guardian_email = data.guardian_info?.guardian_email ?? null;
+        formData.guardian_address = data.guardian_info?.guardian_address ?? null;
+        formData.guardian_relationship = data.guardian_info?.relationship ?? null;
+      }
+      
+      // Extract emergency_contact fields
+      if (data.emergency_contact && typeof data.emergency_contact === 'object') {
+        formData.emergency_contact_name = data.emergency_contact?.name ?? null;
+        formData.emergency_contact_phone = data.emergency_contact?.phone ?? null;
+      }
+      
+      reset(formData);
     } catch (error: any) {
       console.error('Error fetching student:', error);
+      setError(error.message || 'Failed to fetch student data');
       toast.error(error.message || 'Failed to fetch student data');
-      navigate('/students');
+      // Navigate back after a delay if there's an error
+      setTimeout(() => {
+        navigate('/students');
+      }, 3000);
     }
   };
 
@@ -550,6 +583,226 @@ const EditStudent: React.FC = () => {
     return null;
   };
 
+  // ============================================
+  // DOWNLOAD FUNCTIONS
+  // ============================================
+  
+  const handleDownloadStudentData = () => {
+    if (!student) return;
+    
+    try {
+      // Create a clean copy of student data without circular references
+      const cleanData = JSON.parse(JSON.stringify(student));
+      
+      // Create a blob with the data
+      const blob = new Blob(
+        [JSON.stringify(cleanData, null, 2)],
+        { type: 'application/json' }
+      );
+      
+      // Create download link
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `student_${student.first_name}_${student.last_name}_${student.admission_number || student.student_id}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success('Student data downloaded successfully!');
+      setShowDownloadDropdown(false);
+    } catch (error) {
+      console.error('Download error:', error);
+      toast.error('Failed to download student data');
+    }
+  };
+
+  const handleDownloadCSV = () => {
+    if (!student) return;
+    
+    try {
+      // Define the fields you want to export
+      const fields = [
+        'student_id', 'admission_number', 'first_name', 'last_name', 
+        'gender', 'date_of_birth', 'email', 'phone_number', 
+        'home_address', 'admission_status', 'current_status'
+      ];
+      
+      // Create CSV header
+      let csv = fields.join(',') + '\n';
+      
+      // Create CSV row
+      const row = fields.map(field => {
+        const value = student[field as keyof Student];
+        // Handle null/undefined values
+        if (value === null || value === undefined) return '';
+        // Escape strings with commas or quotes
+        if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      });
+      csv += row.join(',') + '\n';
+      
+      // Create blob and download
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `student_${student.first_name}_${student.last_name}_${student.admission_number || student.student_id}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success('CSV downloaded successfully!');
+      setShowDownloadDropdown(false);
+    } catch (error) {
+      console.error('CSV download error:', error);
+      toast.error('Failed to download CSV');
+    }
+  };
+
+  // ============================================
+  // PRINT FUNCTION
+  // ============================================
+  
+  const handlePrintStudent = () => {
+    if (!student) return;
+    
+    // Create a printable version of the student data
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Student Profile - ${student.first_name} ${student.last_name}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+          h1 { color: #1a56db; border-bottom: 2px solid #1a56db; padding-bottom: 10px; }
+          h2 { color: #374151; margin-top: 20px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .section { margin-bottom: 20px; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; }
+          .section-title { font-weight: bold; color: #1a56db; margin-bottom: 10px; font-size: 16px; }
+          .field { display: flex; padding: 5px 0; border-bottom: 1px solid #f3f4f6; }
+          .field-label { font-weight: 600; width: 150px; color: #4b5563; }
+          .field-value { flex: 1; color: #1f2937; }
+          .photo { max-width: 150px; border-radius: 8px; margin: 10px 0; }
+          @media print {
+            .no-print { display: none; }
+            .section { break-inside: avoid; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          ${student.passport_url ? `<img src="${student.passport_url}" class="photo" alt="Student Photo" />` : ''}
+          <h1>${student.first_name} ${student.last_name}</h1>
+          <p><strong>Admission Number:</strong> ${student.admission_number || 'N/A'}</p>
+          <p><strong>Student ID:</strong> ${student.student_id || 'N/A'}</p>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">Personal Information</div>
+          <div class="field"><span class="field-label">First Name:</span><span class="field-value">${student.first_name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Last Name:</span><span class="field-value">${student.last_name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Gender:</span><span class="field-value">${student.gender || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Date of Birth:</span><span class="field-value">${student.date_of_birth ? dayjs(student.date_of_birth).format('MMMM D, YYYY') : 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Place of Birth:</span><span class="field-value">${student.place_of_birth || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Nationality:</span><span class="field-value">${student.nationality || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">State of Origin:</span><span class="field-value">${student.state_of_origin || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">LGA:</span><span class="field-value">${student.lga || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Religion:</span><span class="field-value">${student.religion || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Blood Group:</span><span class="field-value">${student.blood_group || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Genotype:</span><span class="field-value">${student.genotype || 'N/A'}</span></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">Contact Information</div>
+          <div class="field"><span class="field-label">Email:</span><span class="field-value">${student.email || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Phone:</span><span class="field-value">${student.phone_number || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Home Address:</span><span class="field-value">${student.home_address || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Residential Address:</span><span class="field-value">${student.residential_address || 'N/A'}</span></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">Academic Information</div>
+          <div class="field"><span class="field-label">Admission Date:</span><span class="field-value">${student.admission_date ? dayjs(student.admission_date).format('MMMM D, YYYY') : 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Admission Status:</span><span class="field-value">${student.admission_status || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Current Status:</span><span class="field-value">${student.current_status || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Department:</span><span class="field-value">${student.department || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Class:</span><span class="field-value">${classes.find(c => c.id === student.class_id)?.name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Class Arm:</span><span class="field-value">${student.class_arm || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">House:</span><span class="field-value">${houses.find(h => h.id === student.house_id)?.name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Club:</span><span class="field-value">${clubs.find(c => c.id === student.club_id)?.name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Previous School:</span><span class="field-value">${student.previous_school || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Transfer Status:</span><span class="field-value">${student.transfer_status ? 'Yes' : 'No'}</span></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">Guardian Information</div>
+          ${student.guardian_info?.father_name ? `<div class="field"><span class="field-label">Father:</span><span class="field-value">${student.guardian_info.father_name}${student.guardian_info.father_phone ? ` (${student.guardian_info.father_phone})` : ''}</span></div>` : ''}
+          ${student.guardian_info?.mother_name ? `<div class="field"><span class="field-label">Mother:</span><span class="field-value">${student.guardian_info.mother_name}${student.guardian_info.mother_phone ? ` (${student.guardian_info.mother_phone})` : ''}</span></div>` : ''}
+          ${student.guardian_info?.guardian_name ? `<div class="field"><span class="field-label">Guardian:</span><span class="field-value">${student.guardian_info.guardian_name}${student.guardian_info.guardian_phone ? ` (${student.guardian_info.guardian_phone})` : ''}</span></div>` : ''}
+          ${student.guardian_info?.relationship ? `<div class="field"><span class="field-label">Relationship:</span><span class="field-value">${student.guardian_info.relationship}</span></div>` : ''}
+        </div>
+        
+        ${student.emergency_contact?.name ? `
+        <div class="section">
+          <div class="section-title">Emergency Contact</div>
+          <div class="field"><span class="field-label">Name:</span><span class="field-value">${student.emergency_contact.name}</span></div>
+          <div class="field"><span class="field-label">Phone:</span><span class="field-value">${student.emergency_contact.phone || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Relationship:</span><span class="field-value">${student.emergency_contact.relationship || 'N/A'}</span></div>
+        </div>
+        ` : ''}
+        
+        <div class="section">
+          <div class="section-title">Medical Information</div>
+          <div class="field"><span class="field-label">Doctor's Name:</span><span class="field-value">${student.doctor_name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Hospital:</span><span class="field-value">${student.hospital_name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Allergies:</span><span class="field-value">${student.allergies || 'None'}</span></div>
+          <div class="field"><span class="field-label">Medical Conditions:</span><span class="field-value">${student.medical_conditions || 'None'}</span></div>
+          <div class="field"><span class="field-label">Special Needs:</span><span class="field-value">${student.special_needs || 'None'}</span></div>
+        </div>
+        
+        ${student.transportation_status ? `
+        <div class="section">
+          <div class="section-title">Transportation</div>
+          <div class="field"><span class="field-label">Pickup Location:</span><span class="field-value">${student.pickup_location || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Bus Route:</span><span class="field-value">${busRoutes.find(r => r.id === student.bus_route_id)?.name || 'N/A'}</span></div>
+        </div>
+        ` : ''}
+        
+        ${student.student_bio ? `
+        <div class="section">
+          <div class="section-title">Bio</div>
+          <p style="margin: 10px 0; line-height: 1.6;">${student.student_bio}</p>
+        </div>
+        ` : ''}
+        
+        <div style="text-align: center; margin-top: 40px; color: #6b7280; font-size: 12px;">
+          Printed on ${new Date().toLocaleString()}
+        </div>
+      </body>
+      </html>
+    `;
+    
+    // Open print window
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (printWindow) {
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+    } else {
+      toast.error('Please allow popups to print');
+    }
+  };
+
+  // ============================================
+  // SUBMIT FUNCTION WITH RLS FIX
+  // ============================================
+  
   const onSubmit = async (data: StudentEditFormData) => {
     if (!id) {
       toast.error('Student ID missing. Please refresh the page.');
@@ -559,6 +812,20 @@ const EditStudent: React.FC = () => {
     setSaving(true);
     
     try {
+      // First, verify the student exists
+      const { data: existingStudent, error: checkError } = await supabase
+        .from('students')
+        .select('id')
+        .eq('id', id)
+        .single();
+
+      if (checkError || !existingStudent) {
+        console.error('Student not found:', checkError);
+        toast.error('Student record not found. It may have been deleted.');
+        setSaving(false);
+        return;
+      }
+
       // Build update data - only include fields that exist in the database
       const updateData: any = {
         // IDs - use helper to convert empty strings to null for UUID fields
@@ -657,60 +924,78 @@ const EditStudent: React.FC = () => {
         }
       });
 
-      console.log('📤 Updating student with data:', JSON.stringify(updateData, null, 2));
+      console.log('📤 Updating student with ID:', id);
+      console.log('📤 Update data:', JSON.stringify(updateData, null, 2));
 
-      // Update student
-      const { data: updatedStudent, error } = await supabase
+      // Update student - using the ID from params
+      const { data: updatedStudent, error: updateError } = await supabase
         .from('students')
         .update(updateData)
         .eq('id', id)
         .select();
 
-      if (error) {
-        console.error('❌ Supabase error:', error);
-        if (error.code === '23505') {
-          toast.error('Duplicate record. Please check unique fields.');
-        } else if (error.code === '42501') {
-          toast.error('Permission denied. Please contact administrator.');
-        } else if (error.code === '22P02') {
-          toast.error('Invalid data format. Please check UUID fields.');
+      if (updateError) {
+        console.error('❌ Supabase error:', updateError);
+        
+        // Handle specific error codes
+        if (updateError.code === '23505') {
+          toast.error('Duplicate record. Please check unique fields (student_id, admission_number, email).');
+        } else if (updateError.code === '42501') {
+          toast.error('Permission denied. You may not have access to update this student record.');
+        } else if (updateError.code === '22P02') {
+          toast.error('Invalid data format. Please check that all fields contain valid data.');
+        } else if (updateError.code === 'PGRST116') {
+          toast.error('Student record not found. The student may have been deleted.');
         } else {
-          toast.error(error.message || 'Failed to update student record.');
+          toast.error(updateError.message || 'Failed to update student record.');
         }
-        throw error;
+        throw updateError;
       }
 
       if (!updatedStudent || updatedStudent.length === 0) {
-        toast.error('Student record was not updated. The student may not exist.');
+        console.error('❌ No student returned after update');
+        toast.error('Student record was not updated. Please try again.');
         setSaving(false);
         return;
       }
+
+      console.log('✅ Student updated successfully:', updatedStudent[0]);
 
       // Upload photo if changed
       if (photoFile) {
         try {
           const photoUrl = await uploadStudentPhoto(id, photoFile);
           if (photoUrl) {
-            await supabase
+            const { error: photoUpdateError } = await supabase
               .from('students')
               .update({ passport_url: photoUrl })
               .eq('id', id);
-            toast.success('📸 Student photo uploaded successfully!');
+
+            if (photoUpdateError) {
+              console.error('Photo update error:', photoUpdateError);
+              toast.error('Student updated but photo upload failed. You can upload later.');
+            } else {
+              toast.success('📸 Student photo uploaded successfully!');
+            }
           } else {
-            toast('Student updated but photo upload failed. You can upload later.', { icon: '⚠️' });
+            toast.warning('Student updated but photo upload failed. You can upload later.');
           }
         } catch (photoError) {
           console.error('Photo upload error:', photoError);
-          toast('Student updated but photo upload failed. You can upload later.', { icon: '⚠️' });
+          toast.warning('Student updated but photo upload failed. You can upload later.');
         }
       }
 
-      toast.success('Student updated successfully!');
-      navigate(`/students/${id}`);
+      toast.success('✅ Student updated successfully!');
+      
+      // Navigate back to student details
+      setTimeout(() => {
+        navigate(`/students/${id}`);
+      }, 500);
       
     } catch (error: any) {
       console.error('❌ Error updating student:', error);
-      if (!error.code) {
+      if (!error.code && !error.message?.includes('Student record not found')) {
         toast.error(error.message || 'Failed to update student. Please try again.');
       }
     } finally {
@@ -718,10 +1003,22 @@ const EditStudent: React.FC = () => {
     }
   };
 
+  // ============================================
+  // RENDER
+  // ============================================
+  
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+        <LoadingSpinner size="lg" text="Loading student data..." />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <LoadingSpinner size="lg" text="Loading student data..." />
       </div>
     );
   }
@@ -764,14 +1061,62 @@ const EditStudent: React.FC = () => {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Download Dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDownloadDropdown(!showDownloadDropdown);
+              }}
+              className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">Download</span>
+              <ChevronDown className="w-4 h-4" />
+            </button>
+            
+            {showDownloadDropdown && (
+              <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden z-10">
+                <button
+                  onClick={handleDownloadStudentData}
+                  className="flex items-center gap-3 px-4 py-2.5 w-full text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                >
+                  <File className="w-4 h-4" />
+                  Download JSON
+                </button>
+                <button
+                  onClick={handleDownloadCSV}
+                  className="flex items-center gap-3 px-4 py-2.5 w-full text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                >
+                  <FileText className="w-4 h-4" />
+                  Download CSV
+                </button>
+              </div>
+            )}
+          </div>
+          
+          {/* Print Button */}
+          <button
+            type="button"
+            onClick={handlePrintStudent}
+            className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+          >
+            <Printer className="w-4 h-4" />
+            <span className="hidden sm:inline">Print</span>
+          </button>
+          
+          {/* Cancel Button */}
           <Link
             to={`/students/${id}`}
             className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
           >
             <X className="w-4 h-4" />
-            Cancel
+            <span className="hidden sm:inline">Cancel</span>
           </Link>
+          
+          {/* Save Button */}
           <button
             type="submit"
             form="student-edit-form"
@@ -786,7 +1131,8 @@ const EditStudent: React.FC = () => {
             ) : (
               <>
                 <Save className="w-4 h-4" />
-                Save Changes
+                <span className="hidden sm:inline">Save Changes</span>
+                <span className="sm:hidden">Save</span>
               </>
             )}
           </button>

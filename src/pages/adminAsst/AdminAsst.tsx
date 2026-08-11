@@ -327,8 +327,6 @@ const AdminAsst: React.FC = () => {
   const handleViewStudent = (student: any) => {
     console.log('🔍 Viewing student:', student);
     
-    // If the student is from the recent collections list, it might have a different structure
-    // Make sure we pass the full student object with all fields
     const studentData = {
       id: student.student_id || student.id,
       student_id: student.student_id || student.id,
@@ -345,7 +343,7 @@ const AdminAsst: React.FC = () => {
       date_of_birth: student.date_of_birth || 'N/A',
       home_address: student.home_address || student.address || 'N/A',
       admission_number: student.admission_number || student.student_id || 'N/A',
-      ...student // Keep any other fields
+      ...student
     };
     
     setSelectedStudent(studentData);
@@ -357,17 +355,22 @@ const AdminAsst: React.FC = () => {
   };
 
   // ============================================
-  // SIGNATURE UPLOAD TO BUCKET
+  // SIGNATURE UPLOAD TO BUCKET - FIXED
   // ============================================
-  const uploadSignatureToBucket = async (file: File): Promise<string | null> => {
+  const uploadSignatureToBucket = async (file: File | Blob): Promise<string | null> => {
     try {
-      const fileExt = file.name.split('.').pop() || 'png';
+      let uploadFile = file;
+      if (file instanceof Blob && !('name' in file)) {
+        uploadFile = new File([file], `signature_${Date.now()}.png`, { type: 'image/png' });
+      }
+      
+      const fileExt = 'png';
       const fileName = `signature_${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
       const filePath = fileName;
 
       const { error: uploadError } = await supabase.storage
         .from('signatures')
-        .upload(filePath, file, {
+        .upload(filePath, uploadFile, {
           cacheControl: '3600',
           upsert: false,
         });
@@ -459,6 +462,9 @@ const AdminAsst: React.FC = () => {
     setSignatureFile(null);
   };
 
+  // ============================================
+  // HANDLE SAVE SIGNATURE - FIXED
+  // ============================================
   const handleSaveSignature = async () => {
     const canvas = canvasRef.current;
     let signatureUrl = null;
@@ -476,7 +482,13 @@ const AdminAsst: React.FC = () => {
         const dataUrl = canvas.toDataURL('image/png');
         const response = await fetch(dataUrl);
         const blob = await response.blob();
-        const file = new File([blob], `signature_${Date.now()}.png`, { type: 'image/png' });
+        
+        // Create File from Blob
+        const file = new window.File([blob], `signature_${Date.now()}.png`, { 
+          type: 'image/png',
+          lastModified: Date.now()
+        });
+        
         const uploaded = await uploadSignatureToBucket(file);
         if (uploaded) {
           signatureUrl = uploaded;
@@ -763,6 +775,7 @@ const AdminAsst: React.FC = () => {
     { day: 'Fri', collections: collections?.filter((c: any) => dayjs(c.collection_date).day() === 5).length || 0 },
   ];
 
+  // Mobile nav items - simplified without hamburger
   const mobileNavItems = [
     { id: 'dashboard', label: 'Home', icon: School },
     { id: 'students', label: 'Students', icon: Users },
@@ -772,63 +785,21 @@ const AdminAsst: React.FC = () => {
     { id: 'reports', label: 'Reports', icon: FileText },
     { id: 'inventory', label: 'Inventory', icon: Box },
     { id: 'activity', label: 'Activity', icon: History },
-    { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
   return (
     <div className="space-y-3 pb-20 sm:pb-0">
-      {/* Mobile Header */}
+      {/* Mobile Header - Simplified without hamburger */}
       <div className="flex items-center justify-between gap-2 sm:hidden">
         <div className="flex items-center gap-2">
-          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all">
-            <Menu className="w-5 h-5" />
-          </button>
           <h1 className="text-lg font-bold text-gray-900 dark:text-white capitalize">{currentPage}</h1>
         </div>
         <div className="flex items-center gap-1">
           <button onClick={handleRefresh} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all">
             <RefreshCw className="w-4 h-4" />
           </button>
-          <button onClick={() => setNotificationsOpen(true)} className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all">
-            <Bell className="w-4 h-4" />
-            {unreadCount > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse" />}
-          </button>
         </div>
       </div>
-
-      {/* Mobile Navigation Menu */}
-      <AnimatePresence>
-        {mobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="sm:hidden bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-2"
-          >
-            <div className="grid grid-cols-4 gap-1">
-              {mobileNavItems.slice(0, 8).map((item) => {
-                const Icon = item.icon;
-                const isActive = currentPage === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => {
-                      setMobileMenuOpen(false);
-                      navigate(`/admin-asst/${item.id === 'dashboard' ? 'dashboard' : item.id}`);
-                    }}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-lg transition-all ${
-                      isActive ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span className="text-[8px] font-medium">{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Main Content */}
       <div className="flex flex-col lg:flex-row gap-4">
@@ -923,7 +894,7 @@ const AdminAsst: React.FC = () => {
           </AnimatePresence>
         </div>
 
-        {/* Right Sidebar - UPDATED with proper student data passing */}
+        {/* Right Sidebar */}
         <div className="hidden lg:block w-72 flex-shrink-0">
           <RightSidebar
             user={user}
@@ -940,10 +911,10 @@ const AdminAsst: React.FC = () => {
         </div>
       </div>
 
-      {/* Mobile Bottom Navigation */}
+      {/* Mobile Bottom Navigation - No hamburger menu */}
       <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 z-50 sm:hidden shadow-lg">
         <div className="flex items-center justify-around px-1 py-1">
-          {mobileNavItems.slice(0, 6).map((item) => {
+          {mobileNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentPage === item.id;
             return (
@@ -959,15 +930,6 @@ const AdminAsst: React.FC = () => {
               </button>
             );
           })}
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className={`flex flex-col items-center gap-0.5 p-1.5 rounded-lg transition-all min-w-[44px] ${
-              mobileMenuOpen ? 'text-teal-600 dark:text-teal-400' : 'text-gray-500 dark:text-gray-400'
-            }`}
-          >
-            <Menu className="w-5 h-5" />
-            <span className="text-[8px] font-medium">More</span>
-          </button>
         </div>
       </div>
 
@@ -1072,7 +1034,7 @@ const AdminAsst: React.FC = () => {
       </AnimatePresence>
 
       {/* ============================================
-          STUDENT PROFILE MODAL - With full student details
+          STUDENT PROFILE MODAL
           ============================================ */}
       <StudentProfileModal
         open={showStudentModal}
@@ -1102,7 +1064,7 @@ const AdminAsst: React.FC = () => {
 };
 
 // ============================================
-// RIGHT SIDEBAR - UPDATED with proper student data
+// RIGHT SIDEBAR
 // ============================================
 const RightSidebar: React.FC<any> = ({
   user,
@@ -1179,7 +1141,6 @@ const RightSidebar: React.FC<any> = ({
               key={collection.id}
               className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer transition-colors"
               onClick={() => {
-                // Create a student object with all available data
                 const studentData = {
                   id: collection.student_id,
                   student_id: collection.student_id,
@@ -1382,7 +1343,7 @@ const DashboardContent: React.FC<any> = ({
         </div>
       </div>
 
-      {/* Recent Collections - UPDATED with proper student data passing */}
+      {/* Recent Collections */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-2">

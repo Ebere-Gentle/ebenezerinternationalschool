@@ -248,7 +248,7 @@ const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
               <div>
                 <h2 className="text-xl font-bold">{schoolInfo?.school_name || 'Ebenezer International School'}</h2>
                 <p className="text-sm opacity-80">{schoolInfo?.address || 'Owo, Ondo State, Nigeria'}</p>
-                <p className="text-xs opacity-70">{schoolInfo?.phone_number || '+234 800 000 0000'} | {schoolInfo?.email || 'info@ebeniza.edu.ng'}</p>
+                <p className="text-xs opacity-70">{schoolInfo?.phone_number || '+234 800 000 0000'} | {schoolInfo?.email || 'info@ebenezer.edu.ng'}</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -259,7 +259,7 @@ const StudentProfileModal: React.FC<StudentProfileModalProps> = ({
                   try {
                     const schoolData = {
                       name: schoolInfo?.school_name || 'Ebenezer International School',
-                      email: schoolInfo?.email || 'info@ebeniza.edu.ng',
+                      email: schoolInfo?.email || 'info@ebenezer.edu.ng',
                       phone: schoolInfo?.phone_number || '+234 800 000 0000',
                       address: schoolInfo?.address || 'Owo, Ondo State, Nigeria',
                       motto: schoolInfo?.motto || 'Excellence through Knowledge'

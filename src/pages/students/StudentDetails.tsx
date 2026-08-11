@@ -64,7 +64,9 @@ import {
   Pencil,
   Save,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  FileJson,
+  Table,
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
@@ -206,6 +208,7 @@ const StudentDetails: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [academicHistory, setAcademicHistory] = useState<any[]>([]);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
 
   // Mobile tab state
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
@@ -225,6 +228,15 @@ const StudentDetails: React.FC = () => {
       fetchAcademicData(id);
     }
   }, [id]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setShowDownloadDropdown(false);
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const fetchAllHouses = async () => {
     try {
@@ -419,6 +431,259 @@ const StudentDetails: React.FC = () => {
       navigate('/students');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ============================================
+  // DOWNLOAD FUNCTIONS
+  // ============================================
+  
+  const handleDownloadStudentData = () => {
+    if (!student) return;
+    
+    try {
+      // Create a clean copy of student data without circular references
+      const cleanData = JSON.parse(JSON.stringify(student));
+      
+      // Create a blob with the data
+      const blob = new Blob(
+        [JSON.stringify(cleanData, null, 2)],
+        { type: 'application/json' }
+      );
+      
+      // Create download link
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `student_${student.first_name}_${student.last_name}_${student.admission_number || student.student_id}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success('Student data downloaded successfully!');
+      setShowDownloadDropdown(false);
+    } catch (error) {
+      console.error('Download error:', error);
+      toast.error('Failed to download student data');
+    }
+  };
+
+  const handleDownloadCSV = () => {
+    if (!student) return;
+    
+    try {
+      // Define the fields you want to export
+      const fields = [
+        'student_id', 'admission_number', 'first_name', 'last_name', 
+        'gender', 'date_of_birth', 'email', 'phone_number', 
+        'home_address', 'admission_status', 'current_status', 'class_name'
+      ];
+      
+      // Create CSV header
+      let csv = fields.join(',') + '\n';
+      
+      // Create CSV row
+      const row = fields.map(field => {
+        let value = student[field as keyof Student];
+        // Handle null/undefined values
+        if (value === null || value === undefined) return '';
+        // Format date
+        if (field === 'date_of_birth' && value) {
+          value = dayjs(value).format('YYYY-MM-DD');
+        }
+        // Escape strings with commas or quotes
+        if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return String(value);
+      });
+      csv += row.join(',') + '\n';
+      
+      // Create blob and download
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `student_${student.first_name}_${student.last_name}_${student.admission_number || student.student_id}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success('CSV downloaded successfully!');
+      setShowDownloadDropdown(false);
+    } catch (error) {
+      console.error('CSV download error:', error);
+      toast.error('Failed to download CSV');
+    }
+  };
+
+  // ============================================
+  // PRINT FUNCTION
+  // ============================================
+  
+  const handlePrintStudent = () => {
+    if (!student) return;
+    
+    // Create a printable version of the student data
+    const printContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Student Profile - ${student.first_name} ${student.last_name}</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+          h1 { color: #1a56db; border-bottom: 2px solid #1a56db; padding-bottom: 10px; }
+          h2 { color: #374151; margin-top: 20px; }
+          .header { text-align: center; margin-bottom: 30px; }
+          .section { margin-bottom: 20px; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; }
+          .section-title { font-weight: bold; color: #1a56db; margin-bottom: 10px; font-size: 16px; }
+          .field { display: flex; padding: 5px 0; border-bottom: 1px solid #f3f4f6; }
+          .field-label { font-weight: 600; width: 180px; color: #4b5563; }
+          .field-value { flex: 1; color: #1f2937; }
+          .photo { max-width: 150px; border-radius: 8px; margin: 10px 0; }
+          .badge { 
+            display: inline-block; 
+            padding: 2px 10px; 
+            border-radius: 9999px; 
+            font-size: 12px; 
+            font-weight: 600;
+          }
+          .badge-active { background: #d1fae5; color: #065f46; }
+          .badge-inactive { background: #f3f4f6; color: #374151; }
+          .badge-transferred { background: #fef3c7; color: #92400e; }
+          .badge-suspended { background: #fee2e2; color: #991b1b; }
+          .badge-pending { background: #dbeafe; color: #1e40af; }
+          .badge-admitted { background: #d1fae5; color: #065f46; }
+          @media print {
+            .no-print { display: none; }
+            .section { break-inside: avoid; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          ${student.passport_url ? `<img src="${student.passport_url}" class="photo" alt="Student Photo" />` : ''}
+          <h1>${student.first_name} ${student.last_name}</h1>
+          <p><strong>Admission Number:</strong> ${student.admission_number || 'N/A'}</p>
+          <p><strong>Student ID:</strong> ${student.student_id || 'N/A'}</p>
+          <p><strong>Branch:</strong> ${student.branch_name || 'N/A'}</p>
+          <p>
+            <span class="badge badge-${student.current_status}">${student.current_status}</span>
+            <span class="badge badge-${student.admission_status}">${student.admission_status}</span>
+          </p>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">Personal Information</div>
+          <div class="field"><span class="field-label">First Name:</span><span class="field-value">${student.first_name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Middle Name:</span><span class="field-value">${student.middle_name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Last Name:</span><span class="field-value">${student.last_name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Other Names:</span><span class="field-value">${student.other_names || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Gender:</span><span class="field-value">${student.gender || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Date of Birth:</span><span class="field-value">${student.date_of_birth ? dayjs(student.date_of_birth).format('MMMM D, YYYY') : 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Place of Birth:</span><span class="field-value">${student.place_of_birth || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Nationality:</span><span class="field-value">${student.nationality || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">State of Origin:</span><span class="field-value">${student.state_of_origin || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">LGA:</span><span class="field-value">${student.lga || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Religion:</span><span class="field-value">${student.religion || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Blood Group:</span><span class="field-value">${student.blood_group || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Genotype:</span><span class="field-value">${student.genotype || 'N/A'}</span></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">Contact Information</div>
+          <div class="field"><span class="field-label">Email:</span><span class="field-value">${student.email || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Phone:</span><span class="field-value">${student.phone_number || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Home Address:</span><span class="field-value">${student.home_address || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Residential Address:</span><span class="field-value">${student.residential_address || 'N/A'}</span></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">Academic Information</div>
+          <div class="field"><span class="field-label">Class:</span><span class="field-value">${student.class_name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Class Code:</span><span class="field-value">${student.class_code || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Class Level:</span><span class="field-value">${student.class_level || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Class Arm:</span><span class="field-value">${student.class_arm || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Department:</span><span class="field-value">${student.department || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Admission Date:</span><span class="field-value">${student.admission_date ? dayjs(student.admission_date).format('MMMM D, YYYY') : 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Admission Status:</span><span class="field-value"><span class="badge badge-${student.admission_status}">${student.admission_status}</span></span></div>
+          <div class="field"><span class="field-label">Current Status:</span><span class="field-value"><span class="badge badge-${student.current_status}">${student.current_status}</span></span></div>
+          <div class="field"><span class="field-label">Previous School:</span><span class="field-value">${student.previous_school || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Transfer Status:</span><span class="field-value">${student.transfer_status ? 'Yes' : 'No'}</span></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">House & Club</div>
+          <div class="field"><span class="field-label">House:</span><span class="field-value">${houseDetails?.name || student.house_name || 'N/A'}${houseDetails?.motto ? ` (${houseDetails.motto})` : ''}</span></div>
+          <div class="field"><span class="field-label">Club:</span><span class="field-value">${student.club_name || 'N/A'}</span></div>
+        </div>
+        
+        <div class="section">
+          <div class="section-title">Parent / Guardian Information</div>
+          <div class="field"><span class="field-label">Parent:</span><span class="field-value">${student.parent_names || 'Not Assigned'}</span></div>
+          ${student.guardian_info?.father_name ? `<div class="field"><span class="field-label">Father:</span><span class="field-value">${student.guardian_info.father_name}${student.guardian_info.father_phone ? ` (${student.guardian_info.father_phone})` : ''}</span></div>` : ''}
+          ${student.guardian_info?.mother_name ? `<div class="field"><span class="field-label">Mother:</span><span class="field-value">${student.guardian_info.mother_name}${student.guardian_info.mother_phone ? ` (${student.guardian_info.mother_phone})` : ''}</span></div>` : ''}
+          ${student.guardian_info?.guardian_name ? `<div class="field"><span class="field-label">Guardian:</span><span class="field-value">${student.guardian_info.guardian_name}${student.guardian_info.guardian_phone ? ` (${student.guardian_info.guardian_phone})` : ''}</span></div>` : ''}
+          ${student.guardian_info?.relationship ? `<div class="field"><span class="field-label">Relationship:</span><span class="field-value">${student.guardian_info.relationship}</span></div>` : ''}
+        </div>
+        
+        ${student.emergency_contact?.name ? `
+        <div class="section">
+          <div class="section-title">Emergency Contact</div>
+          <div class="field"><span class="field-label">Name:</span><span class="field-value">${student.emergency_contact.name}</span></div>
+          <div class="field"><span class="field-label">Phone:</span><span class="field-value">${student.emergency_contact.phone || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Relationship:</span><span class="field-value">${student.emergency_contact.relationship || 'N/A'}</span></div>
+        </div>
+        ` : ''}
+        
+        <div class="section">
+          <div class="section-title">Medical Information</div>
+          <div class="field"><span class="field-label">Doctor's Name:</span><span class="field-value">${student.doctor_name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Hospital:</span><span class="field-value">${student.hospital_name || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Allergies:</span><span class="field-value">${student.allergies || 'None'}</span></div>
+          <div class="field"><span class="field-label">Medical Conditions:</span><span class="field-value">${student.medical_conditions || 'None'}</span></div>
+          <div class="field"><span class="field-label">Special Needs:</span><span class="field-value">${student.special_needs || 'None'}</span></div>
+        </div>
+        
+        ${student.transportation_status ? `
+        <div class="section">
+          <div class="section-title">Transportation</div>
+          <div class="field"><span class="field-label">Transportation:</span><span class="field-value">Yes</span></div>
+          <div class="field"><span class="field-label">Pickup Location:</span><span class="field-value">${student.pickup_location || 'N/A'}</span></div>
+          <div class="field"><span class="field-label">Bus Route:</span><span class="field-value">${student.bus_route_name || 'N/A'}</span></div>
+        </div>
+        ` : `
+        <div class="section">
+          <div class="section-title">Transportation</div>
+          <div class="field"><span class="field-label">Transportation:</span><span class="field-value">No</span></div>
+        </div>
+        `}
+        
+        ${student.student_bio ? `
+        <div class="section">
+          <div class="section-title">Bio</div>
+          <p style="margin: 10px 0; line-height: 1.6;">${student.student_bio}</p>
+        </div>
+        ` : ''}
+        
+        <div style="text-align: center; margin-top: 40px; color: #6b7280; font-size: 12px;">
+          Printed on ${new Date().toLocaleString()}
+        </div>
+      </body>
+      </html>
+    `;
+    
+    // Open print window
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    if (printWindow) {
+      printWindow.document.write(printContent);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+    } else {
+      toast.error('Please allow popups to print');
     }
   };
 
@@ -695,6 +960,9 @@ const StudentDetails: React.FC = () => {
       transferred: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
       suspended: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
       pending: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+      admitted: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+      rejected: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+      withdrawn: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
     };
     return styles[status] || styles.active;
   };
@@ -820,17 +1088,51 @@ const StudentDetails: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          {/* Download Dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowDownloadDropdown(!showDownloadDropdown);
+              }}
+              className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 text-sm sm:text-base border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden xs:inline">Export</span>
+              <ChevronDown className="w-3 h-3 sm:w-4 sm:h-4" />
+            </button>
+            
+            {showDownloadDropdown && (
+              <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden z-10">
+                <button
+                  onClick={handleDownloadStudentData}
+                  className="flex items-center gap-3 px-4 py-2.5 w-full text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                >
+                  <FileJson className="w-4 h-4" />
+                  Download JSON
+                </button>
+                <button
+                  onClick={handleDownloadCSV}
+                  className="flex items-center gap-3 px-4 py-2.5 w-full text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-all"
+                >
+                  <Table className="w-4 h-4" />
+                  Download CSV
+                </button>
+              </div>
+            )}
+          </div>
+          
+          {/* Print Button */}
           <button 
-            onClick={() => window.print()}
+            onClick={handlePrintStudent}
             className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 text-sm sm:text-base border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
           >
             <Printer className="w-4 h-4" />
             <span className="hidden xs:inline">Print</span>
           </button>
-          <button className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 text-sm sm:text-base border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all">
-            <Download className="w-4 h-4" />
-            <span className="hidden xs:inline">Export</span>
-          </button>
+          
+          {/* Edit Button */}
           <Link
             to={`/students/edit/${student.id}`}
             className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 text-sm sm:text-base bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all shadow-lg shadow-blue-500/25"

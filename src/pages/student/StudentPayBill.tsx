@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -35,7 +34,12 @@ import {
   Share2,
   Image,
   Eye,
-  ZoomIn
+  ZoomIn,
+  ChevronRight,
+  ReceiptText,
+  ListChecks,
+  ChevronUp,
+  Circle
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { usePaymentData } from '../../hooks/usePaymentData';
@@ -73,6 +77,9 @@ interface PaymentRecord {
   transaction_reference?: string;
   metadata?: any;
   gateway_response?: any;
+  academic_session?: string;
+  academic_term?: string;
+  term_id?: string;
 }
 
 type PaymentMethodType = 'paystack' | 'bank_transfer';
@@ -149,6 +156,167 @@ const getCategoryBadge = (category: string) => {
 };
 
 // ============================================
+// FEE BREAKDOWN DISPLAY COMPONENT
+// ============================================
+const FeeBreakdownDisplay: React.FC<{
+  breakdown: any[];
+  totalAmount: number;
+  feeName: string;
+  isLoading: boolean;
+  feeDetails: any;
+  formatCurrencyFn: (amount: number) => string;
+}> = ({ breakdown, totalAmount, feeName, isLoading, feeDetails, formatCurrencyFn }) => {
+  const [showFullBreakdown, setShowFullBreakdown] = useState(false);
+  
+  const safeBreakdown = Array.isArray(breakdown) ? breakdown : [];
+  
+  if (isLoading) {
+    return (
+      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-center border border-blue-200 dark:border-blue-800">
+        <Loader2 className="w-6 h-6 animate-spin text-blue-500 mx-auto" />
+        <p className="text-sm text-gray-500 mt-2">Loading fee breakdown...</p>
+      </div>
+    );
+  }
+
+  if (!safeBreakdown || safeBreakdown.length === 0) {
+    return null;
+  }
+
+  const displayItems = showFullBreakdown ? safeBreakdown : safeBreakdown.slice(0, 3);
+  const hasMore = safeBreakdown.length > 3;
+  const total = totalAmount || safeBreakdown.reduce((sum: number, item: any) => sum + (item.amount || 0), 0);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl sm:rounded-2xl p-4 sm:p-5 border border-blue-200 dark:border-blue-800 shadow-sm"
+    >
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 sm:p-2 bg-blue-500/10 rounded-lg">
+            <ReceiptText className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div>
+            <h4 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white">
+              Fee Breakdown
+            </h4>
+            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">
+              {safeBreakdown.length} items • {feeDetails?.payment_frequency?.replace(/_/g, ' ') || 'One-time'}
+            </p>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Total</p>
+          <p className="text-base sm:text-lg font-bold text-blue-700 dark:text-blue-400">
+            {formatCurrencyFn(total)}
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        {displayItems.map((item: any, index: number) => {
+          const percentage = total > 0 
+            ? ((item.amount || 0) / total) * 100 
+            : 0;
+
+          return (
+            <motion.div
+              key={index}
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.05 }}
+              className="group"
+            >
+              <div className="flex items-center justify-between py-1.5 px-2 sm:px-3 rounded-lg hover:bg-white/60 dark:hover:bg-gray-800/30 transition-all">
+                <div className="flex-1 min-w-0 mr-2">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <span className="text-[10px] sm:text-xs font-medium text-gray-400 dark:text-gray-500 w-5 sm:w-6">
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <span className="text-xs sm:text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
+                      {item.item || item.item_name || 'Unnamed Item'}
+                    </span>
+                    {item.is_mandatory !== false && (
+                      <span className="text-[8px] sm:text-[10px] px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full flex-shrink-0">
+                        Required
+                      </span>
+                    )}
+                    {item.is_optional && (
+                      <span className="text-[8px] sm:text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full flex-shrink-0">
+                        Optional
+                      </span>
+                    )}
+                  </div>
+                  {item.description && (
+                    <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400 ml-6 sm:ml-7 truncate">
+                      {item.description}
+                    </p>
+                  )}
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white">
+                    {formatCurrencyFn(item.amount || 0)}
+                  </p>
+                  <p className="text-[10px] sm:text-xs text-gray-400 dark:text-gray-500">
+                    {percentage.toFixed(1)}%
+                  </p>
+                </div>
+              </div>
+              
+              <div className="ml-6 sm:ml-7 mr-2 h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${percentage}%` }}
+                  transition={{ duration: 0.8, delay: index * 0.05 }}
+                  className="h-full bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full"
+                  style={{ width: `${percentage}%` }}
+                />
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {hasMore && (
+        <button
+          onClick={() => setShowFullBreakdown(!showFullBreakdown)}
+          className="mt-2 text-[10px] sm:text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-all flex items-center gap-1"
+        >
+          {showFullBreakdown ? (
+            <>
+              <ChevronUp className="w-3 h-3" />
+              Show less
+            </>
+          ) : (
+            <>
+              <ChevronDown className="w-3 h-3" />
+              Show {safeBreakdown.length - 3} more items
+            </>
+          )}
+        </button>
+      )}
+
+      {safeBreakdown.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-blue-200 dark:border-blue-800 flex justify-between items-center">
+          <div className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">
+            {safeBreakdown.length} items • {feeDetails?.term || 'Current Term'}
+            {feeDetails?.session && ` • ${feeDetails.session}`}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Total:</span>
+            <span className="text-sm sm:text-base font-bold text-blue-700 dark:text-blue-400">
+              {formatCurrencyFn(total)}
+            </span>
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+};
+
+// ============================================
 // SUCCESS RECEIPT MODAL COMPONENT
 // ============================================
 const SuccessReceiptModal: React.FC<{
@@ -160,7 +328,7 @@ const SuccessReceiptModal: React.FC<{
   totalFeesCount: number;
   paidPercentage: number;
   onClose: () => void;
-  formatCurrency: (amount: number) => string;
+  formatCurrencyFn: (amount: number) => string;
 }> = ({
   isOpen,
   isBankTransfer,
@@ -170,7 +338,7 @@ const SuccessReceiptModal: React.FC<{
   totalFeesCount,
   paidPercentage,
   onClose,
-  formatCurrency
+  formatCurrencyFn
 }) => {
   if (!isOpen || !data) return null;
 
@@ -179,7 +347,6 @@ const SuccessReceiptModal: React.FC<{
   };
 
   const handleDownload = () => {
-    // Create a simple text receipt
     const receiptText = `
 ========================================
         EBENEZER INTERNATIONAL SCHOOL
@@ -195,9 +362,11 @@ Class: ${data.class_name || 'N/A'}
 
 ----------------------------------------
 Fee: ${data.fee_name || 'N/A'}
-Amount: ${formatCurrency(data.amount || 0)}
+Amount: ${formatCurrencyFn(data.amount || 0)}
 Payment Method: ${data.payment_method || 'N/A'}
 Reference: ${data.reference || data.transaction_reference || 'N/A'}
+${data.academic_session ? `Session: ${data.academic_session}` : ''}
+${data.academic_term ? `Term: ${data.academic_term}` : ''}
 
 ----------------------------------------
 Status: ${data.status || 'Completed'}
@@ -241,7 +410,6 @@ Thank you for your payment!
         </div>
 
         <div className="p-4 sm:p-6 space-y-4" id="receipt-content">
-          {/* Success Icon */}
           <div className="text-center">
             <div className="w-16 h-16 sm:w-20 sm:h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-3">
               <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-green-600 dark:text-green-400" />
@@ -256,13 +424,11 @@ Thank you for your payment!
             </p>
           </div>
 
-          {/* School Header */}
           <div className="text-center border-b border-gray-200 dark:border-gray-700 pb-3">
             <h5 className="text-sm font-bold text-gray-900 dark:text-white">Ebenezer International School</h5>
             <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Official Payment Receipt</p>
           </div>
 
-          {/* Receipt Details */}
           <div className="space-y-1.5 text-xs sm:text-sm">
             <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
               <span className="text-gray-500 dark:text-gray-400">Receipt Number</span>
@@ -302,15 +468,26 @@ Thank you for your payment!
                 </span>
               </div>
             )}
+            {data.academic_session && (
+              <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
+                <span className="text-gray-500 dark:text-gray-400">Session</span>
+                <span className="font-medium text-gray-900 dark:text-white">{data.academic_session}</span>
+              </div>
+            )}
+            {data.academic_term && (
+              <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
+                <span className="text-gray-500 dark:text-gray-400">Term</span>
+                <span className="font-medium text-gray-900 dark:text-white">{data.academic_term}</span>
+              </div>
+            )}
             <div className="flex justify-between py-2 border-t-2 border-gray-300 dark:border-gray-600 mt-2">
               <span className="font-semibold text-gray-900 dark:text-white">Amount Paid</span>
               <span className="font-bold text-lg text-green-600 dark:text-green-400">
-                {formatCurrency(data.amount || 0)}
+                {formatCurrencyFn(data.amount || 0)}
               </span>
             </div>
           </div>
 
-          {/* Payment Progress */}
           <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
             <div className="flex justify-between text-xs sm:text-sm mb-1">
               <span className="text-gray-500 dark:text-gray-400">Payment Progress</span>
@@ -327,7 +504,6 @@ Thank you for your payment!
             </p>
           </div>
 
-          {/* Status Badge */}
           <div className="text-center">
             <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${
               isBankTransfer 
@@ -353,7 +529,6 @@ Thank you for your payment!
             )}
           </div>
 
-          {/* Action Buttons */}
           <div className="flex flex-col xs:flex-row gap-2">
             <button
               onClick={handlePrint}
@@ -444,7 +619,6 @@ const ImageUploadPreview: React.FC<{
         </div>
       </div>
 
-      {/* Full Preview Modal */}
       <AnimatePresence>
         {showFullPreview && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
@@ -479,7 +653,6 @@ const ImageUploadPreview: React.FC<{
                   </p>
                   <button
                     onClick={() => {
-                      // Download the file
                       if (preview) {
                         const link = document.createElement('a');
                         link.href = preview;
@@ -540,6 +713,10 @@ const StudentPayBill: React.FC = () => {
   const [showSuccessReceipt, setShowSuccessReceipt] = useState(false);
   const [successPaymentData, setSuccessPaymentData] = useState<any | null>(null);
   const [paymentErrorType, setPaymentErrorType] = useState<'cancelled' | 'network' | 'gateway' | 'bank' | 'unknown'>('unknown');
+  
+  // Breakdown state
+  const [breakdownData, setBreakdownData] = useState<Record<string, any>>({});
+  const [loadingBreakdown, setLoadingBreakdown] = useState<Record<string, boolean>>({});
   
   // Bank Transfer Proof Upload
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -722,6 +899,158 @@ const StudentPayBill: React.FC = () => {
       console.error('Error fetching payments:', error);
     }
   };
+
+  // ============================================
+  // FETCH FEE BREAKDOWN AND DETAILS
+  // ============================================
+  const fetchBreakdownForAssignment = useCallback(async (assignmentId: string, feeId: string, templateId?: string) => {
+    if (breakdownData[assignmentId]) return;
+    if (loadingBreakdown[assignmentId]) return;
+    
+    setLoadingBreakdown(prev => ({ ...prev, [assignmentId]: true }));
+    
+    try {
+      let breakdown: any[] = [];
+      let feeDetails: any = {};
+      
+      if (feeId) {
+        const { data: feeData, error: feeError } = await supabase
+          .from('fees')
+          .select('metadata, fee_template_id, term, session, payment_frequency, category, amount, due_date, name, academic_session_id')
+          .eq('id', feeId)
+          .single();
+
+        if (!feeError && feeData) {
+          feeDetails = {
+            term: feeData.term,
+            session: feeData.session,
+            payment_frequency: feeData.payment_frequency,
+            category: feeData.category,
+            amount: feeData.amount,
+            due_date: feeData.due_date,
+            name: feeData.name,
+            academic_session_id: feeData.academic_session_id,
+          };
+          
+          const feeBreakdown = feeData.metadata?.fee_breakdown;
+          
+          if (feeBreakdown) {
+            if (feeBreakdown.items && Array.isArray(feeBreakdown.items)) {
+              breakdown = feeBreakdown.items;
+            } else if (Array.isArray(feeBreakdown)) {
+              breakdown = feeBreakdown;
+            } else if (typeof feeBreakdown === 'object') {
+              const possibleArrays = Object.values(feeBreakdown).filter(val => Array.isArray(val));
+              if (possibleArrays.length > 0) {
+                breakdown = possibleArrays[0];
+              }
+            }
+          }
+          
+          if (breakdown.length === 0 && feeData.fee_template_id) {
+            const { data: templateData, error: templateError } = await supabase
+              .from('fee_templates')
+              .select('metadata')
+              .eq('id', feeData.fee_template_id)
+              .single();
+
+            if (!templateError && templateData?.metadata) {
+              const templateBreakdown = templateData.metadata.fee_breakdown;
+              
+              if (templateBreakdown) {
+                if (templateBreakdown.items && Array.isArray(templateBreakdown.items)) {
+                  breakdown = templateBreakdown.items;
+                } else if (Array.isArray(templateBreakdown)) {
+                  breakdown = templateBreakdown;
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      if (!Array.isArray(breakdown)) {
+        breakdown = [];
+      }
+      
+      setBreakdownData(prev => ({ 
+        ...prev, 
+        [assignmentId]: breakdown,
+        [`${assignmentId}_details`]: feeDetails 
+      }));
+    } catch (error) {
+      console.error('Error fetching fee breakdown:', error);
+      setBreakdownData(prev => ({ ...prev, [assignmentId]: [] }));
+    } finally {
+      setLoadingBreakdown(prev => ({ ...prev, [assignmentId]: false }));
+    }
+  }, [breakdownData, loadingBreakdown]);
+
+  // ============================================
+  // Get Session/Term from Assignment or Fee (NO session_id)
+  // ============================================
+  const getSessionAndTermFromAssignment = useCallback(async (assignmentId: string, feeId: string): Promise<{ academicSession: string, academicTerm: string, termId: string }> => {
+    let academicSession = '';
+    let academicTerm = '';
+    let termId = '';
+
+    try {
+      // First try from the assignment
+      const { data: assignmentData } = await supabase
+        .from('student_fee_assignments')
+        .select('academic_session_id, term, session')
+        .eq('id', assignmentId)
+        .single();
+
+      if (assignmentData) {
+        academicSession = assignmentData.session || '';
+        academicTerm = assignmentData.term || '';
+        termId = assignmentData.academic_session_id || '';
+      }
+
+      // If not found, try from the fee
+      if (!academicSession && feeId) {
+        const { data: feeData } = await supabase
+          .from('fees')
+          .select('academic_session_id, session, term, term_id')
+          .eq('id', feeId)
+          .single();
+
+        if (feeData) {
+          academicSession = feeData.session || '';
+          academicTerm = feeData.term || '';
+          termId = feeData.term_id || feeData.academic_session_id || '';
+        }
+      }
+
+      // If still not found, try from branch's current session
+      if (!academicSession && studentProfile?.branch_id) {
+        const { data: branchData } = await supabase
+          .from('branches')
+          .select('current_session_id, current_term')
+          .eq('id', studentProfile.branch_id)
+          .single();
+
+        if (branchData?.current_session_id) {
+          const { data: sessionData } = await supabase
+            .from('academic_sessions')
+            .select('session_name, term_name, id')
+            .eq('id', branchData.current_session_id)
+            .single();
+
+          if (sessionData) {
+            academicSession = sessionData.session_name || '';
+            academicTerm = sessionData.term_name || '';
+            termId = sessionData.id || '';
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching session/term:', error);
+    }
+
+    return { academicSession, academicTerm, termId };
+  }, [studentProfile?.branch_id]);
 
   // ============================================
   // PAYMENT HANDLERS
@@ -918,6 +1247,9 @@ const StudentPayBill: React.FC = () => {
     }
   };
 
+  // ============================================
+  // savePaymentRecord with Session/Term (NO session_id)
+  // ============================================
   const savePaymentRecord = async (params: {
     assignmentId: string;
     amount: number;
@@ -931,6 +1263,12 @@ const StudentPayBill: React.FC = () => {
     transactionReference?: string;
   }) => {
     try {
+      // Get session and term from the assignment/fee
+      const { academicSession, academicTerm, termId } = await getSessionAndTermFromAssignment(
+        params.assignmentId,
+        selectedAssignment?.fee_id
+      );
+
       const paymentId = `PAY-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       const receiptNumber = `RCP-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
@@ -956,6 +1294,10 @@ const StudentPayBill: React.FC = () => {
         payment_proof_url: params.paymentProofUrl || null,
         payment_proof_path: params.paymentProofPath || null,
         gateway_response: params.status === 'success' ? { success: true } : { failed: true, reason: params.failureReason },
+        // Populate session/term columns (NO session_id)
+        academic_session: academicSession || null,
+        academic_term: academicTerm || null,
+        term_id: termId || null,
         metadata: {
           student_name: `${studentProfile?.first_name} ${studentProfile?.last_name}`,
           student_id: studentProfile?.id,
@@ -967,6 +1309,12 @@ const StudentPayBill: React.FC = () => {
           transaction_reference: params.transactionReference || null,
           ip_address: userIP,
           user_agent: userAgent,
+          // Also store in metadata for backup
+          term: academicTerm || null,
+          session: academicSession || null,
+          term_id: termId || null,
+          fee_term: academicTerm || null,
+          fee_session: academicSession || null,
         }
       };
 
@@ -1022,6 +1370,9 @@ const StudentPayBill: React.FC = () => {
     }
   };
 
+  // ============================================
+  // handlePaymentSuccess with Session/Term (NO session_id)
+  // ============================================
   const handlePaymentSuccess = useCallback(async (reference: string) => {
     const assignmentId = pendingAssignmentIdRef.current;
     const amount = pendingAmountRef.current;
@@ -1032,6 +1383,12 @@ const StudentPayBill: React.FC = () => {
     }
     
     try {
+      // Get session/term info
+      const { academicSession, academicTerm, termId } = await getSessionAndTermFromAssignment(
+        assignmentId,
+        selectedAssignment?.fee_id
+      );
+
       const { data: paymentRecord } = await supabase
         .from('payments')
         .select('*')
@@ -1047,6 +1404,20 @@ const StudentPayBill: React.FC = () => {
           gateway_reference: reference,
           updated_at: new Date().toISOString(),
           gateway_response: { success: true, reference },
+          // Populate session/term columns (NO session_id)
+          academic_session: academicSession || null,
+          academic_term: academicTerm || null,
+          term_id: termId || null,
+          metadata: {
+            ...paymentRecord?.metadata,
+            term: academicTerm || null,
+            session: academicSession || null,
+            term_id: termId || null,
+            fee_term: academicTerm || null,
+            fee_session: academicSession || null,
+            approved_at: new Date().toISOString(),
+            approved_by: user?.id,
+          }
         })
         .eq('transaction_reference', reference);
 
@@ -1070,6 +1441,9 @@ const StudentPayBill: React.FC = () => {
         class_name: studentProfile?.class_name,
         fee_name: selectedAssignment?.fee_name,
         status: 'completed',
+        academic_session: academicSession || null,
+        academic_term: academicTerm || null,
+        term_id: termId || null,
       };
       
       setSuccessPaymentData(successData);
@@ -1229,6 +1603,9 @@ const StudentPayBill: React.FC = () => {
     }
   };
 
+  // ============================================
+  // handleBankTransfer with Session/Term (NO session_id)
+  // ============================================
   const handleBankTransfer = async () => {
     if (!selectedAssignment || !studentProfile) {
       toast.error('Missing payment information');
@@ -1263,6 +1640,12 @@ const StudentPayBill: React.FC = () => {
         setUploading(false);
         return;
       }
+
+      // Get session/term info
+      const { academicSession, academicTerm, termId } = await getSessionAndTermFromAssignment(
+        selectedAssignment.id,
+        selectedAssignment?.fee_id
+      );
 
       const paymentRecord = await savePaymentRecord({
         assignmentId: selectedAssignment.id,
@@ -1302,6 +1685,9 @@ const StudentPayBill: React.FC = () => {
         bank_name: paymentGateway.bank_name,
         bank_account_number: paymentGateway.bank_account_number,
         bank_account_name: paymentGateway.bank_account_name,
+        academic_session: academicSession || null,
+        academic_term: academicTerm || null,
+        term_id: termId || null,
       };
       
       setBankTransferData(bankData);
@@ -1552,6 +1938,9 @@ const StudentPayBill: React.FC = () => {
             filteredAssignments.map((assignment) => {
               const statusInfo = getPaymentStatusForAssignment(assignment);
               const isExpanded = expandedFee === assignment.id;
+              const breakdown = breakdownData[assignment.id] || [];
+              const isLoadingBreakdown = loadingBreakdown[assignment.id] || false;
+              const feeDetails = breakdownData[`${assignment.id}_details`] || {};
 
               return (
                 <div
@@ -1676,7 +2065,14 @@ const StudentPayBill: React.FC = () => {
                   </div>
 
                   <button
-                    onClick={() => setExpandedFee(isExpanded ? null : assignment.id)}
+                    onClick={() => {
+                      if (expandedFee === assignment.id) {
+                        setExpandedFee(null);
+                      } else {
+                        setExpandedFee(assignment.id);
+                        fetchBreakdownForAssignment(assignment.id, assignment.fee_id);
+                      }
+                    }}
                     className="mt-1 sm:mt-2 text-[10px] sm:text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-all flex items-center gap-1"
                   >
                     {isExpanded ? 'Show less' : 'Show details'}
@@ -1689,42 +2085,152 @@ const StudentPayBill: React.FC = () => {
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-200 dark:border-gray-700"
+                        className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200 dark:border-gray-700 space-y-3 sm:space-y-4"
                       >
-                        <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg sm:rounded-xl p-3 sm:p-4 grid grid-cols-2 gap-2 sm:gap-4 text-xs sm:text-sm">
-                          <div>
-                            <p className="text-gray-500 dark:text-gray-400">Assignment ID</p>
-                            <p className="font-medium text-gray-900 dark:text-white font-mono text-[10px] sm:text-xs truncate">
-                              {assignment.assignment_id}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
+                          <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2.5 sm:p-3">
+                            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Assignment ID</p>
+                            <p className="text-[10px] sm:text-xs font-mono font-medium text-gray-900 dark:text-white truncate">
+                              {assignment.assignment_id || 'N/A'}
                             </p>
                           </div>
-                          <div>
-                            <p className="text-gray-500 dark:text-gray-400">Original Amount</p>
-                            <p className="font-medium text-gray-900 dark:text-white">
-                              {formatCurrency(assignment.amount_due)}
+                          <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2.5 sm:p-3">
+                            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Original Amount</p>
+                            <p className="text-sm sm:text-base font-bold text-gray-900 dark:text-white">
+                              {formatCurrency(assignment.amount_due || 0)}
                             </p>
                           </div>
-                          <div>
-                            <p className="text-gray-500 dark:text-gray-400">Amount Paid</p>
-                            <p className="font-medium text-green-600 dark:text-green-400">
-                              {formatCurrency(assignment.amount_paid)}
+                          <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2.5 sm:p-3">
+                            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Paid</p>
+                            <p className="text-sm sm:text-base font-bold text-green-600 dark:text-green-400">
+                              {formatCurrency(assignment.amount_paid || 0)}
                             </p>
                           </div>
-                          <div>
-                            <p className="text-gray-500 dark:text-gray-400">Balance</p>
-                            <p className={`font-medium ${assignment.balance > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                              {formatCurrency(assignment.balance)}
+                          <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2.5 sm:p-3">
+                            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Balance</p>
+                            <p className={`text-sm sm:text-base font-bold ${
+                              assignment.balance > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'
+                            }`}>
+                              {formatCurrency(assignment.balance || 0)}
                             </p>
                           </div>
+                          {feeDetails.term && (
+                            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-2.5 sm:p-3 border border-blue-200 dark:border-blue-800">
+                              <p className="text-[10px] sm:text-xs text-blue-600 dark:text-blue-400">Term</p>
+                              <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                                {feeDetails.term}
+                              </p>
+                            </div>
+                          )}
+                          {feeDetails.session && (
+                            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-2.5 sm:p-3 border border-blue-200 dark:border-blue-800">
+                              <p className="text-[10px] sm:text-xs text-blue-600 dark:text-blue-400">Session</p>
+                              <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                                {feeDetails.session}
+                              </p>
+                            </div>
+                          )}
+                          {feeDetails.payment_frequency && (
+                            <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2.5 sm:p-3">
+                              <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Frequency</p>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white capitalize">
+                                {feeDetails.payment_frequency?.replace(/_/g, ' ')}
+                              </p>
+                            </div>
+                          )}
+                          {feeDetails.category && (
+                            <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2.5 sm:p-3">
+                              <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Category</p>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white capitalize">
+                                {feeDetails.category?.replace(/_/g, ' ')}
+                              </p>
+                            </div>
+                          )}
                           {assignment.due_date && (
-                            <div className="col-span-2">
-                              <p className="text-gray-500 dark:text-gray-400">Due Date</p>
-                              <p className="font-medium text-gray-900 dark:text-white">
-                                {dayjs(assignment.due_date).format('MMMM D, YYYY')}
+                            <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2.5 sm:p-3">
+                              <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Due Date</p>
+                              <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                {dayjs(assignment.due_date).format('MMM D, YYYY')}
                               </p>
                             </div>
                           )}
                         </div>
+
+                        <FeeBreakdownDisplay
+                          breakdown={breakdown}
+                          totalAmount={assignment.amount_due || 0}
+                          feeName={assignment.fee_name || 'Fee'}
+                          isLoading={isLoadingBreakdown}
+                          feeDetails={feeDetails}
+                          formatCurrencyFn={formatCurrency}
+                        />
+
+                        {payments.filter(p => p.assignment_id === assignment.id).length > 0 && (
+                          <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-3 sm:p-4 border border-gray-200 dark:border-gray-700">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Receipt className="w-4 h-4 text-gray-500" />
+                              <h5 className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                                Payment History
+                              </h5>
+                              <span className="text-[10px] text-gray-400 ml-auto">
+                                {payments.filter(p => p.assignment_id === assignment.id).length} payment(s)
+                              </span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {payments
+                                .filter(p => p.assignment_id === assignment.id)
+                                .sort((a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())
+                                .map((payment) => {
+                                  const isCompleted = payment.status === 'completed' || payment.status === 'success';
+                                  const isPending = payment.status === 'pending' || payment.status === 'processing';
+                                  const isFailed = payment.status === 'failed' || payment.status === 'rejected';
+                                  const isCancelled = payment.status === 'cancelled' || payment.status === 'canceled';
+                                  
+                                  return (
+                                    <div key={payment.id} className="flex items-center justify-between py-1.5 px-2 sm:px-3 rounded-lg bg-white dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700 text-xs sm:text-sm">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        {isCompleted ? (
+                                          <CheckCircle className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                                        ) : isPending ? (
+                                          <Clock className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0" />
+                                        ) : isFailed ? (
+                                          <AlertTriangle className="w-3.5 h-3.5 text-orange-500 flex-shrink-0" />
+                                        ) : isCancelled ? (
+                                          <X className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                                        ) : (
+                                          <Circle className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
+                                        )}
+                                        <span className="font-medium text-gray-900 dark:text-white truncate">
+                                          {formatCurrency(payment.amount_paid || payment.amount || 0)}
+                                        </span>
+                                        <span className="text-gray-500 dark:text-gray-400 hidden xs:inline">
+                                          • {dayjs(payment.payment_date).format('MMM D, YYYY')}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                                        <span className={`text-[8px] sm:text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                                          isCompleted ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                          isPending ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                                          isFailed ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' :
+                                          isCancelled ? 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400' :
+                                          'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                                        }`}>
+                                          {isCompleted ? 'Complete' :
+                                           isPending ? 'Pending' :
+                                           isFailed ? 'Failed' :
+                                           isCancelled ? 'Cancelled' :
+                                           'Unknown'}
+                                        </span>
+                                        <span className="text-[10px] text-gray-400 uppercase hidden sm:inline">
+                                          {payment.payment_method || 'N/A'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          </div>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -1774,7 +2280,6 @@ const StudentPayBill: React.FC = () => {
                   <p className="text-[10px] sm:text-xs opacity-70 mt-0.5 sm:mt-1 truncate">{selectedAssignment.fee_name}</p>
                 </div>
 
-                {/* Payment Method Selection */}
                 <div className="grid grid-cols-2 gap-2 sm:gap-3">
                   {paymentGateway.paystack_public_key && (
                     <motion.div
@@ -2018,7 +2523,7 @@ const StudentPayBill: React.FC = () => {
           setBankTransferData(null);
           refreshData();
         }}
-        formatCurrency={formatCurrency}
+        formatCurrencyFn={formatCurrency}
       />
 
       {/* ============================================ */}

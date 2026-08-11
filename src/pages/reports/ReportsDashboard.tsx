@@ -1268,7 +1268,7 @@ const ReportsDashboard: React.FC = () => {
 
       <div className="text-center text-xs text-gray-400 dark:text-gray-500 print:hidden">
         <p>Report generated {dayjs().format('MMMM D, YYYY h:mm A')}</p>
-        <p className="mt-1">© {dayjs().year()} Ebeniza International School. All rights reserved.</p>
+        <p className="mt-1">© {dayjs().year()} ebenezer International School. All rights reserved.</p>
       </div>
     </div>
   );

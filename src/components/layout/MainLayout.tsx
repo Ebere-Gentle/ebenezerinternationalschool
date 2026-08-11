@@ -15,6 +15,7 @@ import {
   Settings, 
   LogOut, 
   Sun, 
+  ArrowUp,
   Moon,
   User,
   ChevronDown,
@@ -61,6 +62,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../contexts/ThemeContext';
 import { supabase } from '../../config/supabase/client';
 import toast from 'react-hot-toast';
+import Tutorial from '../../components/tutorial/Tutorial';
 
 // Import school logo from assets
 import schoolLogo from '../../assets/school-logo.png';
@@ -73,6 +75,7 @@ interface NavigationItem {
   badge?: string;
   premium?: boolean;
   children?: NavigationItem[];
+  tutorialTarget?: string;
 }
 
 interface UserProfile {
@@ -97,6 +100,113 @@ interface Notification {
   data?: any;
 }
 
+// COMPLETE NAVIGATION CONFIGURATION - PRESERVING EVERY ITEM
+const navigation: NavigationItem[] = [
+  // Admin Assistant (Record Keeper) Routes
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/admin-asst/dashboard', roles: ['record_keeper'], tutorialTarget: 'dashboard' },
+  { label: 'Students', icon: Users, path: '/admin-asst/students', roles: ['record_keeper'], tutorialTarget: 'students' },
+  { label: 'Classes', icon: GraduationCap, path: '/admin-asst/classes', roles: ['record_keeper'], tutorialTarget: 'classes' },
+  { label: 'Sessions', icon: Calendar, path: '/admin-asst/sessions', roles: ['record_keeper'], tutorialTarget: 'sessions' },
+  { label: 'Collections', icon: HandHelping, path: '/admin-asst/collections', roles: ['record_keeper'], tutorialTarget: 'collections' },
+  { label: 'Inventory', icon: Box, path: '/admin-asst/inventory', roles: ['record_keeper'], tutorialTarget: 'inventory' },
+  { label: 'Reports', icon: BarChart3, path: '/admin-asst/reports', roles: ['record_keeper'], tutorialTarget: 'reports' },
+  { label: 'Activity Log', icon: History, path: '/admin-asst/activity', roles: ['record_keeper'] },
+  { label: 'Payment', icon: CreditCard, path: '/admin-asst/payment', roles: ['record_keeper', 'admin_asst'] },
+
+  // Admin Routes
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'super_admin', 'director', 'finance'], tutorialTarget: 'dashboard' },
+  { label: 'Academic', icon: BookOpen, path: '#', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'academic',
+    children: [
+      { label: 'Students', icon: Users, path: '/students', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'students' },
+      { label: 'Teachers', icon: GraduationCap, path: '/teachers', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'teachers' },
+      { label: 'Classes', icon: BookOpen, path: '/classes', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'classes' },
+      { label: 'Subjects', icon: FileText, path: '/subjects', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Timetable', icon: Calendar, path: '/timetable', roles: ['admin', 'super_admin', 'director'] },
+    ]
+  },
+  { label: 'Finance', icon: CreditCard, path: '#', roles: ['admin', 'super_admin', 'director', 'finance'], tutorialTarget: 'finance',
+    children: [
+      { label: 'Payments', icon: CreditCard, path: '/payments', roles: ['admin', 'super_admin', 'director', 'finance'], tutorialTarget: 'payments' },
+      { label: 'Invoice', icon: Coins, path: '/fees', roles: ['admin', 'super_admin', 'director', 'finance'], tutorialTarget: 'fees' },
+      { label: 'Reports', icon: BarChart3, path: '/reports', roles: ['admin', 'super_admin', 'director', 'finance'], tutorialTarget: 'reports' },
+    ]
+  },
+  { label: 'Human Resources', icon: Users2, path: '#', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'hr',
+    children: [
+      { label: 'Staff', icon: Briefcase, path: '/staff', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Parents', icon: Users2, path: '/parents/create', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Attendance', icon: Clock, path: '/attendance', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Leave Requests', icon: ClipboardCheck, path: '/leave-requests', roles: ['admin', 'super_admin', 'director'] },
+    ]
+  },
+  { label: 'School Admin', icon: Building2, path: '#', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'school-admin',
+    children: [
+      { label: 'Branches', icon: Building2, path: '/branches', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'branches' },
+      { label: 'Houses', icon: Home, path: '/houses', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Transport', icon: Bus, path: '/transport', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Library', icon: BookOpen, path: '/library', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Promotion', icon: ArrowUp, path: '/promotion', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Backup', icon: Download, path: '/school-backup', roles: ['admin', 'super_admin', 'director'] },
+    ]
+  },
+  { label: 'Communication', icon: MessageSquare, path: '#', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'communication',
+    children: [
+      { label: 'Announcements', icon: Megaphone, path: '/announcements', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'announcements' },
+      { label: 'Messages', icon: MessageSquare, path: '/messages', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Notices', icon: FileText, path: '/notices', roles: ['admin', 'super_admin', 'director'] },
+    ]
+  },
+  
+  // Teacher Routes
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/teacher/dashboard', roles: ['teacher'], tutorialTarget: 'dashboard' },
+  { label: 'My Classes', icon: GraduationCap, path: '/teacher/classes', roles: ['teacher'], tutorialTarget: 'my-classes' },
+  { label: 'Students', icon: Users, path: '/teacher/students', roles: ['teacher'], tutorialTarget: 'students' },
+  { label: 'Attendance', icon: Clock, path: '/teacher/attendance', roles: ['teacher'], tutorialTarget: 'attendance' },
+  { label: 'Assignments', icon: FileText, path: '/teacher/assignments', roles: ['teacher'], tutorialTarget: 'assignments' },
+  { label: 'Grades', icon: TrendingUp, path: '/teacher/grades', roles: ['teacher'], tutorialTarget: 'grades' },
+  { label: 'Timetable', icon: Calendar, path: '/teacher/timetable', roles: ['teacher'], tutorialTarget: 'timetable' },
+  
+  // Parent Routes
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/parent/dashboard', roles: ['parent'], tutorialTarget: 'dashboard' },
+  { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'], tutorialTarget: 'children' },
+  { label: 'Pay Bill', icon: Wallet, path: '/parent/pay-bill', roles: ['parent'], tutorialTarget: 'pay-bill', badge: 'New' },
+  { label: 'My Profile', icon: User, path: '/parent/profile', roles: ['parent'], tutorialTarget: 'profile' },
+  
+  // Student Routes
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/student/dashboard', roles: ['student'], tutorialTarget: 'dashboard' },
+  { label: 'My Profile', icon: User, path: '/student/profile', roles: ['student'], tutorialTarget: 'profile' },
+  { label: 'Pay Bill', icon: Wallet, path: '/student/paybill', roles: ['student'], tutorialTarget: 'pay-bill', badge: 'New' },
+  { label: 'Payment History', icon: Receipt, path: '/student/payments', roles: ['student'], tutorialTarget: 'payments' },
+  { label: 'My Classes', icon: BookOpen, path: '/student/classes', roles: ['student'], tutorialTarget: 'classes' },
+  
+  // Settings - Available to all roles
+  { label: 'Settings', icon: Settings, path: '/settings', roles: ['admin', 'super_admin', 'director', 'finance', 'teacher', 'parent', 'student', 'record_keeper'], tutorialTarget: 'settings' },
+];
+
+// Student and Parent dock navigation items (shown on mobile)
+const getDockNavigation = (role: string): NavigationItem[] => {
+  if (role === 'student') {
+    return [
+      { label: 'Dashboard', icon: LayoutDashboard, path: '/student/dashboard', roles: ['student'], tutorialTarget: 'dashboard' },
+      { label: 'My Profile', icon: User, path: '/student/profile', roles: ['student'], tutorialTarget: 'profile' },
+      { label: 'Pay Bill', icon: Wallet, path: '/student/paybill', roles: ['student'], tutorialTarget: 'pay-bill', badge: 'New' },
+      { label: 'Payment History', icon: Receipt, path: '/student/payments', roles: ['student'], tutorialTarget: 'payments' },
+      { label: 'My Classes', icon: BookOpen, path: '/student/classes', roles: ['student'], tutorialTarget: 'classes' },
+      { label: 'Settings', icon: Settings, path: '/settings', roles: ['student'], tutorialTarget: 'settings' },
+    ];
+  }
+  if (role === 'parent') {
+    return [
+      { label: 'Dashboard', icon: LayoutDashboard, path: '/parent/dashboard', roles: ['parent'], tutorialTarget: 'dashboard' },
+      { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'], tutorialTarget: 'children' },
+      { label: 'Pay Bill', icon: Wallet, path: '/parent/pay-bill', roles: ['parent'], tutorialTarget: 'pay-bill', badge: 'New' },
+      { label: 'My Profile', icon: User, path: '/parent/profile', roles: ['parent'], tutorialTarget: 'profile' },
+      { label: 'Settings', icon: Settings, path: '/settings', roles: ['parent'], tutorialTarget: 'settings' },
+    ];
+  }
+  return [];
+};
+
 const MainLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -119,6 +229,12 @@ const MainLayout = () => {
   const [canUploadProfile, setCanUploadProfile] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showAllNavItems, setShowAllNavItems] = useState(false);
+  const [activePopover, setActivePopover] = useState<string | null>(null);
+  const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number } | null>(null);
+  
+  // Tutorial states
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialChecked, setTutorialChecked] = useState(false);
   
   const { user, logout } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
@@ -127,13 +243,22 @@ const MainLayout = () => {
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
+  // Check if user is student or parent for dock layout
+  const userRole = user?.role || 'student';
+  const isStudentOrParent = userRole === 'student' || userRole === 'parent';
+  
+  // Get dock navigation items for student/parent (mobile only)
+  const dockNavItems = getDockNavigation(userRole);
+
   // Check if mobile
   useEffect(() => {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
-      // Sidebar is closed by default on both desktop and mobile
-      setSidebarOpen(false);
+      if (mobile) {
+        // Close sidebar on mobile
+        setSidebarOpen(false);
+      }
     };
     checkMobile();
     window.addEventListener('resize', checkMobile);
@@ -146,6 +271,55 @@ const MainLayout = () => {
       setSidebarOpen(false);
     }
   }, [location.pathname, isMobile]);
+
+  // Close popover when route changes
+  useEffect(() => {
+    setActivePopover(null);
+    setPopoverPosition(null);
+  }, [location.pathname]);
+
+  // Check tutorial status
+  useEffect(() => {
+    const checkTutorialStatus = async () => {
+      if (!user?.id || tutorialChecked) return;
+      
+      try {
+        // Get normalized role for tutorial
+        const tutorialRole = userRole === 'admin_asst' ? 'record_keeper' : userRole;
+        
+        const { data, error } = await supabase
+          .from('user_tutorial_progress')
+          .select('completed, skipped')
+          .eq('user_id', user.id)
+          .eq('role', tutorialRole)
+          .single();
+        
+        // Show tutorial if no record or not completed/skipped
+        if (error || !data) {
+          setShowTutorial(true);
+        } else if (!data.completed && !data.skipped) {
+          setShowTutorial(true);
+        }
+      } catch (error) {
+        console.error('Error checking tutorial status:', error);
+        // Show tutorial by default on error
+        setShowTutorial(true);
+      } finally {
+        setTutorialChecked(true);
+      }
+    };
+    
+    if (user?.id) {
+      checkTutorialStatus();
+    }
+  }, [user?.id, userRole, tutorialChecked]);
+
+  // Reset tutorial check when user changes
+  useEffect(() => {
+    if (user?.id) {
+      setTutorialChecked(false);
+    }
+  }, [user?.id]);
 
   // Fetch user profile data
   useEffect(() => {
@@ -688,82 +862,6 @@ const MainLayout = () => {
     { icon: Database, label: 'More Storage', description: 'Get up to 10GB of storage' },
   ];
 
-  const navigation: NavigationItem[] = [
-    { label: 'Dashboard', icon: LayoutDashboard, path: '/admin-asst/dashboard', roles: ['record_keeper'] },
-    { label: 'Students', icon: Users, path: '/admin-asst/students', roles: ['record_keeper'] },
-    { label: 'Classes', icon: GraduationCap, path: '/admin-asst/classes', roles: ['record_keeper'] },
-    { label: 'Sessions', icon: Calendar, path: '/admin-asst/sessions', roles: ['record_keeper'] },
-    { label: 'Collections', icon: HandHelping, path: '/admin-asst/collections', roles: ['record_keeper'] },
-    { label: 'Inventory', icon: Box, path: '/admin-asst/inventory', roles: ['record_keeper'] },
-    { label: 'Reports', icon: BarChart3, path: '/admin-asst/reports', roles: ['record_keeper'] },
-    { label: 'Activity Log', icon: History, path: '/admin-asst/activity', roles: ['record_keeper'] },
-    { label: 'Payment', icon: CreditCard, path: '/admin-asst/payment', roles: ['record_keeper', 'admin_asst'] },
-
-    { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'super_admin', 'director', 'finance'] },
-    { label: 'Academic', icon: BookOpen, path: '#', roles: ['admin', 'super_admin', 'director'],
-      children: [
-        { label: 'Students', icon: Users, path: '/students', roles: ['admin', 'super_admin', 'director'] },
-        { label: 'Teachers', icon: GraduationCap, path: '/teachers', roles: ['admin', 'super_admin', 'director'] },
-        { label: 'Classes', icon: BookOpen, path: '/classes', roles: ['admin', 'super_admin', 'director'] },
-        { label: 'Subjects', icon: FileText, path: '/subjects', roles: ['admin', 'super_admin', 'director'] },
-        { label: 'Timetable', icon: Calendar, path: '/timetable', roles: ['admin', 'super_admin', 'director'] },
-      ]
-    },
-    { label: 'Finance', icon: CreditCard, path: '#', roles: ['admin', 'super_admin', 'director', 'finance'],
-      children: [
-        { label: 'Payments', icon: CreditCard, path: '/payments', roles: ['admin', 'super_admin', 'director', 'finance'] },
-        { label: 'Invoice', icon: Coins, path: '/fees', roles: ['admin', 'super_admin', 'director', 'finance'] },
-        { label: 'Reports', icon: BarChart3, path: '/reports', roles: ['admin', 'super_admin', 'director', 'finance'] },
-      ]
-    },
-    { label: 'Human Resources', icon: Users2, path: '#', roles: ['admin', 'super_admin', 'director'],
-      children: [
-        { label: 'Staff', icon: Briefcase, path: '/staff', roles: ['admin', 'super_admin', 'director'] },
-        { label: 'Parents', icon: Users2, path: '/parents/create', roles: ['admin', 'super_admin', 'director'] },
-        { label: 'Attendance', icon: Clock, path: '/attendance', roles: ['admin', 'super_admin', 'director'] },
-        { label: 'Leave Requests', icon: ClipboardCheck, path: '/leave-requests', roles: ['admin', 'super_admin', 'director'] },
-      ]
-    },
-    { label: 'School Admin', icon: Building2, path: '#', roles: ['admin', 'super_admin', 'director'],
-      children: [
-        { label: 'Branches', icon: Building2, path: '/branches', roles: ['admin', 'super_admin', 'director'] },
-        { label: 'Houses', icon: Home, path: '/houses', roles: ['admin', 'super_admin', 'director'] },
-        { label: 'Transport', icon: Bus, path: '/transport', roles: ['admin', 'super_admin', 'director'] },
-        { label: 'Library', icon: BookOpen, path: '/library', roles: ['admin', 'super_admin', 'director'] },
-      ]
-    },
-    { label: 'Communication', icon: MessageSquare, path: '#', roles: ['admin', 'super_admin', 'director'],
-      children: [
-        { label: 'Announcements', icon: Megaphone, path: '/announcements', roles: ['admin', 'super_admin', 'director'] },
-        { label: 'Messages', icon: MessageSquare, path: '/messages', roles: ['admin', 'super_admin', 'director'] },
-        { label: 'Notices', icon: FileText, path: '/notices', roles: ['admin', 'super_admin', 'director'] },
-      ]
-    },
-    
-    { label: 'Dashboard', icon: LayoutDashboard, path: '/teacher/dashboard', roles: ['teacher'] },
-    { label: 'My Classes', icon: GraduationCap, path: '/teacher/classes', roles: ['teacher'] },
-    { label: 'Students', icon: Users, path: '/teacher/students', roles: ['teacher'] },
-    { label: 'Attendance', icon: Clock, path: '/teacher/attendance', roles: ['teacher'] },
-    { label: 'Assignments', icon: FileText, path: '/teacher/assignments', roles: ['teacher'] },
-    { label: 'Grades', icon: TrendingUp, path: '/teacher/grades', roles: ['teacher'] },
-    { label: 'Timetable', icon: Calendar, path: '/teacher/timetable', roles: ['teacher'] },
-    
-    { label: 'Dashboard', icon: LayoutDashboard, path: '/parent/dashboard', roles: ['parent'] },
-    { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'] },
-    { label: 'Pay Bill', icon: Wallet, path: '/parent/pay-bill', roles: ['parent'], badge: 'New' },
-    { label: 'My Profile', icon: User, path: '/parent/profile', roles: ['parent'] },
-    
-    { label: 'Student Portal', icon: UserCircle, path: '/student/dashboard', roles: ['student'] },
-    { label: 'My Profile', icon: User, path: '/student/profile', roles: ['student'] },
-    { label: 'Pay Bill', icon: Wallet, path: '/student/paybill', roles: ['student'], badge: 'New' },
-    { label: 'Payment History', icon: Receipt, path: '/student/payments', roles: ['student'] },
-    { label: 'My Classes', icon: BookOpen, path: '/student/classes', roles: ['student'] },
-    
-    { label: 'Settings', icon: Settings, path: '/settings', roles: ['admin', 'super_admin', 'director', 'finance', 'teacher', 'parent', 'student', 'record_keeper'] },
-  ];
-
-  const userRole = user?.role || 'student';
-  
   const filterNavigation = (items: NavigationItem[]): NavigationItem[] => {
     return items
       .filter(item => item.roles.includes(userRole.toLowerCase()))
@@ -790,6 +888,13 @@ const MainLayout = () => {
     if (path === '#') return false;
     if (path === '/dashboard' && location.pathname === '/') return true;
     return location.pathname === path || location.pathname.startsWith(path + '/');
+  };
+
+  const isParentActive = (item: NavigationItem) => {
+    if (item.children) {
+      return item.children.some(child => isActive(child.path));
+    }
+    return isActive(item.path);
   };
 
   const handleLogout = async () => {
@@ -984,7 +1089,7 @@ const MainLayout = () => {
 
   // Sidebar variants
   const sidebarVariants = {
-    open: { width: 260, transition: { duration: 0.3, ease: 'easeInOut' } },
+    open: { width: 280, transition: { duration: 0.3, ease: 'easeInOut' } },
     closed: { width: 72, transition: { duration: 0.3, ease: 'easeInOut' } },
   };
 
@@ -1018,818 +1123,1629 @@ const MainLayout = () => {
         )}
       </div>
 
-      {/* Desktop Sidebar - Hidden on mobile */}
-      {!isMobile && (
-        <motion.aside
-          initial="closed"
-          animate={sidebarOpen ? 'open' : 'closed'}
-          variants={sidebarVariants}
-          className="fixed top-0 left-0 z-50 h-screen bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden"
-        >
-          {/* Logo Section */}
-          <div className="flex items-center justify-between h-20 px-3 border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0">
-            <div className={`flex items-center gap-2 ${sidebarOpen ? 'w-full' : 'justify-center w-full'}`}>
-              <div className="relative flex-shrink-0">
-                {schoolLogo ? (
-                  <img 
-                    src={schoolLogo} 
-                    alt="School Logo" 
-                    className={`w-10 h-10 rounded-xl object-cover ${isPremium ? 'ring-2 ring-amber-500/50' : ''}`}
-                  />
-                ) : (
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
-                    {isPremium ? (
-                      <Crown className="w-5 h-5 text-white" />
-                    ) : (
-                      <School className="w-5 h-5 text-white" />
-                    )}
-                  </div>
-                )}
-                {isPremium && (
-                  <div className="absolute -top-1 -right-1">
-                    <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-[8px] font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-full">
-                      <Star className="w-2 h-2" />
-                      PRO
-                    </span>
-                  </div>
-                )}
-              </div>
-              {sidebarOpen && (
-                <motion.div
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="flex-1 min-w-0"
-                >
-                  <span className={`text-lg font-bold ${isPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
-                    Ebenezer School
-                  </span>
-                  <span className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 tracking-wider uppercase">
-                    {isPremium ? '✨ Premium' : 'School Management'}
-                  </span>
-                </motion.div>
-              )}
-            </div>
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className={`p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all hover:scale-110 flex-shrink-0 ${!sidebarOpen ? 'mx-auto' : ''}`}
-            >
-              {sidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-            </button>
-          </div>
-
-          {/* Navigation - Scrollable with Fixed Dropdown */}
-          <nav className="px-2 py-4 space-y-1 overflow-y-auto h-[calc(100vh-14rem)] flex-1">
-            {filteredNavigation.map((item, index) => {
-              const hasChildren = item.children && item.children.length > 0;
-              const isExpanded = expandedMenus.includes(item.label);
-              const isActiveParent = item.children?.some(child => isActive(child.path));
-
-              if (hasChildren) {
-                return (
-                  <div key={item.label} className="mb-1">
-                    <button
-                      onClick={() => {
-                        // Only toggle if sidebar is open
-                        if (sidebarOpen) {
-                          toggleMenu(item.label);
-                        } else {
-                          // If sidebar is closed, open it first
-                          setSidebarOpen(true);
-                          // Then toggle the menu after a small delay
-                          setTimeout(() => {
-                            toggleMenu(item.label);
-                          }, 350);
-                        }
-                      }}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
-                        isActiveParent
-                          ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
-                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                      } ${!sidebarOpen ? 'justify-center' : ''}`}
-                      title={!sidebarOpen ? item.label : ''}
-                    >
-                      <item.icon className="w-5 h-5 flex-shrink-0" />
-                      {sidebarOpen && (
-                        <>
-                          <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
-                          <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                        </>
-                      )}
-                    </button>
-                    {sidebarOpen && isExpanded && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200/50 dark:border-gray-700/50 pl-3"
-                      >
-                        {item.children.map((child) => {
-                          const active = isActive(child.path);
-                          return (
-                            <Link
-                              key={child.path}
-                              to={child.path}
-                              className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-300 ${
-                                active
-                                  ? 'bg-blue-100/80 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                              }`}
-                            >
-                              <child.icon className="w-4 h-4 flex-shrink-0" />
-                              <span className="text-sm">{child.label}</span>
-                              {child.badge && !active && (
-                                <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
-                                  {child.badge}
-                                </span>
-                              )}
-                            </Link>
-                          );
-                        })}
-                      </motion.div>
-                    )}
-                  </div>
-                );
-              }
-
-              const active = isActive(item.path);
-              const isPayBill = item.label === 'Pay Bill';
-              const isAdminAsst = userRole === 'record_keeper' || userRole === 'admin_asst';
-              
-              return (
-                <motion.div
-                  key={item.path}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                >
-                  <Link
-                    to={item.path}
-                    className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
-                      active
-                        ? isPayBill
-                          ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
-                          : isAdminAsst
-                          ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-lg shadow-teal-500/25'
-                          : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
-                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                    } ${!sidebarOpen ? 'justify-center' : ''}`}
-                    title={!sidebarOpen ? item.label : ''}
-                  >
-                    <item.icon className="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" />
-                    {sidebarOpen && (
-                      <>
-                        <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
-                        {item.badge && !active && (
-                          <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
-                            {item.badge}
-                          </span>
-                        )}
-                        {active && (
-                          <motion.div
-                            layoutId="activeIndicator"
-                            className="ml-auto w-1 h-6 bg-white/50 rounded-full"
-                          />
-                        )}
-                      </>
-                    )}
-                    {!sidebarOpen && active && (
-                      <div className="absolute -right-0.5 w-1 h-6 bg-gradient-to-b from-blue-500 to-purple-500 rounded-full" />
-                    )}
-                  </Link>
-                </motion.div>
-              );
-            })}
-          </nav>
-
-          {/* User Section - Fixed at bottom */}
-          <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl flex-shrink-0">
-            {sidebarOpen ? (
-              <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
-                <ProfileImageWithUpload size="sm" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1">
-                    {getUserName()}
-                    {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 capitalize flex items-center gap-1">
-                    <Shield className="w-3 h-3" />
-                    {getUserRoleDisplay()}
-                  </p>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-gray-400 hover:text-red-600 dark:hover:text-red-400"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2">
-                <ProfileImageWithUpload size="sm" />
-                <button
-                  onClick={handleLogout}
-                  className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-gray-400 hover:text-red-600 dark:hover:text-red-400"
-                >
-                  <LogOut className="w-5 h-5" />
-                </button>
-              </div>
-            )}
-          </div>
-        </motion.aside>
-      )}
-
-      {/* Mobile Sidebar */}
-      {isMobile && (
+      {/* For Student/Parent - Show sidebar on large screens, dock on mobile */}
+      {isStudentOrParent ? (
         <>
-          <AnimatePresence>
-            {sidebarOpen && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black/50 z-40"
-                onClick={() => setSidebarOpen(false)}
-              />
-            )}
-          </AnimatePresence>
-
-          <motion.aside
-            initial="closed"
-            animate={sidebarOpen ? 'open' : 'closed'}
-            variants={mobileSidebarVariants}
-            className="fixed top-0 left-0 z-50 h-screen w-[280px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden flex flex-col"
-          >
-            {/* Logo Section - Fixed */}
-            <div className="flex items-center justify-between h-20 px-4 border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="relative flex-shrink-0">
-                  {schoolLogo ? (
-                    <img 
-                      src={schoolLogo} 
-                      alt="School Logo" 
-                      className={`w-10 h-10 rounded-xl object-cover ${isPremium ? 'ring-2 ring-amber-500/50' : ''}`}
-                    />
-                  ) : (
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
-                      {isPremium ? (
-                        <Crown className="w-5 h-5 text-white" />
-                      ) : (
-                        <School className="w-5 h-5 text-white" />
-                      )}
-                    </div>
-                  )}
-                  {isPremium && (
-                    <div className="absolute -top-1 -right-1">
-                      <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-[8px] font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-full">
-                        <Star className="w-2 h-2" />
-                        PRO
-                      </span>
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <span className={`text-lg font-bold ${isPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
-                    Ebenezer School
-                  </span>
-                  <span className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 tracking-wider uppercase">
-                    {isPremium ? '✨ Premium' : 'School Management'}
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => setSidebarOpen(false)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Navigation - Scrollable */}
-            <nav className="px-3 py-4 space-y-1 overflow-y-auto flex-1">
-              {filteredNavigation.map((item, index) => {
-                const hasChildren = item.children && item.children.length > 0;
-                const isExpanded = expandedMenus.includes(item.label);
-                const isActiveParent = item.children?.some(child => isActive(child.path));
-
-                if (hasChildren) {
-                  return (
-                    <div key={item.label} className="mb-1">
-                      <button
-                        onClick={() => toggleMenu(item.label)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
-                          isActiveParent
-                            ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
-                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                        }`}
-                      >
-                        <item.icon className="w-5 h-5 flex-shrink-0" />
-                        <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
-                        <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                      </button>
-                      {isExpanded && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          exit={{ opacity: 0, height: 0 }}
-                          className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200/50 dark:border-gray-700/50 pl-3"
-                        >
-                          {item.children.map((child) => {
-                            const active = isActive(child.path);
-                            return (
-                              <Link
-                                key={child.path}
-                                to={child.path}
-                                className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-300 ${
-                                  active
-                                    ? 'bg-blue-100/80 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                                }`}
-                                onClick={() => setSidebarOpen(false)}
-                              >
-                                <child.icon className="w-4 h-4 flex-shrink-0" />
-                                <span className="text-sm">{child.label}</span>
-                                {child.badge && !active && (
-                                  <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
-                                    {child.badge}
-                                  </span>
-                                )}
-                              </Link>
-                            );
-                          })}
-                        </motion.div>
-                      )}
-                    </div>
-                  );
-                }
-
-                const active = isActive(item.path);
-                const isPayBill = item.label === 'Pay Bill';
-                const isAdminAsst = userRole === 'record_keeper' || userRole === 'admin_asst';
-                
-                return (
-                  <motion.div
-                    key={item.path}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                  >
-                    <Link
-                      to={item.path}
-                      onClick={() => setSidebarOpen(false)}
-                      className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
-                        active
-                          ? isPayBill
-                            ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
-                            : isAdminAsst
-                            ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-lg shadow-teal-500/25'
-                            : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
-                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                      }`}
-                    >
-                      <item.icon className="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" />
-                      <span className="text-sm font-medium">{item.label}</span>
-                      {item.badge && !active && (
-                        <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
-                          {item.badge}
-                        </span>
-                      )}
-                      {active && (
-                        <motion.div
-                          layoutId="activeIndicatorMobile"
-                          className="ml-auto w-1 h-6 bg-white/50 rounded-full"
-                        />
-                      )}
-                    </Link>
-                  </motion.div>
-                );
-              })}
-            </nav>
-
-            {/* User Section - Fixed at bottom on mobile */}
-            <div className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 flex-shrink-0">
-              <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
-                <ProfileImageWithUpload size="sm" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1">
-                    {getUserName()}
-                    {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 capitalize flex items-center gap-1">
-                    <Shield className="w-3 h-3" />
-                    {getUserRoleDisplay()}
-                  </p>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-gray-400 hover:text-red-600 dark:hover:text-red-400"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          </motion.aside>
-        </>
-      )}
-
-      {/* Main Content */}
-      <div className={`transition-all duration-300 ${!isMobile && sidebarOpen ? 'ml-[260px]' : !isMobile ? 'ml-[72px]' : 'ml-0'}`}>
-        {/* Navbar */}
-        <header className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 shadow-sm">
-          <div className="h-16 px-4 sm:px-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {/* Mobile Menu Button */}
-              {isMobile && (
-                <button
-                  onClick={() => setSidebarOpen(true)}
-                  className="p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all"
-                >
-                  <Menu className="w-5 h-5" />
-                </button>
-              )}
-              <div className="flex items-center gap-2">
-                {/* Show logo on mobile when sidebar is closed */}
-                {isMobile && !sidebarOpen && (
+          {/* Desktop Sidebar - Shown on large screens (not mobile) */}
+          {!isMobile && (
+            <motion.aside
+              initial="closed"
+              animate={sidebarOpen ? 'open' : 'closed'}
+              variants={sidebarVariants}
+              className="fixed top-0 left-0 z-50 h-screen bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden flex flex-col"
+            >
+              {/* Logo Section */}
+              <div className="flex items-center justify-between h-20 px-3 border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0">
+                <div className={`flex items-center gap-2 ${sidebarOpen ? 'w-full' : 'justify-center w-full'}`}>
                   <div className="relative flex-shrink-0">
                     {schoolLogo ? (
                       <img 
                         src={schoolLogo} 
                         alt="School Logo" 
-                        className="w-8 h-8 rounded-xl object-cover"
+                        className={`w-10 h-10 rounded-xl object-cover ${isPremium ? 'ring-2 ring-amber-500/50' : ''}`}
                       />
                     ) : (
-                      <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600">
-                        <School className="w-4 h-4 text-white" />
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
+                        {isPremium ? (
+                          <Crown className="w-5 h-5 text-white" />
+                        ) : (
+                          <School className="w-5 h-5 text-white" />
+                        )}
+                      </div>
+                    )}
+                    {isPremium && (
+                      <div className="absolute -top-1 -right-1">
+                        <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-[8px] font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-full">
+                          <Star className="w-2 h-2" />
+                          PRO
+                        </span>
                       </div>
                     )}
                   </div>
-                )}
-              </div>
-              <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent truncate max-w-[120px] sm:max-w-xs">
-                {currentPage}
-              </h1>
-              <span className="hidden sm:inline-block text-xs px-3 py-1 rounded-full bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 text-blue-600 dark:text-blue-400 font-medium capitalize border border-blue-100/50 dark:border-blue-800/50">
-                {getUserRoleDisplay()}
-              </span>
-              {isPremium && (
-                <span className="hidden sm:inline-block text-xs px-3 py-1 rounded-full bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 text-amber-600 dark:text-amber-400 font-medium border border-amber-200/50 dark:border-amber-800/50 flex items-center gap-1">
-                  <Crown className="w-3 h-3" />
-                  Premium
-                </span>
-              )}
-              {(userRole === 'record_keeper' || userRole === 'admin_asst') && (
-                <span className="hidden sm:inline-block text-xs px-3 py-1 rounded-full bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/30 text-teal-600 dark:text-teal-400 font-medium border border-teal-200/50 dark:border-teal-800/50 flex items-center gap-1">
-                  <UserCog className="w-3 h-3" />
-                  Admin Assistant
-                </span>
-              )}
-            </div>
-            
-            <div className="flex items-center gap-2 sm:gap-3">
-              {/* Search */}
-              <button 
-                onClick={() => setIsSearchOpen(!isSearchOpen)}
-                className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 hover:bg-gray-200/80 dark:hover:bg-gray-700/80 transition-all text-gray-500 dark:text-gray-400 text-sm"
-              >
-                <Search className="w-4 h-4" />
-                <span className="hidden lg:inline">Search...</span>
-              </button>
-
-              {/* Mobile Search */}
-              <button 
-                onClick={() => setIsSearchOpen(!isSearchOpen)}
-                className="sm:hidden p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all"
-              >
-                <Search className="w-5 h-5" />
-              </button>
-
-              {/* Theme Toggle */}
-              <button
-                onClick={toggleTheme}
-                className="p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all hover:scale-105"
-                aria-label="Toggle theme"
-              >
-                {isDarkMode ? (
-                  <Sun className="w-5 h-5 text-yellow-500" />
-                ) : (
-                  <Moon className="w-5 h-5" />
-                )}
-              </button>
-
-              {/* Notifications */}
-              <div className="relative">
-                <button
-                  onClick={() => setShowNotifications(!showNotifications)}
-                  className="relative p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all hover:scale-105"
-                >
-                  <Bell className="w-5 h-5" />
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold text-white bg-gradient-to-r from-red-500 to-pink-500 rounded-full shadow-lg shadow-red-500/25 animate-pulse">
-                      {unreadCount}
-                    </span>
-                  )}
-                </button>
-
-                <AnimatePresence>
-                  {showNotifications && (
+                  {sidebarOpen && (
                     <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-96 max-w-[400px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/50 dark:border-gray-800/50 overflow-hidden z-50"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="flex-1 min-w-0"
                     >
-                      <div className="flex items-center justify-between p-4 border-b border-gray-200/50 dark:border-gray-800/50">
-                        <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                          <Bell className="w-4 h-4" />
-                          Notifications
-                          {unreadCount > 0 && (
-                            <span className="text-xs px-2 py-0.5 bg-red-500 text-white rounded-full">
-                              {unreadCount} new
-                            </span>
-                          )}
-                        </h3>
-                        <button 
-                          onClick={markAllRead}
-                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                        >
-                          Mark all read
-                        </button>
-                      </div>
-                      
-                      <div className="max-h-80 overflow-y-auto divide-y divide-gray-200/50 dark:divide-gray-800/50">
-                        {loadingNotifications ? (
-                          <div className="flex items-center justify-center py-8">
-                            <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                          </div>
-                        ) : notifications.length === 0 ? (
-                          <div className="text-center py-8">
-                            <Bell className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-                            <p className="text-sm text-gray-500 dark:text-gray-400">No notifications</p>
-                            <p className="text-xs text-gray-400 dark:text-gray-500">You're all caught up!</p>
-                          </div>
-                        ) : (
-                          notifications.map((notification) => (
-                            <div
-                              key={notification.id}
-                              onClick={() => handleNotificationClick(notification)}
-                              className={`p-4 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all cursor-pointer ${
-                                !notification.is_read ? `${getNotificationColor(notification.type)} border-l-4 border-blue-500` : ''
-                              }`}
-                            >
-                              <div className="flex items-start gap-3">
-                                <div className="flex-shrink-0 mt-1">
-                                  {getNotificationIcon(notification.type)}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                      {notification.title}
-                                    </p>
-                                    {!notification.is_read && (
-                                      <span className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1" />
-                                    )}
-                                  </div>
-                                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
-                                    {notification.message}
-                                  </p>
-                                  <div className="flex items-center gap-2 mt-1.5">
-                                    <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                                      {new Date(notification.created_at).toLocaleDateString('en-US', {
-                                        month: 'short',
-                                        day: 'numeric',
-                                        hour: '2-digit',
-                                        minute: '2-digit'
-                                      })}
-                                    </span>
-                                    {notification.type && (
-                                      <span className="text-[10px] capitalize px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
-                                        {notification.type}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                      
-                      {notifications.length > 0 && (
-                        <div className="p-3 border-t border-gray-200/50 dark:border-gray-800/50">
-                          <button 
-                            onClick={() => {
-                              setShowNotifications(false);
-                              navigate('/notifications');
-                            }}
-                            className="w-full text-center text-sm text-blue-600 dark:text-blue-400 font-medium hover:underline"
-                          >
-                            View all notifications
-                          </button>
-                        </div>
-                      )}
+                      <span className={`text-lg font-bold ${isPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
+                        Ebenezer School
+                      </span>
+                      <span className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 tracking-wider uppercase">
+                        {isPremium ? '✨ Premium' : 'School Management'}
+                      </span>
                     </motion.div>
                   )}
-                </AnimatePresence>
+                </div>
+                <button
+                  onClick={() => setSidebarOpen(!sidebarOpen)}
+                  className={`p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all hover:scale-110 flex-shrink-0 ${!sidebarOpen ? 'mx-auto' : ''}`}
+                >
+                  {sidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+                </button>
               </div>
 
-              {/* User Profile */}
-              <div className="relative">
-                <button
-                  onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                  className="flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-1.5 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all group"
-                >
-                  <ProfileImageWithUpload size="sm" />
-                  <div className="hidden lg:block text-left">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
+              {/* Navigation - Student/Parent Sidebar Items */}
+              <nav className="px-2 py-4 space-y-1 overflow-y-auto flex-1">
+                {filteredNavigation.map((item, index) => {
+                  const active = isActive(item.path);
+                  const isPayBill = item.label === 'Pay Bill';
+                  
+                  return (
+                    <motion.div
+                      key={item.path}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                    >
+                      <Link
+                        to={item.path}
+                        data-tutorial={item.tutorialTarget}
+                        className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
+                          active
+                            ? isPayBill
+                              ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
+                              : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
+                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
+                        } ${!sidebarOpen ? 'justify-center' : ''}`}
+                        title={!sidebarOpen ? item.label : ''}
+                      >
+                        <item.icon className="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" />
+                        {sidebarOpen && (
+                          <>
+                            <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
+                            {item.badge && !active && (
+                              <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
+                                {item.badge}
+                              </span>
+                            )}
+                            {active && (
+                              <motion.div
+                                layoutId="activeIndicator"
+                                className="ml-auto w-1 h-6 bg-white/50 rounded-full"
+                              />
+                            )}
+                          </>
+                        )}
+                        {!sidebarOpen && active && (
+                          <div className="absolute -right-0.5 w-1 h-6 bg-gradient-to-b from-blue-500 to-purple-500 rounded-full" />
+                        )}
+                      </Link>
+                    </motion.div>
+                  );
+                })}
+              </nav>
+
+              {/* User Section - Fixed at bottom */}
+              <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl flex-shrink-0">
+                {sidebarOpen ? (
+                  <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
+                    <ProfileImageWithUpload size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1">
                         {getUserName()}
+                        {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
                       </p>
-                      {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                      <span className="flex items-center gap-1">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 capitalize flex items-center gap-1">
                         <Shield className="w-3 h-3" />
                         {getUserRoleDisplay()}
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                    >
+                      <LogOut className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <ProfileImageWithUpload size="sm" />
+                    <button
+                      onClick={handleLogout}
+                      className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                    >
+                      <LogOut className="w-5 h-5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </motion.aside>
+          )}
+
+          {/* Mobile Sidebar - Shown on mobile when hamburger is clicked */}
+          {isMobile && (
+            <>
+              <AnimatePresence>
+                {sidebarOpen && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 bg-black/50 z-40"
+                    onClick={() => setSidebarOpen(false)}
+                  />
+                )}
+              </AnimatePresence>
+
+              <motion.aside
+                initial="closed"
+                animate={sidebarOpen ? 'open' : 'closed'}
+                variants={mobileSidebarVariants}
+                className="fixed top-0 left-0 z-50 h-screen w-[280px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden flex flex-col"
+              >
+                <div className="flex items-center justify-between h-20 px-4 border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex-shrink-0">
+                      {schoolLogo ? (
+                        <img 
+                          src={schoolLogo} 
+                          alt="School Logo" 
+                          className={`w-10 h-10 rounded-xl object-cover ${isPremium ? 'ring-2 ring-amber-500/50' : ''}`}
+                        />
+                      ) : (
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
+                          {isPremium ? (
+                            <Crown className="w-5 h-5 text-white" />
+                          ) : (
+                            <School className="w-5 h-5 text-white" />
+                          )}
+                        </div>
+                      )}
+                      {isPremium && (
+                        <div className="absolute -top-1 -right-1">
+                          <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-[8px] font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-full">
+                            <Star className="w-2 h-2" />
+                            PRO
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <span className={`text-lg font-bold ${isPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
+                        Ebenezer School
                       </span>
-                      <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3" />
-                        {getUserBranch()}
+                      <span className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 tracking-wider uppercase">
+                        {isPremium ? '✨ Premium' : 'School Management'}
                       </span>
                     </div>
                   </div>
-                  <ChevronDown className="w-4 h-4 text-gray-400 hidden lg:block" />
-                </button>
+                  <button
+                    onClick={() => setSidebarOpen(false)}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
 
-                <AnimatePresence>
-                  {isDropdownOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-72 max-w-[400px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/50 dark:border-gray-800/50 overflow-hidden z-50"
+                <nav className="px-3 py-4 space-y-1 overflow-y-auto flex-1">
+                  {filteredNavigation.map((item, index) => {
+                    const active = isActive(item.path);
+                    const isPayBill = item.label === 'Pay Bill';
+                    
+                    return (
+                      <motion.div
+                        key={item.path}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                      >
+                        <Link
+                          to={item.path}
+                          data-tutorial={item.tutorialTarget}
+                          onClick={() => setSidebarOpen(false)}
+                          className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
+                            active
+                              ? isPayBill
+                                ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
+                                : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
+                              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
+                          }`}
+                        >
+                          <item.icon className="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" />
+                          <span className="text-sm font-medium">{item.label}</span>
+                          {item.badge && !active && (
+                            <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
+                              {item.badge}
+                            </span>
+                          )}
+                          {active && (
+                            <motion.div
+                              layoutId="activeIndicatorMobile"
+                              className="ml-auto w-1 h-6 bg-white/50 rounded-full"
+                            />
+                          )}
+                        </Link>
+                      </motion.div>
+                    );
+                  })}
+                </nav>
+
+                <div className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 flex-shrink-0">
+                  <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
+                    <ProfileImageWithUpload size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1">
+                        {getUserName()}
+                        {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 capitalize flex items-center gap-1">
+                        <Shield className="w-3 h-3" />
+                        {getUserRoleDisplay()}
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-gray-400 hover:text-red-600 dark:hover:text-red-400"
                     >
-                      <div className="px-4 py-3 border-b border-gray-200/50 dark:border-gray-800/50">
-                        <div className="flex items-center gap-3">
-                          <ProfileImageWithUpload size="lg" />
-                          <div>
-                            <p className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1">
+                      <LogOut className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </motion.aside>
+            </>
+          )}
+
+          {/* Main Content */}
+          <div className={`transition-all duration-300 ${!isMobile && sidebarOpen ? 'ml-[280px]' : !isMobile ? 'ml-[72px]' : 'ml-0'}`}>
+            <div className={`${isMobile ? 'pb-20' : ''}`}>
+              {/* Navbar */}
+              <header className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 shadow-sm">
+                <div className="h-16 px-4 sm:px-6 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    {/* Mobile Menu Button - Only on mobile */}
+                    {isMobile && (
+                      <button
+                        onClick={() => setSidebarOpen(true)}
+                        className="p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all"
+                      >
+                        <Menu className="w-5 h-5" />
+                      </button>
+                    )}
+                    {/* Show logo on mobile when sidebar is closed */}
+                    {isMobile && !sidebarOpen && (
+                      <div className="relative flex-shrink-0">
+                        {schoolLogo ? (
+                          <img 
+                            src={schoolLogo} 
+                            alt="School Logo" 
+                            className="w-8 h-8 rounded-xl object-cover"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600">
+                            <School className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent truncate max-w-[120px] sm:max-w-xs">
+                      {currentPage}
+                    </h1>
+                    <span className="hidden sm:inline-block text-xs px-3 py-1 rounded-full bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 text-blue-600 dark:text-blue-400 font-medium capitalize border border-blue-100/50 dark:border-blue-800/50">
+                      {getUserRoleDisplay()}
+                    </span>
+                  </div>
+                  
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <button 
+                      onClick={() => setIsSearchOpen(!isSearchOpen)}
+                      className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 hover:bg-gray-200/80 dark:hover:bg-gray-700/80 transition-all text-gray-500 dark:text-gray-400 text-sm"
+                    >
+                      <Search className="w-4 h-4" />
+                      <span className="hidden lg:inline">Search...</span>
+                    </button>
+
+                    <button 
+                      onClick={() => setIsSearchOpen(!isSearchOpen)}
+                      className="sm:hidden p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all"
+                    >
+                      <Search className="w-5 h-5" />
+                    </button>
+
+                    <button
+                      onClick={toggleTheme}
+                      className="p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all hover:scale-105"
+                      aria-label="Toggle theme"
+                    >
+                      {isDarkMode ? (
+                        <Sun className="w-5 h-5 text-yellow-500" />
+                      ) : (
+                        <Moon className="w-5 h-5" />
+                      )}
+                    </button>
+
+                    {/* Notifications */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowNotifications(!showNotifications)}
+                        className="relative p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all hover:scale-105"
+                      >
+                        <Bell className="w-5 h-5" />
+                        {unreadCount > 0 && (
+                          <span className="absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold text-white bg-gradient-to-r from-red-500 to-pink-500 rounded-full shadow-lg shadow-red-500/25 animate-pulse">
+                            {unreadCount}
+                          </span>
+                        )}
+                      </button>
+
+                      <AnimatePresence>
+                        {showNotifications && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                            className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-96 max-w-[400px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/50 dark:border-gray-800/50 overflow-hidden z-50"
+                          >
+                            <div className="flex items-center justify-between p-4 border-b border-gray-200/50 dark:border-gray-800/50">
+                              <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                                <Bell className="w-4 h-4" />
+                                Notifications
+                                {unreadCount > 0 && (
+                                  <span className="text-xs px-2 py-0.5 bg-red-500 text-white rounded-full">
+                                    {unreadCount} new
+                                  </span>
+                                )}
+                              </h3>
+                              <button 
+                                onClick={markAllRead}
+                                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                              >
+                                Mark all read
+                              </button>
+                            </div>
+                            
+                            <div className="max-h-80 overflow-y-auto divide-y divide-gray-200/50 dark:divide-gray-800/50">
+                              {loadingNotifications ? (
+                                <div className="flex items-center justify-center py-8">
+                                  <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+                                </div>
+                              ) : notifications.length === 0 ? (
+                                <div className="text-center py-8">
+                                  <Bell className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+                                  <p className="text-sm text-gray-500 dark:text-gray-400">No notifications</p>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">You're all caught up!</p>
+                                </div>
+                              ) : (
+                                notifications.map((notification) => (
+                                  <div
+                                    key={notification.id}
+                                    onClick={() => handleNotificationClick(notification)}
+                                    className={`p-4 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all cursor-pointer ${
+                                      !notification.is_read ? `${getNotificationColor(notification.type)} border-l-4 border-blue-500` : ''
+                                    }`}
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      <div className="flex-shrink-0 mt-1">
+                                        {getNotificationIcon(notification.type)}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                            {notification.title}
+                                          </p>
+                                          {!notification.is_read && (
+                                            <span className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1" />
+                                          )}
+                                        </div>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
+                                          {notification.message}
+                                        </p>
+                                        <div className="flex items-center gap-2 mt-1.5">
+                                          <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                                            {new Date(notification.created_at).toLocaleDateString('en-US', {
+                                              month: 'short',
+                                              day: 'numeric',
+                                              hour: '2-digit',
+                                              minute: '2-digit'
+                                            })}
+                                          </span>
+                                          {notification.type && (
+                                            <span className="text-[10px] capitalize px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
+                                              {notification.type}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                            
+                            {notifications.length > 0 && (
+                              <div className="p-3 border-t border-gray-200/50 dark:border-gray-800/50">
+                                <button 
+                                  onClick={() => {
+                                    setShowNotifications(false);
+                                    navigate('/notifications');
+                                  }}
+                                  className="w-full text-center text-sm text-blue-600 dark:text-blue-400 font-medium hover:underline"
+                                >
+                                  View all notifications
+                                </button>
+                              </div>
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* User Profile */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                        className="flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-1.5 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all group"
+                      >
+                        <ProfileImageWithUpload size="sm" />
+                        <div className="hidden lg:block text-left">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-semibold text-gray-900 dark:text-white">
                               {getUserName()}
-                              {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
                             </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[150px]">
-                              {user?.email || userProfile?.email || 'No email'}
-                            </p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-0.5">
+                            {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                            <span className="flex items-center gap-1">
                               <Shield className="w-3 h-3" />
-                              {getUserRoleDisplay()} • {getUserBranch()}
-                            </p>
+                              {getUserRoleDisplay()}
+                            </span>
+                            <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
+                            <span className="flex items-center gap-1">
+                              <MapPin className="w-3 h-3" />
+                              {getUserBranch()}
+                            </span>
                           </div>
                         </div>
-                      </div>
+                        <ChevronDown className="w-4 h-4 text-gray-400 hidden lg:block" />
+                      </button>
 
-                      <div className="py-1 max-h-[60vh] overflow-y-auto">
-                        {/* Role-based profile links */}
-                        {(userRole === 'record_keeper' || userRole === 'admin_asst') && (
-                          <Link
-                            to="/admin-asst/profile"
-                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                            onClick={() => setIsDropdownOpen(false)}
+                      <AnimatePresence>
+                        {isDropdownOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                            className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-72 max-w-[400px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/50 dark:border-gray-800/50 overflow-hidden z-50"
                           >
-                            <UserCog className="w-4 h-4" />
-                            My Profile
-                          </Link>
-                        )}
-                        {userRole === 'student' && (
-                          <Link
-                            to="/student/profile"
-                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                            onClick={() => setIsDropdownOpen(false)}
-                          >
-                            <UserCircle className="w-4 h-4" />
-                            My Profile
-                          </Link>
-                        )}
-                        {userRole === 'parent' && (
-                          <Link
-                            to="/parent/profile"
-                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                            onClick={() => setIsDropdownOpen(false)}
-                          >
-                            <UserCircle className="w-4 h-4" />
-                            My Profile
-                          </Link>
-                        )}
-                        {userRole === 'teacher' && (
-                          <Link
-                            to="/teacher/profile"
-                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                            onClick={() => setIsDropdownOpen(false)}
-                          >
-                            <UserCircle className="w-4 h-4" />
-                            My Profile
-                          </Link>
-                        )}
-                        {(userRole === 'admin' || userRole === 'director' || userRole === 'finance') && (
-                          <Link
-                            to="/profile"
-                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                            onClick={() => setIsDropdownOpen(false)}
-                          >
-                            <UserCircle className="w-4 h-4" />
-                            Profile
-                          </Link>
-                        )}
-                        <Link
-                          to="/settings"
-                          className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                          onClick={() => setIsDropdownOpen(false)}
-                        >
-                          <Settings className="w-4 h-4" />
-                          Settings
-                        </Link>
-                        
-                        {!isPremium && (
-                          <button
-                            onClick={() => {
-                              setIsDropdownOpen(false);
-                              setShowPremiumModal(true);
-                            }}
-                            className="flex items-center gap-3 px-4 py-2.5 w-full text-sm text-amber-600 hover:bg-amber-50/80 dark:hover:bg-amber-900/20 transition-all"
-                          >
-                            <Crown className="w-4 h-4" />
-                            Go Premium
-                          </button>
-                        )}
-                        <Link
-                          to="/help"
-                          className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                          onClick={() => setIsDropdownOpen(false)}
-                        >
-                          <HelpCircle className="w-4 h-4" />
-                          Help & Support
-                        </Link>
-                      </div>
+                            <div className="px-4 py-3 border-b border-gray-200/50 dark:border-gray-800/50">
+                              <div className="flex items-center gap-3">
+                                <ProfileImageWithUpload size="lg" />
+                                <div>
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1">
+                                    {getUserName()}
+                                    {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                                  </p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[150px]">
+                                    {user?.email || userProfile?.email || 'No email'}
+                                  </p>
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-0.5">
+                                    <Shield className="w-3 h-3" />
+                                    {getUserRoleDisplay()} • {getUserBranch()}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
 
-                      <div className="border-t border-gray-200/50 dark:border-gray-800/50 pt-1">
+                            <div className="py-1 max-h-[60vh] overflow-y-auto">
+                              {userRole === 'student' && (
+                                <Link
+                                  to="/student/profile"
+                                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
+                                  onClick={() => setIsDropdownOpen(false)}
+                                >
+                                  <UserCircle className="w-4 h-4" />
+                                  My Profile
+                                </Link>
+                              )}
+                              {userRole === 'parent' && (
+                                <Link
+                                  to="/parent/profile"
+                                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
+                                  onClick={() => setIsDropdownOpen(false)}
+                                >
+                                  <UserCircle className="w-4 h-4" />
+                                  My Profile
+                                </Link>
+                              )}
+                              <Link
+                                to="/settings"
+                                className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
+                                onClick={() => setIsDropdownOpen(false)}
+                              >
+                                <Settings className="w-4 h-4" />
+                                Settings
+                              </Link>
+                              
+                              {!isPremium && (
+                                <button
+                                  onClick={() => {
+                                    setIsDropdownOpen(false);
+                                    setShowPremiumModal(true);
+                                  }}
+                                  className="flex items-center gap-3 px-4 py-2.5 w-full text-sm text-amber-600 hover:bg-amber-50/80 dark:hover:bg-amber-900/20 transition-all"
+                                >
+                                  <Crown className="w-4 h-4" />
+                                  Go Premium
+                                </button>
+                              )}
+                              <Link
+                                to="/help"
+                                className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
+                                onClick={() => setIsDropdownOpen(false)}
+                              >
+                                <HelpCircle className="w-4 h-4" />
+                                Help & Support
+                              </Link>
+                            </div>
+
+                            <div className="border-t border-gray-200/50 dark:border-gray-800/50 pt-1">
+                              <button
+                                onClick={() => {
+                                  setIsDropdownOpen(false);
+                                  handleLogout();
+                                }}
+                                className="flex items-center gap-3 px-4 py-2.5 w-full text-sm text-red-600 hover:bg-red-50/80 dark:hover:bg-red-900/20 transition-all"
+                              >
+                                <LogOut className="w-4 h-4" />
+                                Logout
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Search Bar */}
+                <AnimatePresence>
+                  {isSearchOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="border-t border-gray-200/50 dark:border-gray-800/50 px-4 sm:px-6 py-4"
+                    >
+                      <div className="relative max-w-2xl mx-auto">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Search..."
+                          className="w-full pl-12 pr-4 py-3 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 border-0 focus:ring-2 focus:ring-blue-500 dark:text-white placeholder-gray-400 text-sm"
+                          autoFocus
+                        />
                         <button
-                          onClick={() => {
-                            setIsDropdownOpen(false);
-                            handleLogout();
-                          }}
-                          className="flex items-center gap-3 px-4 py-2.5 w-full text-sm text-red-600 hover:bg-red-50/80 dark:hover:bg-red-900/20 transition-all"
+                          onClick={() => setIsSearchOpen(false)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-all"
                         >
-                          <LogOut className="w-4 h-4" />
-                          Logout
+                          <X className="w-4 h-4 text-gray-400" />
                         </button>
                       </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </div>
+              </header>
+
+              {/* Page Content */}
+              <main className="p-3 sm:p-4 md:p-6">
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5 }}
+                >
+                  <Outlet />
+                </motion.div>
+              </main>
             </div>
           </div>
 
-          {/* Search Bar */}
-          <AnimatePresence>
-            {isSearchOpen && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="border-t border-gray-200/50 dark:border-gray-800/50 px-4 sm:px-6 py-4"
-              >
-                <div className="relative max-w-2xl mx-auto">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search students, teachers, payments, classes..."
-                    className="w-full pl-12 pr-4 py-3 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 border-0 focus:ring-2 focus:ring-blue-500 dark:text-white placeholder-gray-400 text-sm"
-                    autoFocus
+          {/* Bottom Dock Navigation - Only on mobile */}
+          {isMobile && (
+            <div className="fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-t border-gray-200/50 dark:border-gray-800/50 z-50 shadow-lg">
+              <div className="flex items-center justify-around px-1 py-1 max-w-lg mx-auto">
+                {dockNavItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
+                  const isPayBill = item.label === 'Pay Bill';
+                  
+                  return (
+                    <button
+                      key={item.path}
+                      onClick={() => navigate(item.path)}
+                      className={`flex flex-col items-center gap-0.5 p-1.5 rounded-lg transition-all min-w-[44px] flex-1 max-w-[60px] ${
+                        isActive
+                          ? isPayBill
+                            ? 'text-green-600 dark:text-green-400'
+                            : 'text-blue-600 dark:text-blue-400'
+                          : 'text-gray-500 dark:text-gray-400'
+                      }`}
+                    >
+                      <div className={`relative ${isActive ? 'scale-110' : ''}`}>
+                        <Icon className="w-5 h-5" />
+                        {item.badge && !isActive && (
+                          <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+                        )}
+                      </div>
+                      <span className="text-[8px] font-medium truncate w-full text-center">{item.label}</span>
+                      {isActive && (
+                        <div className="w-1 h-1 bg-blue-500 rounded-full mt-0.5" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        // Regular sidebar layout for admin, teacher, etc.
+        <>
+          {/* Desktop Sidebar - Hidden on mobile */}
+          {!isMobile && (
+            <motion.aside
+              initial="closed"
+              animate={sidebarOpen ? 'open' : 'closed'}
+              variants={sidebarVariants}
+              className="fixed top-0 left-0 z-50 h-screen bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden flex flex-col"
+            >
+              {/* Logo Section */}
+              <div className="flex items-center justify-between h-20 px-3 border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0">
+                <div className={`flex items-center gap-2 ${sidebarOpen ? 'w-full' : 'justify-center w-full'}`}>
+                  <div className="relative flex-shrink-0">
+                    {schoolLogo ? (
+                      <img 
+                        src={schoolLogo} 
+                        alt="School Logo" 
+                        className={`w-10 h-10 rounded-xl object-cover ${isPremium ? 'ring-2 ring-amber-500/50' : ''}`}
+                      />
+                    ) : (
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
+                        {isPremium ? (
+                          <Crown className="w-5 h-5 text-white" />
+                        ) : (
+                          <School className="w-5 h-5 text-white" />
+                        )}
+                      </div>
+                    )}
+                    {isPremium && (
+                      <div className="absolute -top-1 -right-1">
+                        <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-[8px] font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-full">
+                          <Star className="w-2 h-2" />
+                          PRO
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  {sidebarOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="flex-1 min-w-0"
+                    >
+                      <span className={`text-lg font-bold ${isPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
+                        Ebenezer School
+                      </span>
+                      <span className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 tracking-wider uppercase">
+                        {isPremium ? '✨ Premium' : 'School Management'}
+                      </span>
+                    </motion.div>
+                  )}
+                </div>
+                <button
+                  onClick={() => setSidebarOpen(!sidebarOpen)}
+                  className={`p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all hover:scale-110 flex-shrink-0 ${!sidebarOpen ? 'mx-auto' : ''}`}
+                >
+                  {sidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+                </button>
+              </div>
+
+              {/* Navigation - Scrollable */}
+              <nav className="px-2 py-4 space-y-1 overflow-y-auto flex-1">
+                {filteredNavigation.map((item, index) => {
+                  const hasChildren = item.children && item.children.length > 0;
+                  const isExpanded = expandedMenus.includes(item.label);
+                  const isActiveParent = item.children?.some(child => isActive(child.path));
+
+                  if (hasChildren) {
+                    return (
+                      <div key={item.label} className="mb-1">
+                        <button
+                          onClick={() => {
+                            if (sidebarOpen) {
+                              toggleMenu(item.label);
+                            } else {
+                              setSidebarOpen(true);
+                              setTimeout(() => {
+                                toggleMenu(item.label);
+                              }, 350);
+                            }
+                          }}
+                          data-tutorial={item.tutorialTarget}
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
+                            isActiveParent
+                              ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
+                              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
+                          } ${!sidebarOpen ? 'justify-center' : ''}`}
+                          title={!sidebarOpen ? item.label : ''}
+                        >
+                          <item.icon className="w-5 h-5 flex-shrink-0" />
+                          {sidebarOpen && (
+                            <>
+                              <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
+                              <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                            </>
+                          )}
+                        </button>
+                        {sidebarOpen && isExpanded && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200/50 dark:border-gray-700/50 pl-3"
+                          >
+                            {item.children.map((child) => {
+                              const active = isActive(child.path);
+                              return (
+                                <Link
+                                  key={child.path}
+                                  to={child.path}
+                                  data-tutorial={child.tutorialTarget}
+                                  className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-300 ${
+                                    active
+                                      ? 'bg-blue-100/80 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
+                                  }`}
+                                >
+                                  <child.icon className="w-4 h-4 flex-shrink-0" />
+                                  <span className="text-sm">{child.label}</span>
+                                  {child.badge && !active && (
+                                    <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
+                                      {child.badge}
+                                    </span>
+                                  )}
+                                </Link>
+                              );
+                            })}
+                          </motion.div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  const active = isActive(item.path);
+                  const isPayBill = item.label === 'Pay Bill';
+                  const isAdminAsst = userRole === 'record_keeper' || userRole === 'admin_asst';
+                  
+                  return (
+                    <motion.div
+                      key={item.path}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                    >
+                      <Link
+                        to={item.path}
+                        data-tutorial={item.tutorialTarget}
+                        className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
+                          active
+                            ? isPayBill
+                              ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
+                              : isAdminAsst
+                              ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-lg shadow-teal-500/25'
+                              : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
+                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
+                        } ${!sidebarOpen ? 'justify-center' : ''}`}
+                        title={!sidebarOpen ? item.label : ''}
+                      >
+                        <item.icon className="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" />
+                        {sidebarOpen && (
+                          <>
+                            <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
+                            {item.badge && !active && (
+                              <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
+                                {item.badge}
+                              </span>
+                            )}
+                            {active && (
+                              <motion.div
+                                layoutId="activeIndicator"
+                                className="ml-auto w-1 h-6 bg-white/50 rounded-full"
+                              />
+                            )}
+                          </>
+                        )}
+                        {!sidebarOpen && active && (
+                          <div className="absolute -right-0.5 w-1 h-6 bg-gradient-to-b from-blue-500 to-purple-500 rounded-full" />
+                        )}
+                      </Link>
+                    </motion.div>
+                  );
+                })}
+              </nav>
+
+              {/* User Section - Fixed at bottom */}
+              <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl flex-shrink-0">
+                {sidebarOpen ? (
+                  <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
+                    <ProfileImageWithUpload size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1">
+                        {getUserName()}
+                        {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 capitalize flex items-center gap-1">
+                        <Shield className="w-3 h-3" />
+                        {getUserRoleDisplay()}
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                    >
+                      <LogOut className="w-4 h-4" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <ProfileImageWithUpload size="sm" />
+                    <button
+                      onClick={handleLogout}
+                      className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                    >
+                      <LogOut className="w-5 h-5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </motion.aside>
+          )}
+
+          {/* Mobile Sidebar for Admin/Teacher */}
+          {isMobile && (
+            <>
+              <AnimatePresence>
+                {sidebarOpen && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 bg-black/50 z-40"
+                    onClick={() => setSidebarOpen(false)}
                   />
+                )}
+              </AnimatePresence>
+
+              <motion.aside
+                initial="closed"
+                animate={sidebarOpen ? 'open' : 'closed'}
+                variants={mobileSidebarVariants}
+                className="fixed top-0 left-0 z-50 h-screen w-[280px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden flex flex-col"
+              >
+                <div className="flex items-center justify-between h-20 px-4 border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0">
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex-shrink-0">
+                      {schoolLogo ? (
+                        <img 
+                          src={schoolLogo} 
+                          alt="School Logo" 
+                          className={`w-10 h-10 rounded-xl object-cover ${isPremium ? 'ring-2 ring-amber-500/50' : ''}`}
+                        />
+                      ) : (
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
+                          {isPremium ? (
+                            <Crown className="w-5 h-5 text-white" />
+                          ) : (
+                            <School className="w-5 h-5 text-white" />
+                          )}
+                        </div>
+                      )}
+                      {isPremium && (
+                        <div className="absolute -top-1 -right-1">
+                          <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-[8px] font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-full">
+                            <Star className="w-2 h-2" />
+                            PRO
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <span className={`text-lg font-bold ${isPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
+                        Ebenezer School
+                      </span>
+                      <span className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 tracking-wider uppercase">
+                        {isPremium ? '✨ Premium' : 'School Management'}
+                      </span>
+                    </div>
+                  </div>
                   <button
-                    onClick={() => setIsSearchOpen(false)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-all"
+                    onClick={() => setSidebarOpen(false)}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-all"
                   >
-                    <X className="w-4 h-4 text-gray-400" />
+                    <X className="w-5 h-5" />
                   </button>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </header>
 
-        {/* Page Content */}
-        <main className="p-3 sm:p-4 md:p-6">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            <Outlet />
-          </motion.div>
-        </main>
-      </div>
+                <nav className="px-3 py-4 space-y-1 overflow-y-auto flex-1">
+                  {filteredNavigation.map((item, index) => {
+                    const hasChildren = item.children && item.children.length > 0;
+                    const isExpanded = expandedMenus.includes(item.label);
+                    const isActiveParent = item.children?.some(child => isActive(child.path));
+
+                    if (hasChildren) {
+                      return (
+                        <div key={item.label} className="mb-1">
+                          <button
+                            onClick={() => toggleMenu(item.label)}
+                            data-tutorial={item.tutorialTarget}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
+                              isActiveParent
+                                ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
+                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
+                            }`}
+                          >
+                            <item.icon className="w-5 h-5 flex-shrink-0" />
+                            <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
+                            <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                          </button>
+                          {isExpanded && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: 'auto' }}
+                              exit={{ opacity: 0, height: 0 }}
+                              className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200/50 dark:border-gray-700/50 pl-3"
+                            >
+                              {item.children.map((child) => {
+                                const active = isActive(child.path);
+                                return (
+                                  <Link
+                                    key={child.path}
+                                    to={child.path}
+                                    data-tutorial={child.tutorialTarget}
+                                    className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-300 ${
+                                      active
+                                        ? 'bg-blue-100/80 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
+                                    }`}
+                                    onClick={() => setSidebarOpen(false)}
+                                  >
+                                    <child.icon className="w-4 h-4 flex-shrink-0" />
+                                    <span className="text-sm">{child.label}</span>
+                                    {child.badge && !active && (
+                                      <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
+                                        {child.badge}
+                                      </span>
+                                    )}
+                                  </Link>
+                                );
+                              })}
+                            </motion.div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    const active = isActive(item.path);
+                    const isPayBill = item.label === 'Pay Bill';
+                    const isAdminAsst = userRole === 'record_keeper' || userRole === 'admin_asst';
+                    
+                    return (
+                      <motion.div
+                        key={item.path}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                      >
+                        <Link
+                          to={item.path}
+                          data-tutorial={item.tutorialTarget}
+                          onClick={() => setSidebarOpen(false)}
+                          className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
+                            active
+                              ? isPayBill
+                                ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
+                                : isAdminAsst
+                                ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-lg shadow-teal-500/25'
+                                : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
+                              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
+                          }`}
+                        >
+                          <item.icon className="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" />
+                          <span className="text-sm font-medium">{item.label}</span>
+                          {item.badge && !active && (
+                            <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
+                              {item.badge}
+                            </span>
+                          )}
+                          {active && (
+                            <motion.div
+                              layoutId="activeIndicatorMobile"
+                              className="ml-auto w-1 h-6 bg-white/50 rounded-full"
+                            />
+                          )}
+                        </Link>
+                      </motion.div>
+                    );
+                  })}
+                </nav>
+
+                <div className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 flex-shrink-0">
+                  <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
+                    <ProfileImageWithUpload size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1">
+                        {getUserName()}
+                        {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 capitalize flex items-center gap-1">
+                        <Shield className="w-3 h-3" />
+                        {getUserRoleDisplay()}
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleLogout}
+                      className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                    >
+                      <LogOut className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </motion.aside>
+            </>
+          )}
+
+          {/* Main Content for non-student/parent */}
+          <div className={`transition-all duration-300 ${!isMobile && sidebarOpen ? 'ml-[280px]' : !isMobile ? 'ml-[72px]' : 'ml-0'}`}>
+            {/* Navbar */}
+            <header className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 shadow-sm">
+              <div className="h-16 px-4 sm:px-6 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {/* Mobile Menu Button */}
+                  {isMobile && (
+                    <button
+                      onClick={() => setSidebarOpen(true)}
+                      className="p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all"
+                    >
+                      <Menu className="w-5 h-5" />
+                    </button>
+                  )}
+                  {/* Show logo on mobile when sidebar is closed */}
+                  {isMobile && !sidebarOpen && (
+                    <div className="relative flex-shrink-0">
+                      {schoolLogo ? (
+                        <img 
+                          src={schoolLogo} 
+                          alt="School Logo" 
+                          className="w-8 h-8 rounded-xl object-cover"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600">
+                          <School className="w-4 h-4 text-white" />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent truncate max-w-[120px] sm:max-w-xs">
+                    {currentPage}
+                  </h1>
+                  <span className="hidden sm:inline-block text-xs px-3 py-1 rounded-full bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 text-blue-600 dark:text-blue-400 font-medium capitalize border border-blue-100/50 dark:border-blue-800/50">
+                    {getUserRoleDisplay()}
+                  </span>
+                  {isPremium && (
+                    <span className="hidden sm:inline-block text-xs px-3 py-1 rounded-full bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 text-amber-600 dark:text-amber-400 font-medium border border-amber-200/50 dark:border-amber-800/50 flex items-center gap-1">
+                      <Crown className="w-3 h-3" />
+                      Premium
+                    </span>
+                  )}
+                  {(userRole === 'record_keeper' || userRole === 'admin_asst') && (
+                    <span className="hidden sm:inline-block text-xs px-3 py-1 rounded-full bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/30 text-teal-600 dark:text-teal-400 font-medium border border-teal-200/50 dark:border-teal-800/50 flex items-center gap-1">
+                      <UserCog className="w-3 h-3" />
+                      Admin Assistant
+                    </span>
+                  )}
+                </div>
+                
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <button 
+                    onClick={() => setIsSearchOpen(!isSearchOpen)}
+                    className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 hover:bg-gray-200/80 dark:hover:bg-gray-700/80 transition-all text-gray-500 dark:text-gray-400 text-sm"
+                  >
+                    <Search className="w-4 h-4" />
+                    <span className="hidden lg:inline">Search...</span>
+                  </button>
+
+                  <button 
+                    onClick={() => setIsSearchOpen(!isSearchOpen)}
+                    className="sm:hidden p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all"
+                  >
+                    <Search className="w-5 h-5" />
+                  </button>
+
+                  <button
+                    onClick={toggleTheme}
+                    className="p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all hover:scale-105"
+                    aria-label="Toggle theme"
+                  >
+                    {isDarkMode ? (
+                      <Sun className="w-5 h-5 text-yellow-500" />
+                    ) : (
+                      <Moon className="w-5 h-5" />
+                    )}
+                  </button>
+
+                  {/* Notifications */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowNotifications(!showNotifications)}
+                      className="relative p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all hover:scale-105"
+                    >
+                      <Bell className="w-5 h-5" />
+                      {unreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center text-[10px] font-bold text-white bg-gradient-to-r from-red-500 to-pink-500 rounded-full shadow-lg shadow-red-500/25 animate-pulse">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </button>
+
+                    <AnimatePresence>
+                      {showNotifications && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-96 max-w-[400px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/50 dark:border-gray-800/50 overflow-hidden z-50"
+                        >
+                          <div className="flex items-center justify-between p-4 border-b border-gray-200/50 dark:border-gray-800/50">
+                            <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                              <Bell className="w-4 h-4" />
+                              Notifications
+                              {unreadCount > 0 && (
+                                <span className="text-xs px-2 py-0.5 bg-red-500 text-white rounded-full">
+                                  {unreadCount} new
+                                </span>
+                              )}
+                            </h3>
+                            <button 
+                              onClick={markAllRead}
+                              className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                              Mark all read
+                            </button>
+                          </div>
+                          
+                          <div className="max-h-80 overflow-y-auto divide-y divide-gray-200/50 dark:divide-gray-800/50">
+                            {loadingNotifications ? (
+                              <div className="flex items-center justify-center py-8">
+                                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+                              </div>
+                            ) : notifications.length === 0 ? (
+                              <div className="text-center py-8">
+                                <Bell className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+                                <p className="text-sm text-gray-500 dark:text-gray-400">No notifications</p>
+                                <p className="text-xs text-gray-400 dark:text-gray-500">You're all caught up!</p>
+                              </div>
+                            ) : (
+                              notifications.map((notification) => (
+                                <div
+                                  key={notification.id}
+                                  onClick={() => handleNotificationClick(notification)}
+                                  className={`p-4 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all cursor-pointer ${
+                                    !notification.is_read ? `${getNotificationColor(notification.type)} border-l-4 border-blue-500` : ''
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <div className="flex-shrink-0 mt-1">
+                                      {getNotificationIcon(notification.type)}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                          {notification.title}
+                                        </p>
+                                        {!notification.is_read && (
+                                          <span className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1" />
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
+                                        {notification.message}
+                                      </p>
+                                      <div className="flex items-center gap-2 mt-1.5">
+                                        <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                                          {new Date(notification.created_at).toLocaleDateString('en-US', {
+                                            month: 'short',
+                                            day: 'numeric',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                          })}
+                                        </span>
+                                        {notification.type && (
+                                          <span className="text-[10px] capitalize px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
+                                            {notification.type}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                          
+                          {notifications.length > 0 && (
+                            <div className="p-3 border-t border-gray-200/50 dark:border-gray-800/50">
+                              <button 
+                                onClick={() => {
+                                  setShowNotifications(false);
+                                  navigate('/notifications');
+                                }}
+                                className="w-full text-center text-sm text-blue-600 dark:text-blue-400 font-medium hover:underline"
+                              >
+                                View all notifications
+                              </button>
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* User Profile */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                      className="flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-1.5 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all group"
+                    >
+                      <ProfileImageWithUpload size="sm" />
+                      <div className="hidden lg:block text-left">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                            {getUserName()}
+                          </p>
+                          {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                          <span className="flex items-center gap-1">
+                            <Shield className="w-3 h-3" />
+                            {getUserRoleDisplay()}
+                          </span>
+                          <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
+                          <span className="flex items-center gap-1">
+                            <MapPin className="w-3 h-3" />
+                            {getUserBranch()}
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronDown className="w-4 h-4 text-gray-400 hidden lg:block" />
+                    </button>
+
+                    <AnimatePresence>
+                      {isDropdownOpen && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                          animate={{ opacity: 1, y: 0, scale: 1 }}
+                          exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                          className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-72 max-w-[400px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/50 dark:border-gray-800/50 overflow-hidden z-50"
+                        >
+                          <div className="px-4 py-3 border-b border-gray-200/50 dark:border-gray-800/50">
+                            <div className="flex items-center gap-3">
+                              <ProfileImageWithUpload size="lg" />
+                              <div>
+                                <p className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1">
+                                  {getUserName()}
+                                  {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                                </p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[150px]">
+                                  {user?.email || userProfile?.email || 'No email'}
+                                </p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-0.5">
+                                  <Shield className="w-3 h-3" />
+                                  {getUserRoleDisplay()} • {getUserBranch()}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="py-1 max-h-[60vh] overflow-y-auto">
+                            {(userRole === 'record_keeper' || userRole === 'admin_asst') && (
+                              <Link
+                                to="/admin-asst/profile"
+                                className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
+                                onClick={() => setIsDropdownOpen(false)}
+                              >
+                                <UserCog className="w-4 h-4" />
+                                My Profile
+                              </Link>
+                            )}
+                            {userRole === 'teacher' && (
+                              <Link
+                                to="/teacher/profile"
+                                className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
+                                onClick={() => setIsDropdownOpen(false)}
+                              >
+                                <UserCircle className="w-4 h-4" />
+                                My Profile
+                              </Link>
+                            )}
+                            {(userRole === 'admin' || userRole === 'director' || userRole === 'finance') && (
+                              <Link
+                                to="/profile"
+                                className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
+                                onClick={() => setIsDropdownOpen(false)}
+                              >
+                                <UserCircle className="w-4 h-4" />
+                                Profile
+                              </Link>
+                            )}
+                            <Link
+                              to="/settings"
+                              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
+                              onClick={() => setIsDropdownOpen(false)}
+                            >
+                              <Settings className="w-4 h-4" />
+                              Settings
+                            </Link>
+                            
+                            {!isPremium && (
+                              <button
+                                onClick={() => {
+                                  setIsDropdownOpen(false);
+                                  setShowPremiumModal(true);
+                                }}
+                                className="flex items-center gap-3 px-4 py-2.5 w-full text-sm text-amber-600 hover:bg-amber-50/80 dark:hover:bg-amber-900/20 transition-all"
+                              >
+                                <Crown className="w-4 h-4" />
+                                Go Premium
+                              </button>
+                            )}
+                            <Link
+                              to="/help"
+                              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
+                              onClick={() => setIsDropdownOpen(false)}
+                            >
+                              <HelpCircle className="w-4 h-4" />
+                              Help & Support
+                            </Link>
+                          </div>
+
+                          <div className="border-t border-gray-200/50 dark:border-gray-800/50 pt-1">
+                            <button
+                              onClick={() => {
+                                setIsDropdownOpen(false);
+                                handleLogout();
+                              }}
+                              className="flex items-center gap-3 px-4 py-2.5 w-full text-sm text-red-600 hover:bg-red-50/80 dark:hover:bg-red-900/20 transition-all"
+                            >
+                              <LogOut className="w-4 h-4" />
+                              Logout
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+              </div>
+
+              {/* Search Bar */}
+              <AnimatePresence>
+                {isSearchOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="border-t border-gray-200/50 dark:border-gray-800/50 px-4 sm:px-6 py-4"
+                  >
+                    <div className="relative max-w-2xl mx-auto">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Search students, teachers, payments, classes..."
+                        className="w-full pl-12 pr-4 py-3 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 border-0 focus:ring-2 focus:ring-blue-500 dark:text-white placeholder-gray-400 text-sm"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => setIsSearchOpen(false)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-all"
+                      >
+                        <X className="w-4 h-4 text-gray-400" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </header>
+
+            {/* Page Content */}
+            <main className="p-3 sm:p-4 md:p-6">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <Outlet />
+              </motion.div>
+            </main>
+          </div>
+        </>
+      )}
+
+      {/* Tutorial Component */}
+      <Tutorial
+        userId={user?.id || ''}
+        role={userRole === 'admin_asst' ? 'record_keeper' : userRole}
+        isOpen={showTutorial}
+        onClose={() => {
+          setShowTutorial(false);
+          setTutorialChecked(true);
+        }}
+      />
+
+      {/* Premium Modal */}
+      <AnimatePresence>
+        {showPremiumModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="bg-white dark:bg-gray-900 rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+            >
+              <div className="relative">
+                <div className="bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500 p-8 text-white rounded-t-3xl">
+                  <button
+                    onClick={() => setShowPremiumModal(false)}
+                    className="absolute top-4 right-4 p-2 hover:bg-white/10 rounded-xl transition-all"
+                  >
+                    <X className="w-6 h-6" />
+                  </button>
+                  <div className="flex items-center gap-3 mb-2">
+                    <Crown className="w-10 h-10" />
+                    <h2 className="text-3xl font-bold">Go Premium</h2>
+                  </div>
+                  <p className="text-white/80 text-lg">Unlock all premium features and enjoy an enhanced experience</p>
+                </div>
+                <div className="p-8">
+                  <div className="mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-amber-500" />
+                      Premium Features
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {premiumFeatures.map((feature, index) => (
+                        <motion.div
+                          key={index}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-xl"
+                        >
+                          <div className="p-2 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg">
+                            <feature.icon className="w-4 h-4 text-white" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">{feature.label}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{feature.description}</p>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+                      <Rocket className="w-5 h-5 text-purple-500" />
+                      Choose Your Plan
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {premiumPlans.map((plan) => {
+                        const isSelected = selectedPlan === plan.id;
+                        const Icon = plan.icon;
+                        return (
+                          <motion.div
+                            key={plan.id}
+                            whileHover={{ y: -4 }}
+                            className={`relative p-6 rounded-2xl border-2 cursor-pointer transition-all ${
+                              isSelected
+                                ? `border-${plan.color.split('-')[1]}-500 bg-gradient-to-br ${plan.color}/10`
+                                : 'border-gray-200 dark:border-gray-700 hover:border-purple-300'
+                            } ${plan.popular ? 'ring-2 ring-purple-500/50' : ''}`}
+                            onClick={() => setSelectedPlan(plan.id as 'monthly' | 'yearly' | 'lifetime')}
+                          >
+                            {plan.popular && (
+                              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-semibold rounded-full">
+                                Most Popular
+                              </div>
+                            )}
+                            <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${plan.color} flex items-center justify-center mb-3`}>
+                              <Icon className="w-6 h-6 text-white" />
+                            </div>
+                            <h4 className="text-lg font-bold text-gray-900 dark:text-white">{plan.name}</h4>
+                            <div className="mt-1">
+                              <span className="text-2xl font-bold text-gray-900 dark:text-white">{plan.price}</span>
+                              <span className="text-sm text-gray-500 dark:text-gray-400"> / {plan.period}</span>
+                            </div>
+                            {plan.savings && (
+                              <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full">
+                                {plan.savings}
+                              </span>
+                            )}
+                            <ul className="mt-4 space-y-2">
+                              {plan.features.map((feature, idx) => (
+                                <li key={idx} className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                                  <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+                                  {feature}
+                                </li>
+                              ))}
+                            </ul>
+                            {isSelected && (
+                              <div className="absolute top-4 right-4">
+                                <CheckCircle className="w-6 h-6 text-green-500" />
+                              </div>
+                            )}
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                      <Lock className="w-4 h-4" />
+                      Secure payment • 30-day money-back guarantee
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => setShowPremiumModal(false)}
+                        className="px-6 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleUpgrade}
+                        disabled={isProcessing}
+                        className="px-8 py-2.5 rounded-xl font-medium text-white transition-all flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:shadow-lg hover:shadow-amber-500/25 hover:scale-105"
+                      >
+                        {isProcessing ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <Crown className="w-5 h-5" />
+                            Upgrade Now
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

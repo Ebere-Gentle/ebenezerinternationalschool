@@ -110,7 +110,7 @@ export const getButtonStyle = (status: string, processing: boolean): string => {
 
 export const schoolInfo = {
   name: 'Ebenezer International School',
-  email: 'info@ebeniza.edu.ng',
+  email: 'info@ebenezer.edu.ng',
   phone: '+234 800 000 0000',
   address: '42 Allen Avenue, Ikeja, Lagos',
   motto: 'Excellence in Education'
