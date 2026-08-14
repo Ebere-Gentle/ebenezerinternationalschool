@@ -433,6 +433,45 @@ serve(async (req: Request) => {
 
     console.log('✅ Student registered successfully!');
 
+    // ============================================
+    // 🎯 CRITICAL FIX: ASSIGN FEES TO STUDENT
+    // ============================================
+    console.log('📝 Assigning fees to student...');
+
+    // Call the fee assignment function
+    const { data: feeAssignResult, error: feeAssignError } = await supabaseAdmin.rpc(
+      'assign_fees_to_student',
+      { p_student_id: authUserId }
+    );
+
+    if (feeAssignError) {
+      console.error('⚠️ Fee assignment warning:', feeAssignError);
+      // Don't fail the registration if fee assignment fails
+      // Log it but continue
+    } else {
+      console.log('✅ Fees assigned successfully:', feeAssignResult);
+    }
+
+    // ============================================
+    // 🎯 ALSO LOG THE ASSIGNMENT FOR DEBUGGING
+    // ============================================
+    // Check what fees were assigned
+    const { data: assignedFees, error: checkError } = await supabaseAdmin
+      .from('student_fee_assignments')
+      .select('id, fee_id, fee_name, term, session, class_id, class_name, amount_due')
+      .eq('student_id', authUserId);
+
+    if (checkError) {
+      console.error('⚠️ Could not fetch assigned fees:', checkError);
+    } else {
+      console.log(`📊 ${assignedFees?.length || 0} fees assigned to student`);
+      if (assignedFees && assignedFees.length > 0) {
+        console.log('📋 Assigned fees:', JSON.stringify(assignedFees, null, 2));
+      } else {
+        console.log('⚠️ No fees were assigned. Check if fees exist for this class and term.');
+      }
+    }
+
     return new Response(
       JSON.stringify({
         success: true,
@@ -447,6 +486,7 @@ serve(async (req: Request) => {
           first_name: first_name || 'Student',
           last_name: last_name || 'User',
           branch: branchCode,
+          fees_assigned: assignedFees?.length || 0,
         },
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

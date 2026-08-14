@@ -41,12 +41,39 @@ import ViewTeacher from '../pages/teachers/viewTeacher';
 import StudentPayBill from '../pages/student/StudentPayBill';
 import StudentProfile from '../pages/student/StudentProfile';
 import StudentPayments from '../pages/student/StudentPayments';
+import StudentClasses from '../pages/student/StudentClasses';
 
 import ParentManagement from '../pages/parents/createParent';
 import ParentPayBill from '../pages/parent/ParentPayBill';
 import MyChildren from '../pages/parent/MyChildren';
 import ParentPaymentHistory from '../pages/parent/ParentPaymentHistory';
 import { ParentProfile } from '../pages/parent';
+
+// COMMUNICATION & NOTICES
+import AnnouncementsPage from '../pages/communication/AnnouncementsPage';
+import MessagesPage from '../pages/communication/MessagesPage';
+import NoticesPage from '../pages/communication/NoticesPage';
+import NotificationsCenter from '../pages/notifications/NotificationsCenter';
+
+// PAYMENT VERIFICATION
+import ReceiptVerification from '../pages/payments/ReceiptVerification';
+
+// HR & ACADEMIC
+import StaffManagement from '../pages/hr/StaffManagement';
+import AttendanceManagement from '../pages/academic/AttendanceManagement';
+import LeaveRequests from '../pages/hr/LeaveRequests';
+import TimetablePage from '../pages/academic/TimetablePage';
+
+// SCHOOL ADMIN MODULES
+import { HousesPage, TransportPage, LibraryPage } from '../pages/schoolAdmin/SchoolAdminModules';
+
+// TEACHER MODULES
+import {
+  TeacherClasses,
+  TeacherStudents,
+  TeacherAssignments,
+  TeacherGrades
+} from '../pages/teacher/TeacherModules';
 
 // STUDENT PROMOTION
 import StudentPromotion from '../pages/reports/StudentPromotion';
@@ -84,6 +111,7 @@ const AppRoutes: React.FC = () => {
         <Route path="profile" element={<StudentProfile />} />
         <Route path="payments" element={<StudentPayments />} />
         <Route path="paybill" element={<StudentPayBill />} />
+        <Route path="classes" element={<StudentClasses />} />
         <Route
           path="*"
           element={<Navigate to="/student/dashboard" replace />}
@@ -104,6 +132,12 @@ const AppRoutes: React.FC = () => {
       >
         <Route path="dashboard" element={<TeacherDashboard />} />
         <Route index element={<Navigate to="/teacher/dashboard" replace />} />
+        <Route path="classes" element={<TeacherClasses />} />
+        <Route path="students" element={<TeacherStudents />} />
+        <Route path="attendance" element={<AttendanceManagement />} />
+        <Route path="assignments" element={<TeacherAssignments />} />
+        <Route path="grades" element={<TeacherGrades />} />
+        <Route path="timetable" element={<TimetablePage />} />
         <Route
           path="*"
           element={<Navigate to="/teacher/dashboard" replace />}
@@ -174,7 +208,7 @@ const AppRoutes: React.FC = () => {
       </Route>
 
       {/* ============================================ */}
-      {/* ✅ FIXED: STANDALONE SCHOOL BACKUP ROUTE */}
+      {/* STANDALONE SCHOOL BACKUP ROUTE */}
       {/* ============================================ */}
       
       <Route
@@ -242,7 +276,7 @@ const AppRoutes: React.FC = () => {
       </Route>
 
       {/* ============================================ */}
-      {/* SHARED ROUTES */}
+      {/* SHARED GENERAL & EXTENDED ROUTES */}
       {/* ============================================ */}
 
       <Route
@@ -265,12 +299,16 @@ const AppRoutes: React.FC = () => {
         <Route path="teachers/:id" element={<ViewTeacher />} />
         <Route path="teachers/edit/:id" element={<AddTeacher />} />
 
-        {/* Subjects */}
+        {/* Subjects & Timetable */}
         <Route path="subjects" element={<SubjectsManagement />} />
+        <Route path="timetable" element={<TimetablePage />} />
 
-        {/* Payments */}
+        {/* Payments & Receipt Verification */}
         <Route path="payments" element={<PaymentsList />} />
         <Route path="payments/record" element={<RecordPayment />} />
+        <Route path="receipt-verification" element={<ReceiptVerification />} />
+        <Route path="verify-receipt" element={<ReceiptVerification />} />
+        <Route path="payments/verify" element={<ReceiptVerification />} />
 
         {/* Fees */}
         <Route path="fees" element={<FeesList />} />
@@ -287,13 +325,28 @@ const AppRoutes: React.FC = () => {
         {/* Branches */}
         <Route path="branches" element={<BranchesList />} />
 
+        {/* HR & Operations */}
+        <Route path="staff" element={<StaffManagement />} />
+        <Route path="attendance" element={<AttendanceManagement />} />
+        <Route path="leave-requests" element={<LeaveRequests />} />
+
+        {/* School Admin / Operations */}
+        <Route path="houses" element={<HousesPage />} />
+        <Route path="transport" element={<TransportPage />} />
+        <Route path="library" element={<LibraryPage />} />
+
+        {/* Communication & Broadcast */}
+        <Route path="announcements" element={<AnnouncementsPage />} />
+        <Route path="messages" element={<MessagesPage />} />
+        <Route path="communications" element={<MessagesPage />} />
+        <Route path="notices" element={<NoticesPage />} />
+        <Route path="notifications" element={<NotificationsCenter />} />
+
         {/* Reports */}
         <Route path="reports" element={<ReportsDashboard />} />
 
-        {/* Settings */}
+        {/* Settings & Profile */}
         <Route path="settings" element={<Settings />} />
-
-        {/* Profile */}
         <Route path="profile" element={<Profile />} />
 
         {/* Dashboard */}

@@ -1,3 +1,5 @@
+// src/components/layout/MainLayout.tsx — Complete with Premium for Admin Only
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -57,12 +59,12 @@ import {
   History,
   ChevronUp,
   MoreHorizontal,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../contexts/ThemeContext';
 import { supabase } from '../../config/supabase/client';
 import toast from 'react-hot-toast';
-import Tutorial from '../../components/tutorial/Tutorial';
 
 // Import school logo from assets
 import schoolLogo from '../../assets/school-logo.png';
@@ -94,44 +96,46 @@ interface Notification {
   id: string;
   title: string;
   message: string;
-  type: 'payment' | 'assignment' | 'fee' | 'system' | 'message' | 'alert';
+  type: 'payment' | 'assignment' | 'fee' | 'system' | 'message' | 'alert' | 'announcement';
   is_read: boolean;
   created_at: string;
   data?: any;
 }
 
-// COMPLETE NAVIGATION CONFIGURATION - PRESERVING EVERY ITEM
+// COMPLETE NAVIGATION CONFIGURATION
 const navigation: NavigationItem[] = [
   // Admin Assistant (Record Keeper) Routes
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/admin-asst/dashboard', roles: ['record_keeper'], tutorialTarget: 'dashboard' },
-  { label: 'Students', icon: Users, path: '/admin-asst/students', roles: ['record_keeper'], tutorialTarget: 'students' },
-  { label: 'Classes', icon: GraduationCap, path: '/admin-asst/classes', roles: ['record_keeper'], tutorialTarget: 'classes' },
-  { label: 'Sessions', icon: Calendar, path: '/admin-asst/sessions', roles: ['record_keeper'], tutorialTarget: 'sessions' },
-  { label: 'Collections', icon: HandHelping, path: '/admin-asst/collections', roles: ['record_keeper'], tutorialTarget: 'collections' },
-  { label: 'Inventory', icon: Box, path: '/admin-asst/inventory', roles: ['record_keeper'], tutorialTarget: 'inventory' },
-  { label: 'Reports', icon: BarChart3, path: '/admin-asst/reports', roles: ['record_keeper'], tutorialTarget: 'reports' },
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/admin-asst/dashboard', roles: ['record_keeper'] },
+  { label: 'Students', icon: Users, path: '/admin-asst/students', roles: ['record_keeper'] },
+  { label: 'Classes', icon: GraduationCap, path: '/admin-asst/classes', roles: ['record_keeper'] },
+  { label: 'Sessions', icon: Calendar, path: '/admin-asst/sessions', roles: ['record_keeper'] },
+  { label: 'Collections', icon: HandHelping, path: '/admin-asst/collections', roles: ['record_keeper'] },
+  { label: 'Inventory', icon: Box, path: '/admin-asst/inventory', roles: ['record_keeper'] },
+  { label: 'Reports', icon: BarChart3, path: '/admin-asst/reports', roles: ['record_keeper'] },
   { label: 'Activity Log', icon: History, path: '/admin-asst/activity', roles: ['record_keeper'] },
   { label: 'Payment', icon: CreditCard, path: '/admin-asst/payment', roles: ['record_keeper', 'admin_asst'] },
+  { label: 'Receipt Verification', icon: ShieldCheck, path: '/admin-asst/verify-receipt', roles: ['record_keeper', 'admin_asst'] },
 
   // Admin Routes
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'super_admin', 'director', 'finance'], tutorialTarget: 'dashboard' },
-  { label: 'Academic', icon: BookOpen, path: '#', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'academic',
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'super_admin', 'director', 'finance'] },
+  { label: 'Academic', icon: BookOpen, path: '#', roles: ['admin', 'super_admin', 'director'],
     children: [
-      { label: 'Students', icon: Users, path: '/students', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'students' },
-      { label: 'Teachers', icon: GraduationCap, path: '/teachers', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'teachers' },
-      { label: 'Classes', icon: BookOpen, path: '/classes', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'classes' },
+      { label: 'Students', icon: Users, path: '/students', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Teachers', icon: GraduationCap, path: '/teachers', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Classes', icon: BookOpen, path: '/classes', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Subjects', icon: FileText, path: '/subjects', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Timetable', icon: Calendar, path: '/timetable', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
-  { label: 'Finance', icon: CreditCard, path: '#', roles: ['admin', 'super_admin', 'director', 'finance'], tutorialTarget: 'finance',
+  { label: 'Finance', icon: CreditCard, path: '#', roles: ['admin', 'super_admin', 'director', 'finance'],
     children: [
-      { label: 'Payments', icon: CreditCard, path: '/payments', roles: ['admin', 'super_admin', 'director', 'finance'], tutorialTarget: 'payments' },
-      { label: 'Invoice', icon: Coins, path: '/fees', roles: ['admin', 'super_admin', 'director', 'finance'], tutorialTarget: 'fees' },
-      { label: 'Reports', icon: BarChart3, path: '/reports', roles: ['admin', 'super_admin', 'director', 'finance'], tutorialTarget: 'reports' },
+      { label: 'Payments', icon: CreditCard, path: '/payments', roles: ['admin', 'super_admin', 'director', 'finance'] },
+      { label: 'Invoice', icon: Coins, path: '/fees', roles: ['admin', 'super_admin', 'director', 'finance'] },
+      { label: 'Reports', icon: BarChart3, path: '/reports', roles: ['admin', 'super_admin', 'director', 'finance'] },
+      { label: 'Receipt Verification', icon: ShieldCheck, path: '/verify-receipt', roles: ['admin', 'super_admin', 'director', 'finance'] },
     ]
   },
-  { label: 'Human Resources', icon: Users2, path: '#', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'hr',
+  { label: 'Human Resources', icon: Users2, path: '#', roles: ['admin', 'super_admin', 'director'],
     children: [
       { label: 'Staff', icon: Briefcase, path: '/staff', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Parents', icon: Users2, path: '/parents/create', roles: ['admin', 'super_admin', 'director'] },
@@ -139,9 +143,9 @@ const navigation: NavigationItem[] = [
       { label: 'Leave Requests', icon: ClipboardCheck, path: '/leave-requests', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
-  { label: 'School Admin', icon: Building2, path: '#', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'school-admin',
+  { label: 'School Admin', icon: Building2, path: '#', roles: ['admin', 'super_admin', 'director'],
     children: [
-      { label: 'Branches', icon: Building2, path: '/branches', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'branches' },
+      { label: 'Branches', icon: Building2, path: '/branches', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Houses', icon: Home, path: '/houses', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Transport', icon: Bus, path: '/transport', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Library', icon: BookOpen, path: '/library', roles: ['admin', 'super_admin', 'director'] },
@@ -149,59 +153,68 @@ const navigation: NavigationItem[] = [
       { label: 'Backup', icon: Download, path: '/school-backup', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
-  { label: 'Communication', icon: MessageSquare, path: '#', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'communication',
+  { label: 'Communication', icon: MessageSquare, path: '#', roles: ['admin', 'super_admin', 'director'],
     children: [
-      { label: 'Announcements', icon: Megaphone, path: '/announcements', roles: ['admin', 'super_admin', 'director'], tutorialTarget: 'announcements' },
+      { label: 'Announcements', icon: Megaphone, path: '/announcements', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Messages', icon: MessageSquare, path: '/messages', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Notices', icon: FileText, path: '/notices', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
   
   // Teacher Routes
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/teacher/dashboard', roles: ['teacher'], tutorialTarget: 'dashboard' },
-  { label: 'My Classes', icon: GraduationCap, path: '/teacher/classes', roles: ['teacher'], tutorialTarget: 'my-classes' },
-  { label: 'Students', icon: Users, path: '/teacher/students', roles: ['teacher'], tutorialTarget: 'students' },
-  { label: 'Attendance', icon: Clock, path: '/teacher/attendance', roles: ['teacher'], tutorialTarget: 'attendance' },
-  { label: 'Assignments', icon: FileText, path: '/teacher/assignments', roles: ['teacher'], tutorialTarget: 'assignments' },
-  { label: 'Grades', icon: TrendingUp, path: '/teacher/grades', roles: ['teacher'], tutorialTarget: 'grades' },
-  { label: 'Timetable', icon: Calendar, path: '/teacher/timetable', roles: ['teacher'], tutorialTarget: 'timetable' },
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/teacher/dashboard', roles: ['teacher'] },
+  { label: 'My Classes', icon: GraduationCap, path: '/teacher/classes', roles: ['teacher'] },
+  { label: 'Students', icon: Users, path: '/teacher/students', roles: ['teacher'] },
+  { label: 'Attendance', icon: Clock, path: '/teacher/attendance', roles: ['teacher'] },
+  { label: 'Assignments', icon: FileText, path: '/teacher/assignments', roles: ['teacher'] },
+  { label: 'Grades', icon: TrendingUp, path: '/teacher/grades', roles: ['teacher'] },
+  { label: 'Timetable', icon: Calendar, path: '/teacher/timetable', roles: ['teacher'] },
   
   // Parent Routes
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/parent/dashboard', roles: ['parent'], tutorialTarget: 'dashboard' },
-  { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'], tutorialTarget: 'children' },
-  { label: 'Pay Bill', icon: Wallet, path: '/parent/pay-bill', roles: ['parent'], tutorialTarget: 'pay-bill', badge: 'New' },
-  { label: 'My Profile', icon: User, path: '/parent/profile', roles: ['parent'], tutorialTarget: 'profile' },
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/parent/dashboard', roles: ['parent'] },
+  { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'] },
+  { label: 'Pay Bill', icon: Wallet, path: '/parent/pay-bill', roles: ['parent'], badge: 'New' },
+  { label: 'My Profile', icon: User, path: '/parent/profile', roles: ['parent'] },
   
   // Student Routes
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/student/dashboard', roles: ['student'], tutorialTarget: 'dashboard' },
-  { label: 'My Profile', icon: User, path: '/student/profile', roles: ['student'], tutorialTarget: 'profile' },
-  { label: 'Pay Bill', icon: Wallet, path: '/student/paybill', roles: ['student'], tutorialTarget: 'pay-bill', badge: 'New' },
-  { label: 'Payment History', icon: Receipt, path: '/student/payments', roles: ['student'], tutorialTarget: 'payments' },
-  { label: 'My Classes', icon: BookOpen, path: '/student/classes', roles: ['student'], tutorialTarget: 'classes' },
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/student/dashboard', roles: ['student'] },
+  { label: 'My Profile', icon: User, path: '/student/profile', roles: ['student'] },
+  { label: 'Pay Bill', icon: Wallet, path: '/student/paybill', roles: ['student'], badge: 'New' },
+  { label: 'Payment History', icon: Receipt, path: '/student/payments', roles: ['student'] },
+  { label: 'My Classes', icon: BookOpen, path: '/student/classes', roles: ['student'] },
   
   // Settings - Available to all roles
-  { label: 'Settings', icon: Settings, path: '/settings', roles: ['admin', 'super_admin', 'director', 'finance', 'teacher', 'parent', 'student', 'record_keeper'], tutorialTarget: 'settings' },
+  { label: 'Settings', icon: Settings, path: '/settings', roles: ['admin', 'super_admin', 'director', 'finance', 'teacher', 'parent', 'student', 'record_keeper'] },
 ];
 
-// Student and Parent dock navigation items (shown on mobile)
+// Student, Parent, Admin Assistant dock navigation items (shown on mobile)
 const getDockNavigation = (role: string): NavigationItem[] => {
   if (role === 'student') {
     return [
-      { label: 'Dashboard', icon: LayoutDashboard, path: '/student/dashboard', roles: ['student'], tutorialTarget: 'dashboard' },
-      { label: 'My Profile', icon: User, path: '/student/profile', roles: ['student'], tutorialTarget: 'profile' },
-      { label: 'Pay Bill', icon: Wallet, path: '/student/paybill', roles: ['student'], tutorialTarget: 'pay-bill', badge: 'New' },
-      { label: 'Payment History', icon: Receipt, path: '/student/payments', roles: ['student'], tutorialTarget: 'payments' },
-      { label: 'My Classes', icon: BookOpen, path: '/student/classes', roles: ['student'], tutorialTarget: 'classes' },
-      { label: 'Settings', icon: Settings, path: '/settings', roles: ['student'], tutorialTarget: 'settings' },
+      { label: 'Dashboard', icon: LayoutDashboard, path: '/student/dashboard', roles: ['student'] },
+      { label: 'My Profile', icon: User, path: '/student/profile', roles: ['student'] },
+      { label: 'Pay Bill', icon: Wallet, path: '/student/paybill', roles: ['student'], badge: 'New' },
+      { label: 'Payment History', icon: Receipt, path: '/student/payments', roles: ['student'] },
+      { label: 'My Classes', icon: BookOpen, path: '/student/classes', roles: ['student'] },
+      { label: 'Settings', icon: Settings, path: '/settings', roles: ['student'] },
     ];
   }
   if (role === 'parent') {
     return [
-      { label: 'Dashboard', icon: LayoutDashboard, path: '/parent/dashboard', roles: ['parent'], tutorialTarget: 'dashboard' },
-      { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'], tutorialTarget: 'children' },
-      { label: 'Pay Bill', icon: Wallet, path: '/parent/pay-bill', roles: ['parent'], tutorialTarget: 'pay-bill', badge: 'New' },
-      { label: 'My Profile', icon: User, path: '/parent/profile', roles: ['parent'], tutorialTarget: 'profile' },
-      { label: 'Settings', icon: Settings, path: '/settings', roles: ['parent'], tutorialTarget: 'settings' },
+      { label: 'Dashboard', icon: LayoutDashboard, path: '/parent/dashboard', roles: ['parent'] },
+      { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'] },
+      { label: 'Pay Bill', icon: Wallet, path: '/parent/pay-bill', roles: ['parent'], badge: 'New' },
+      { label: 'My Profile', icon: User, path: '/parent/profile', roles: ['parent'] },
+      { label: 'Settings', icon: Settings, path: '/settings', roles: ['parent'] },
+    ];
+  }
+  if (role === 'record_keeper' || role === 'admin_asst') {
+    return [
+      { label: 'Dashboard', icon: LayoutDashboard, path: '/admin-asst/dashboard', roles: ['record_keeper'] },
+      { label: 'Students', icon: Users, path: '/admin-asst/students', roles: ['record_keeper'] },
+      { label: 'Payment', icon: CreditCard, path: '/admin-asst/payment', roles: ['record_keeper'] },
+      { label: 'Receipt Verification', icon: ShieldCheck, path: '/admin-asst/verify-receipt', roles: ['record_keeper', 'admin_asst'] },
+      { label: 'Settings', icon: Settings, path: '/settings', roles: ['record_keeper'] },
     ];
   }
   return [];
@@ -228,13 +241,6 @@ const MainLayout = () => {
   const [isStudent, setIsStudent] = useState(false);
   const [canUploadProfile, setCanUploadProfile] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [showAllNavItems, setShowAllNavItems] = useState(false);
-  const [activePopover, setActivePopover] = useState<string | null>(null);
-  const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number } | null>(null);
-  
-  // Tutorial states
-  const [showTutorial, setShowTutorial] = useState(false);
-  const [tutorialChecked, setTutorialChecked] = useState(false);
   
   const { user, logout } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
@@ -243,12 +249,20 @@ const MainLayout = () => {
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
-  // Check if user is student or parent for dock layout
+  // Check if user role for dock layout
   const userRole = user?.role || 'student';
   const isStudentOrParent = userRole === 'student' || userRole === 'parent';
+  const isAdminAsst = userRole === 'record_keeper' || userRole === 'admin_asst';
+  const isAdminRole = ['admin', 'super_admin', 'director', 'finance'].includes(userRole);
   
-  // Get dock navigation items for student/parent (mobile only)
+  // Check if user should have dock (mobile only)
+  const shouldShowDock = isMobile && (isStudentOrParent || isAdminAsst);
+  
+  // Get dock navigation items
   const dockNavItems = getDockNavigation(userRole);
+
+  // Check if premium should be available (Admin only)
+  const showPremium = isAdminRole;
 
   // Check if mobile
   useEffect(() => {
@@ -256,7 +270,6 @@ const MainLayout = () => {
       const mobile = window.innerWidth < 768;
       setIsMobile(mobile);
       if (mobile) {
-        // Close sidebar on mobile
         setSidebarOpen(false);
       }
     };
@@ -272,78 +285,48 @@ const MainLayout = () => {
     }
   }, [location.pathname, isMobile]);
 
-  // Close popover when route changes
-  useEffect(() => {
-    setActivePopover(null);
-    setPopoverPosition(null);
-  }, [location.pathname]);
-
-  // Check tutorial status
-  useEffect(() => {
-    const checkTutorialStatus = async () => {
-      if (!user?.id || tutorialChecked) return;
-      
-      try {
-        // Get normalized role for tutorial
-        const tutorialRole = userRole === 'admin_asst' ? 'record_keeper' : userRole;
-        
-        const { data, error } = await supabase
-          .from('user_tutorial_progress')
-          .select('completed, skipped')
-          .eq('user_id', user.id)
-          .eq('role', tutorialRole)
-          .single();
-        
-        // Show tutorial if no record or not completed/skipped
-        if (error || !data) {
-          setShowTutorial(true);
-        } else if (!data.completed && !data.skipped) {
-          setShowTutorial(true);
-        }
-      } catch (error) {
-        console.error('Error checking tutorial status:', error);
-        // Show tutorial by default on error
-        setShowTutorial(true);
-      } finally {
-        setTutorialChecked(true);
-      }
-    };
-    
-    if (user?.id) {
-      checkTutorialStatus();
-    }
-  }, [user?.id, userRole, tutorialChecked]);
-
-  // Reset tutorial check when user changes
-  useEffect(() => {
-    if (user?.id) {
-      setTutorialChecked(false);
-    }
-  }, [user?.id]);
-
   // Fetch user profile data
   useEffect(() => {
     if (user?.id) {
       fetchUserProfile(user.id);
-      fetchNotifications();
+      fetchAnnouncements();
       
+      // Subscribe to new announcements
       const subscription = supabase
-        .channel('notifications_channel')
+        .channel('announcements_channel')
         .on(
           'postgres_changes',
           {
             event: 'INSERT',
             schema: 'public',
-            table: 'notifications',
-            filter: `user_id=eq.${user.id}`
+            table: 'announcements',
           },
           (payload) => {
-            const newNotification = payload.new as Notification;
-            setNotifications(prev => [newNotification, ...prev]);
-            toast(newNotification.title, {
-              duration: 4000,
-              position: 'top-right',
-            });
+            const newAnnouncement = payload.new;
+            const userRole = user?.role || 'student';
+            const targetRoles = newAnnouncement.target_roles || [];
+            
+            if (targetRoles.length === 0 || targetRoles.includes(userRole)) {
+              const notification: Notification = {
+                id: newAnnouncement.id,
+                title: newAnnouncement.title,
+                message: newAnnouncement.content?.length > 120 ? newAnnouncement.content.substring(0, 120) + '...' : newAnnouncement.content,
+                type: newAnnouncement.priority === 'urgent' ? 'alert' : 'announcement',
+                is_read: false,
+                created_at: newAnnouncement.created_at,
+                data: {
+                  path: '/announcements',
+                  announcement_id: newAnnouncement.announcement_id,
+                  priority: newAnnouncement.priority,
+                }
+              };
+              
+              setNotifications(prev => [notification, ...prev]);
+              toast(newAnnouncement.title, {
+                duration: 4000,
+                position: 'top-right',
+              });
+            }
           }
         )
         .subscribe();
@@ -566,60 +549,71 @@ const MainLayout = () => {
     }
   };
 
-  const fetchNotifications = async () => {
+  // FETCH ANNOUNCEMENTS FROM ANNOUNCEMENTS TABLE
+  const fetchAnnouncements = async () => {
     if (!user?.id) return;
     setLoadingNotifications(true);
     try {
-      const { data, error } = await supabase
-        .from('notifications')
+      const userRole = user?.role || 'student';
+      const userBranchId = userProfile?.branch_id || null;
+
+      let query = supabase
+        .from('announcements')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('is_published', true)
         .order('created_at', { ascending: false })
         .limit(20);
 
+      if (userBranchId) {
+        query = query.or(`branch_id.eq.${userBranchId},branch_id.is.null`);
+      }
+
+      const { data, error } = await query;
+
       if (error) throw error;
-      setNotifications(data || []);
+
+      if (data && data.length > 0) {
+        const filteredData = data.filter(ann => {
+          if (!ann.target_roles || ann.target_roles.length === 0) return true;
+          return ann.target_roles.includes(userRole);
+        });
+
+        const notifications = filteredData.map(ann => ({
+          id: ann.id,
+          title: ann.title,
+          message: ann.content?.length > 120 ? ann.content.substring(0, 120) + '...' : ann.content,
+          type: ann.priority === 'urgent' ? 'alert' : ann.category?.toLowerCase() || 'announcement',
+          is_read: false,
+          created_at: ann.created_at,
+          data: {
+            path: '/announcements',
+            announcement_id: ann.announcement_id,
+            priority: ann.priority,
+            category: ann.category,
+          }
+        }));
+
+        setNotifications(notifications);
+      } else {
+        setNotifications([]);
+      }
     } catch (error) {
-      console.error('Error fetching notifications:', error);
+      console.error('Error fetching announcements:', error);
+      setNotifications([]);
     } finally {
       setLoadingNotifications(false);
     }
   };
 
   const markAllRead = async () => {
-    if (!user?.id) return;
-    try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('user_id', user.id)
-        .eq('is_read', false);
-
-      if (error) throw error;
-      
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
-      toast.success('All notifications marked as read');
-    } catch (error) {
-      console.error('Error marking notifications as read:', error);
-      toast.error('Failed to mark notifications as read');
-    }
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+    toast.success('All announcements marked as read');
   };
 
   const markNotificationRead = async (notificationId: string) => {
-    try {
-      const { error } = await supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('id', notificationId);
-
-      if (error) throw error;
-      
-      setNotifications(prev => 
-        prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
-      );
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-    }
+    setNotifications(prev => 
+      prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
+    );
   };
 
   const handleNotificationClick = (notification: Notification) => {
@@ -627,12 +621,8 @@ const MainLayout = () => {
     
     if (notification.data?.path) {
       navigate(notification.data.path);
-    } else if (notification.type === 'payment') {
-      navigate('/payments');
-    } else if (notification.type === 'assignment') {
-      navigate('/assignments');
-    } else if (notification.type === 'fee') {
-      navigate('/fees');
+    } else {
+      navigate('/announcements');
     }
     
     setShowNotifications(false);
@@ -677,7 +667,7 @@ const MainLayout = () => {
 
       const bucketName = 'student-photos';
 
-      const { data, error } = await supabase.storage
+      const { error } = await supabase.storage
         .from(bucketName)
         .upload(filePath, file, {
           cacheControl: '3600',
@@ -890,13 +880,6 @@ const MainLayout = () => {
     return location.pathname === path || location.pathname.startsWith(path + '/');
   };
 
-  const isParentActive = (item: NavigationItem) => {
-    if (item.children) {
-      return item.children.some(child => isActive(child.path));
-    }
-    return isActive(item.path);
-  };
-
   const handleLogout = async () => {
     try {
       await logout();
@@ -966,6 +949,7 @@ const MainLayout = () => {
       case 'fee': return <Coins className="w-4 h-4 text-amber-500" />;
       case 'message': return <MessageSquare className="w-4 h-4 text-purple-500" />;
       case 'alert': return <AlertCircle className="w-4 h-4 text-red-500" />;
+      case 'announcement': return <Megaphone className="w-4 h-4 text-indigo-500" />;
       default: return <Bell className="w-4 h-4 text-gray-500" />;
     }
   };
@@ -977,6 +961,7 @@ const MainLayout = () => {
       case 'fee': return 'bg-amber-50 dark:bg-amber-900/20';
       case 'message': return 'bg-purple-50 dark:bg-purple-900/20';
       case 'alert': return 'bg-red-50 dark:bg-red-900/20';
+      case 'announcement': return 'bg-indigo-50 dark:bg-indigo-900/20';
       default: return 'bg-gray-50 dark:bg-gray-800/50';
     }
   };
@@ -1009,7 +994,7 @@ const MainLayout = () => {
 
     if (!imageUrl || imgError) {
       return (
-        <div className={`${className} flex items-center justify-center text-white font-semibold ${isPremium ? 'bg-gradient-to-br from-amber-500 to-orange-500' : 'bg-gradient-to-br from-blue-600 to-purple-600'}`}>
+        <div className={`${className} flex items-center justify-center text-white font-semibold ${isPremium && showPremium ? 'bg-gradient-to-br from-amber-500 to-orange-500' : 'bg-gradient-to-br from-blue-600 to-purple-600'}`}>
           {getInitials()}
         </div>
       );
@@ -1078,7 +1063,7 @@ const MainLayout = () => {
           </div>
         )}
         
-        {isPremium && (
+        {isPremium && showPremium && (
           <div className="absolute -top-1 -right-1">
             <Crown className="w-3 h-3 text-amber-500 fill-amber-500" />
           </div>
@@ -1118,15 +1103,15 @@ const MainLayout = () => {
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-500/5 dark:bg-blue-500/10 rounded-full blur-3xl" />
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-purple-500/5 dark:bg-purple-500/10 rounded-full blur-3xl" />
-        {isPremium && (
+        {isPremium && showPremium && (
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-amber-500/5 dark:bg-amber-500/10 rounded-full blur-3xl animate-pulse" />
         )}
       </div>
 
-      {/* For Student/Parent - Show sidebar on large screens, dock on mobile */}
-      {isStudentOrParent ? (
+      {/* Student/Parent/Admin Assistant Layout with Dock for mobile and Hamburger for larger */}
+      {(isStudentOrParent || isAdminAsst) ? (
         <>
-          {/* Desktop Sidebar - Shown on large screens (not mobile) */}
+          {/* Desktop Sidebar - Shown on larger screens (not mobile) */}
           {!isMobile && (
             <motion.aside
               initial="closed"
@@ -1142,18 +1127,14 @@ const MainLayout = () => {
                       <img 
                         src={schoolLogo} 
                         alt="School Logo" 
-                        className={`w-10 h-10 rounded-xl object-cover ${isPremium ? 'ring-2 ring-amber-500/50' : ''}`}
+                        className={`w-10 h-10 rounded-xl object-cover ${isPremium && showPremium ? 'ring-2 ring-amber-500/50' : ''}`}
                       />
                     ) : (
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
-                        {isPremium ? (
-                          <Crown className="w-5 h-5 text-white" />
-                        ) : (
-                          <School className="w-5 h-5 text-white" />
-                        )}
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium && showPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
+                        {isPremium && showPremium ? <Crown className="w-5 h-5 text-white" /> : <School className="w-5 h-5 text-white" />}
                       </div>
                     )}
-                    {isPremium && (
+                    {isPremium && showPremium && (
                       <div className="absolute -top-1 -right-1">
                         <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-[8px] font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-full">
                           <Star className="w-2 h-2" />
@@ -1169,11 +1150,11 @@ const MainLayout = () => {
                       transition={{ duration: 0.3 }}
                       className="flex-1 min-w-0"
                     >
-                      <span className={`text-lg font-bold ${isPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
+                      <span className={`text-lg font-bold ${isPremium && showPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
                         Ebenezer School
                       </span>
                       <span className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 tracking-wider uppercase">
-                        {isPremium ? '✨ Premium' : 'School Management'}
+                        {isPremium && showPremium ? '✨ Premium' : 'School Management'}
                       </span>
                     </motion.div>
                   )}
@@ -1186,7 +1167,7 @@ const MainLayout = () => {
                 </button>
               </div>
 
-              {/* Navigation - Student/Parent Sidebar Items */}
+              {/* Navigation */}
               <nav className="px-2 py-4 space-y-1 overflow-y-auto flex-1">
                 {filteredNavigation.map((item, index) => {
                   const active = isActive(item.path);
@@ -1201,7 +1182,6 @@ const MainLayout = () => {
                     >
                       <Link
                         to={item.path}
-                        data-tutorial={item.tutorialTarget}
                         className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
                           active
                             ? isPayBill
@@ -1237,15 +1217,15 @@ const MainLayout = () => {
                 })}
               </nav>
 
-              {/* User Section - Fixed at bottom */}
+              {/* User Section */}
               <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl flex-shrink-0">
                 {sidebarOpen ? (
-                  <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
+                  <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium && showPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
                     <ProfileImageWithUpload size="sm" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1">
                         {getUserName()}
-                        {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                        {isPremium && showPremium && <Crown className="w-3 h-3 text-amber-500" />}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 capitalize flex items-center gap-1">
                         <Shield className="w-3 h-3" />
@@ -1302,18 +1282,14 @@ const MainLayout = () => {
                         <img 
                           src={schoolLogo} 
                           alt="School Logo" 
-                          className={`w-10 h-10 rounded-xl object-cover ${isPremium ? 'ring-2 ring-amber-500/50' : ''}`}
+                          className={`w-10 h-10 rounded-xl object-cover ${isPremium && showPremium ? 'ring-2 ring-amber-500/50' : ''}`}
                         />
                       ) : (
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
-                          {isPremium ? (
-                            <Crown className="w-5 h-5 text-white" />
-                          ) : (
-                            <School className="w-5 h-5 text-white" />
-                          )}
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium && showPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
+                          {isPremium && showPremium ? <Crown className="w-5 h-5 text-white" /> : <School className="w-5 h-5 text-white" />}
                         </div>
                       )}
-                      {isPremium && (
+                      {isPremium && showPremium && (
                         <div className="absolute -top-1 -right-1">
                           <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-[8px] font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-full">
                             <Star className="w-2 h-2" />
@@ -1323,11 +1299,8 @@ const MainLayout = () => {
                       )}
                     </div>
                     <div>
-                      <span className={`text-lg font-bold ${isPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
+                      <span className={`text-lg font-bold ${isPremium && showPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
                         Ebenezer School
-                      </span>
-                      <span className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 tracking-wider uppercase">
-                        {isPremium ? '✨ Premium' : 'School Management'}
                       </span>
                     </div>
                   </div>
@@ -1340,55 +1313,48 @@ const MainLayout = () => {
                 </div>
 
                 <nav className="px-3 py-4 space-y-1 overflow-y-auto flex-1">
-                  {filteredNavigation.map((item, index) => {
+                  {filteredNavigation.map((item) => {
                     const active = isActive(item.path);
                     const isPayBill = item.label === 'Pay Bill';
                     
                     return (
-                      <motion.div
+                      <Link
                         key={item.path}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.05 }}
+                        to={item.path}
+                        onClick={() => setSidebarOpen(false)}
+                        className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
+                          active
+                            ? isPayBill
+                              ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
+                              : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
+                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
+                        }`}
                       >
-                        <Link
-                          to={item.path}
-                          data-tutorial={item.tutorialTarget}
-                          onClick={() => setSidebarOpen(false)}
-                          className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
-                            active
-                              ? isPayBill
-                                ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
-                                : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
-                              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                          }`}
-                        >
-                          <item.icon className="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" />
-                          <span className="text-sm font-medium">{item.label}</span>
-                          {item.badge && !active && (
-                            <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
-                              {item.badge}
-                            </span>
-                          )}
-                          {active && (
-                            <motion.div
-                              layoutId="activeIndicatorMobile"
-                              className="ml-auto w-1 h-6 bg-white/50 rounded-full"
-                            />
-                          )}
-                        </Link>
-                      </motion.div>
+                        <item.icon className="w-5 h-5 flex-shrink-0" />
+                        <span className="text-sm font-medium">{item.label}</span>
+                        {item.badge && !active && (
+                          <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
+                            {item.badge}
+                          </span>
+                        )}
+                        {active && (
+                          <motion.div
+                            layoutId="activeIndicatorMobile"
+                            className="ml-auto w-1 h-6 bg-white/50 rounded-full"
+                          />
+                        )}
+                      </Link>
                     );
                   })}
                 </nav>
 
                 <div className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 flex-shrink-0">
-                  <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
+                  <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium && showPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
                     <ProfileImageWithUpload size="sm" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1">
                         {getUserName()}
-                        {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                        {isPremium && showPremium && <Crown className="w-3 h-3 text-amber-500" />}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 capitalize flex items-center gap-1">
                         <Shield className="w-3 h-3" />
@@ -1409,12 +1375,21 @@ const MainLayout = () => {
 
           {/* Main Content */}
           <div className={`transition-all duration-300 ${!isMobile && sidebarOpen ? 'ml-[280px]' : !isMobile ? 'ml-[72px]' : 'ml-0'}`}>
-            <div className={`${isMobile ? 'pb-20' : ''}`}>
+            <div className={`${shouldShowDock ? 'pb-20' : ''}`}>
               {/* Navbar */}
               <header className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 shadow-sm">
                 <div className="h-16 px-4 sm:px-6 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    {/* Mobile Menu Button - Only on mobile */}
+                    {/* Hamburger Menu Button - Only on larger screens for Student/Parent/Admin Asst */}
+                    {!isMobile && (
+                      <button
+                        onClick={() => setSidebarOpen(!sidebarOpen)}
+                        className="p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all"
+                      >
+                        <Menu className="w-5 h-5" />
+                      </button>
+                    )}
+                    {/* Mobile Menu Button */}
                     {isMobile && (
                       <button
                         onClick={() => setSidebarOpen(true)}
@@ -1423,28 +1398,18 @@ const MainLayout = () => {
                         <Menu className="w-5 h-5" />
                       </button>
                     )}
-                    {/* Show logo on mobile when sidebar is closed */}
-                    {isMobile && !sidebarOpen && (
-                      <div className="relative flex-shrink-0">
-                        {schoolLogo ? (
-                          <img 
-                            src={schoolLogo} 
-                            alt="School Logo" 
-                            className="w-8 h-8 rounded-xl object-cover"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600">
-                            <School className="w-4 h-4 text-white" />
-                          </div>
-                        )}
-                      </div>
-                    )}
                     <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent truncate max-w-[120px] sm:max-w-xs">
                       {currentPage}
                     </h1>
                     <span className="hidden sm:inline-block text-xs px-3 py-1 rounded-full bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 text-blue-600 dark:text-blue-400 font-medium capitalize border border-blue-100/50 dark:border-blue-800/50">
                       {getUserRoleDisplay()}
                     </span>
+                    {(userRole === 'record_keeper' || userRole === 'admin_asst') && (
+                      <span className="hidden sm:inline-block text-xs px-3 py-1 rounded-full bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/30 text-teal-600 dark:text-teal-400 font-medium border border-teal-200/50 dark:border-teal-800/50 flex items-center gap-1">
+                        <UserCog className="w-3 h-3" />
+                        Admin Assistant
+                      </span>
+                    )}
                   </div>
                   
                   <div className="flex items-center gap-2 sm:gap-3">
@@ -1499,8 +1464,8 @@ const MainLayout = () => {
                           >
                             <div className="flex items-center justify-between p-4 border-b border-gray-200/50 dark:border-gray-800/50">
                               <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                                <Bell className="w-4 h-4" />
-                                Notifications
+                                <Megaphone className="w-4 h-4" />
+                                Announcements
                                 {unreadCount > 0 && (
                                   <span className="text-xs px-2 py-0.5 bg-red-500 text-white rounded-full">
                                     {unreadCount} new
@@ -1522,9 +1487,9 @@ const MainLayout = () => {
                                 </div>
                               ) : notifications.length === 0 ? (
                                 <div className="text-center py-8">
-                                  <Bell className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-                                  <p className="text-sm text-gray-500 dark:text-gray-400">No notifications</p>
-                                  <p className="text-xs text-gray-400 dark:text-gray-500">You're all caught up!</p>
+                                  <Megaphone className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+                                  <p className="text-sm text-gray-500 dark:text-gray-400">No announcements</p>
+                                  <p className="text-xs text-gray-400 dark:text-gray-500">Check back later for updates</p>
                                 </div>
                               ) : (
                                 notifications.map((notification) => (
@@ -1547,6 +1512,11 @@ const MainLayout = () => {
                                           {!notification.is_read && (
                                             <span className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1" />
                                           )}
+                                          {notification.data?.priority === 'urgent' && (
+                                            <span className="text-[8px] font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                                              URGENT
+                                            </span>
+                                          )}
                                         </div>
                                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
                                           {notification.message}
@@ -1565,6 +1535,11 @@ const MainLayout = () => {
                                               {notification.type}
                                             </span>
                                           )}
+                                          {notification.data?.category && (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
+                                              {notification.data.category}
+                                            </span>
+                                          )}
                                         </div>
                                       </div>
                                     </div>
@@ -1578,11 +1553,11 @@ const MainLayout = () => {
                                 <button 
                                   onClick={() => {
                                     setShowNotifications(false);
-                                    navigate('/notifications');
+                                    navigate('/announcements');
                                   }}
                                   className="w-full text-center text-sm text-blue-600 dark:text-blue-400 font-medium hover:underline"
                                 >
-                                  View all notifications
+                                  View all announcements
                                 </button>
                               </div>
                             )}
@@ -1603,7 +1578,7 @@ const MainLayout = () => {
                             <p className="text-sm font-semibold text-gray-900 dark:text-white">
                               {getUserName()}
                             </p>
-                            {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                            {isPremium && showPremium && <Crown className="w-3 h-3 text-amber-500" />}
                           </div>
                           <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                             <span className="flex items-center gap-1">
@@ -1634,7 +1609,7 @@ const MainLayout = () => {
                                 <div>
                                   <p className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1">
                                     {getUserName()}
-                                    {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                                    {isPremium && showPremium && <Crown className="w-3 h-3 text-amber-500" />}
                                   </p>
                                   <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[150px]">
                                     {user?.email || userProfile?.email || 'No email'}
@@ -1668,6 +1643,16 @@ const MainLayout = () => {
                                   My Profile
                                 </Link>
                               )}
+                              {isAdminAsst && (
+                                <Link
+                                  to="/admin-asst/profile"
+                                  className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
+                                  onClick={() => setIsDropdownOpen(false)}
+                                >
+                                  <UserCog className="w-4 h-4" />
+                                  My Profile
+                                </Link>
+                              )}
                               <Link
                                 to="/settings"
                                 className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
@@ -1677,7 +1662,7 @@ const MainLayout = () => {
                                 Settings
                               </Link>
                               
-                              {!isPremium && (
+                              {!isPremium && showPremium && (
                                 <button
                                   onClick={() => {
                                     setIsDropdownOpen(false);
@@ -1760,8 +1745,8 @@ const MainLayout = () => {
             </div>
           </div>
 
-          {/* Bottom Dock Navigation - Only on mobile */}
-          {isMobile && (
+          {/* Bottom Dock Navigation - Only on mobile for Student/Parent/Admin Asst */}
+          {shouldShowDock && (
             <div className="fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-t border-gray-200/50 dark:border-gray-800/50 z-50 shadow-lg">
               <div className="flex items-center justify-around px-1 py-1 max-w-lg mx-auto">
                 {dockNavItems.map((item) => {
@@ -1799,7 +1784,7 @@ const MainLayout = () => {
           )}
         </>
       ) : (
-        // Regular sidebar layout for admin, teacher, etc.
+        // Regular sidebar layout for Admin, Teacher, etc.
         <>
           {/* Desktop Sidebar - Hidden on mobile */}
           {!isMobile && (
@@ -1817,18 +1802,14 @@ const MainLayout = () => {
                       <img 
                         src={schoolLogo} 
                         alt="School Logo" 
-                        className={`w-10 h-10 rounded-xl object-cover ${isPremium ? 'ring-2 ring-amber-500/50' : ''}`}
+                        className={`w-10 h-10 rounded-xl object-cover ${isPremium && showPremium ? 'ring-2 ring-amber-500/50' : ''}`}
                       />
                     ) : (
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
-                        {isPremium ? (
-                          <Crown className="w-5 h-5 text-white" />
-                        ) : (
-                          <School className="w-5 h-5 text-white" />
-                        )}
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium && showPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
+                        {isPremium && showPremium ? <Crown className="w-5 h-5 text-white" /> : <School className="w-5 h-5 text-white" />}
                       </div>
                     )}
-                    {isPremium && (
+                    {isPremium && showPremium && (
                       <div className="absolute -top-1 -right-1">
                         <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-[8px] font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-full">
                           <Star className="w-2 h-2" />
@@ -1844,11 +1825,11 @@ const MainLayout = () => {
                       transition={{ duration: 0.3 }}
                       className="flex-1 min-w-0"
                     >
-                      <span className={`text-lg font-bold ${isPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
+                      <span className={`text-lg font-bold ${isPremium && showPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
                         Ebenezer School
                       </span>
                       <span className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 tracking-wider uppercase">
-                        {isPremium ? '✨ Premium' : 'School Management'}
+                        {isPremium && showPremium ? '✨ Premium' : 'School Management'}
                       </span>
                     </motion.div>
                   )}
@@ -1882,7 +1863,6 @@ const MainLayout = () => {
                               }, 350);
                             }
                           }}
-                          data-tutorial={item.tutorialTarget}
                           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
                             isActiveParent
                               ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
@@ -1911,7 +1891,6 @@ const MainLayout = () => {
                                 <Link
                                   key={child.path}
                                   to={child.path}
-                                  data-tutorial={child.tutorialTarget}
                                   className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-300 ${
                                     active
                                       ? 'bg-blue-100/80 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
@@ -1936,7 +1915,6 @@ const MainLayout = () => {
 
                   const active = isActive(item.path);
                   const isPayBill = item.label === 'Pay Bill';
-                  const isAdminAsst = userRole === 'record_keeper' || userRole === 'admin_asst';
                   
                   return (
                     <motion.div
@@ -1947,13 +1925,10 @@ const MainLayout = () => {
                     >
                       <Link
                         to={item.path}
-                        data-tutorial={item.tutorialTarget}
                         className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
                           active
                             ? isPayBill
                               ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
-                              : isAdminAsst
-                              ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-lg shadow-teal-500/25'
                               : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
                             : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
                         } ${!sidebarOpen ? 'justify-center' : ''}`}
@@ -1988,12 +1963,12 @@ const MainLayout = () => {
               {/* User Section - Fixed at bottom */}
               <div className="absolute bottom-0 left-0 right-0 p-3 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl flex-shrink-0">
                 {sidebarOpen ? (
-                  <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
+                  <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium && showPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
                     <ProfileImageWithUpload size="sm" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1">
                         {getUserName()}
-                        {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                        {isPremium && showPremium && <Crown className="w-3 h-3 text-amber-500" />}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 capitalize flex items-center gap-1">
                         <Shield className="w-3 h-3" />
@@ -2050,18 +2025,14 @@ const MainLayout = () => {
                         <img 
                           src={schoolLogo} 
                           alt="School Logo" 
-                          className={`w-10 h-10 rounded-xl object-cover ${isPremium ? 'ring-2 ring-amber-500/50' : ''}`}
+                          className={`w-10 h-10 rounded-xl object-cover ${isPremium && showPremium ? 'ring-2 ring-amber-500/50' : ''}`}
                         />
                       ) : (
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
-                          {isPremium ? (
-                            <Crown className="w-5 h-5 text-white" />
-                          ) : (
-                            <School className="w-5 h-5 text-white" />
-                          )}
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/25 ${isPremium && showPremium ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-pink-500' : 'bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600'}`}>
+                          {isPremium && showPremium ? <Crown className="w-5 h-5 text-white" /> : <School className="w-5 h-5 text-white" />}
                         </div>
                       )}
-                      {isPremium && (
+                      {isPremium && showPremium && (
                         <div className="absolute -top-1 -right-1">
                           <span className="flex items-center gap-0.5 px-1.5 py-0.5 text-[8px] font-bold text-white bg-gradient-to-r from-amber-500 to-orange-500 rounded-full">
                             <Star className="w-2 h-2" />
@@ -2071,11 +2042,8 @@ const MainLayout = () => {
                       )}
                     </div>
                     <div>
-                      <span className={`text-lg font-bold ${isPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
+                      <span className={`text-lg font-bold ${isPremium && showPremium ? 'bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent' : 'bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent'}`}>
                         Ebenezer School
-                      </span>
-                      <span className="block text-[10px] font-medium text-gray-500 dark:text-gray-400 tracking-wider uppercase">
-                        {isPremium ? '✨ Premium' : 'School Management'}
                       </span>
                     </div>
                   </div>
@@ -2088,115 +2056,48 @@ const MainLayout = () => {
                 </div>
 
                 <nav className="px-3 py-4 space-y-1 overflow-y-auto flex-1">
-                  {filteredNavigation.map((item, index) => {
-                    const hasChildren = item.children && item.children.length > 0;
-                    const isExpanded = expandedMenus.includes(item.label);
-                    const isActiveParent = item.children?.some(child => isActive(child.path));
-
-                    if (hasChildren) {
-                      return (
-                        <div key={item.label} className="mb-1">
-                          <button
-                            onClick={() => toggleMenu(item.label)}
-                            data-tutorial={item.tutorialTarget}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
-                              isActiveParent
-                                ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
-                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                            }`}
-                          >
-                            <item.icon className="w-5 h-5 flex-shrink-0" />
-                            <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
-                            <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                          </button>
-                          {isExpanded && (
-                            <motion.div
-                              initial={{ opacity: 0, height: 0 }}
-                              animate={{ opacity: 1, height: 'auto' }}
-                              exit={{ opacity: 0, height: 0 }}
-                              className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200/50 dark:border-gray-700/50 pl-3"
-                            >
-                              {item.children.map((child) => {
-                                const active = isActive(child.path);
-                                return (
-                                  <Link
-                                    key={child.path}
-                                    to={child.path}
-                                    data-tutorial={child.tutorialTarget}
-                                    className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-300 ${
-                                      active
-                                        ? 'bg-blue-100/80 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                                    }`}
-                                    onClick={() => setSidebarOpen(false)}
-                                  >
-                                    <child.icon className="w-4 h-4 flex-shrink-0" />
-                                    <span className="text-sm">{child.label}</span>
-                                    {child.badge && !active && (
-                                      <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
-                                        {child.badge}
-                                      </span>
-                                    )}
-                                  </Link>
-                                );
-                              })}
-                            </motion.div>
-                          )}
-                        </div>
-                      );
-                    }
-
+                  {filteredNavigation.map((item) => {
                     const active = isActive(item.path);
                     const isPayBill = item.label === 'Pay Bill';
-                    const isAdminAsst = userRole === 'record_keeper' || userRole === 'admin_asst';
                     
                     return (
-                      <motion.div
+                      <Link
                         key={item.path}
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: index * 0.05 }}
+                        to={item.path}
+                        onClick={() => setSidebarOpen(false)}
+                        className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
+                          active
+                            ? isPayBill
+                              ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
+                              : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
+                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
+                        }`}
                       >
-                        <Link
-                          to={item.path}
-                          data-tutorial={item.tutorialTarget}
-                          onClick={() => setSidebarOpen(false)}
-                          className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
-                            active
-                              ? isPayBill
-                                ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
-                                : isAdminAsst
-                                ? 'bg-gradient-to-r from-teal-600 to-cyan-600 text-white shadow-lg shadow-teal-500/25'
-                                : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
-                              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                          }`}
-                        >
-                          <item.icon className="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" />
-                          <span className="text-sm font-medium">{item.label}</span>
-                          {item.badge && !active && (
-                            <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
-                              {item.badge}
-                            </span>
-                          )}
-                          {active && (
-                            <motion.div
-                              layoutId="activeIndicatorMobile"
-                              className="ml-auto w-1 h-6 bg-white/50 rounded-full"
-                            />
-                          )}
-                        </Link>
-                      </motion.div>
+                        <item.icon className="w-5 h-5 flex-shrink-0" />
+                        <span className="text-sm font-medium">{item.label}</span>
+                        {item.badge && !active && (
+                          <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
+                            {item.badge}
+                          </span>
+                        )}
+                        {active && (
+                          <motion.div
+                            layoutId="activeIndicatorMobile"
+                            className="ml-auto w-1 h-6 bg-white/50 rounded-full"
+                          />
+                        )}
+                      </Link>
                     );
                   })}
                 </nav>
 
                 <div className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 flex-shrink-0">
-                  <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
+                  <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium && showPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
                     <ProfileImageWithUpload size="sm" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1">
                         {getUserName()}
-                        {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
+                        {isPremium && showPremium && <Crown className="w-3 h-3 text-amber-500" />}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 capitalize flex items-center gap-1">
                         <Shield className="w-3 h-3" />
@@ -2215,13 +2116,12 @@ const MainLayout = () => {
             </>
           )}
 
-          {/* Main Content for non-student/parent */}
+          {/* Main Content for Admin/Teacher */}
           <div className={`transition-all duration-300 ${!isMobile && sidebarOpen ? 'ml-[280px]' : !isMobile ? 'ml-[72px]' : 'ml-0'}`}>
             {/* Navbar */}
             <header className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 shadow-sm">
               <div className="h-16 px-4 sm:px-6 flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  {/* Mobile Menu Button */}
                   {isMobile && (
                     <button
                       onClick={() => setSidebarOpen(true)}
@@ -2230,38 +2130,16 @@ const MainLayout = () => {
                       <Menu className="w-5 h-5" />
                     </button>
                   )}
-                  {/* Show logo on mobile when sidebar is closed */}
-                  {isMobile && !sidebarOpen && (
-                    <div className="relative flex-shrink-0">
-                      {schoolLogo ? (
-                        <img 
-                          src={schoolLogo} 
-                          alt="School Logo" 
-                          className="w-8 h-8 rounded-xl object-cover"
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded-xl flex items-center justify-center bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600">
-                          <School className="w-4 h-4 text-white" />
-                        </div>
-                      )}
-                    </div>
-                  )}
                   <h1 className="text-base sm:text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent truncate max-w-[120px] sm:max-w-xs">
                     {currentPage}
                   </h1>
                   <span className="hidden sm:inline-block text-xs px-3 py-1 rounded-full bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 text-blue-600 dark:text-blue-400 font-medium capitalize border border-blue-100/50 dark:border-blue-800/50">
                     {getUserRoleDisplay()}
                   </span>
-                  {isPremium && (
+                  {isPremium && showPremium && (
                     <span className="hidden sm:inline-block text-xs px-3 py-1 rounded-full bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 text-amber-600 dark:text-amber-400 font-medium border border-amber-200/50 dark:border-amber-800/50 flex items-center gap-1">
                       <Crown className="w-3 h-3" />
                       Premium
-                    </span>
-                  )}
-                  {(userRole === 'record_keeper' || userRole === 'admin_asst') && (
-                    <span className="hidden sm:inline-block text-xs px-3 py-1 rounded-full bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/30 text-teal-600 dark:text-teal-400 font-medium border border-teal-200/50 dark:border-teal-800/50 flex items-center gap-1">
-                      <UserCog className="w-3 h-3" />
-                      Admin Assistant
                     </span>
                   )}
                 </div>
@@ -2318,8 +2196,8 @@ const MainLayout = () => {
                         >
                           <div className="flex items-center justify-between p-4 border-b border-gray-200/50 dark:border-gray-800/50">
                             <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                              <Bell className="w-4 h-4" />
-                              Notifications
+                              <Megaphone className="w-4 h-4" />
+                              Announcements
                               {unreadCount > 0 && (
                                 <span className="text-xs px-2 py-0.5 bg-red-500 text-white rounded-full">
                                   {unreadCount} new
@@ -2341,9 +2219,9 @@ const MainLayout = () => {
                               </div>
                             ) : notifications.length === 0 ? (
                               <div className="text-center py-8">
-                                <Bell className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-                                <p className="text-sm text-gray-500 dark:text-gray-400">No notifications</p>
-                                <p className="text-xs text-gray-400 dark:text-gray-500">You're all caught up!</p>
+                                <Megaphone className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+                                <p className="text-sm text-gray-500 dark:text-gray-400">No announcements</p>
+                                <p className="text-xs text-gray-400 dark:text-gray-500">Check back later for updates</p>
                               </div>
                             ) : (
                               notifications.map((notification) => (
@@ -2366,6 +2244,11 @@ const MainLayout = () => {
                                         {!notification.is_read && (
                                           <span className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1" />
                                         )}
+                                        {notification.data?.priority === 'urgent' && (
+                                          <span className="text-[8px] font-bold text-red-600 bg-red-100 px-1.5 py-0.5 rounded-full flex-shrink-0">
+                                            URGENT
+                                          </span>
+                                        )}
                                       </div>
                                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
                                         {notification.message}
@@ -2384,6 +2267,11 @@ const MainLayout = () => {
                                             {notification.type}
                                           </span>
                                         )}
+                                        {notification.data?.category && (
+                                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
+                                            {notification.data.category}
+                                          </span>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -2397,11 +2285,11 @@ const MainLayout = () => {
                               <button 
                                 onClick={() => {
                                   setShowNotifications(false);
-                                  navigate('/notifications');
+                                  navigate('/announcements');
                                 }}
                                 className="w-full text-center text-sm text-blue-600 dark:text-blue-400 font-medium hover:underline"
                               >
-                                View all notifications
+                                View all announcements
                               </button>
                             </div>
                           )}
@@ -2418,12 +2306,9 @@ const MainLayout = () => {
                     >
                       <ProfileImageWithUpload size="sm" />
                       <div className="hidden lg:block text-left">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                            {getUserName()}
-                          </p>
-                          {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
-                        </div>
+                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                          {getUserName()}
+                        </p>
                         <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                           <span className="flex items-center gap-1">
                             <Shield className="w-3 h-3" />
@@ -2451,11 +2336,10 @@ const MainLayout = () => {
                             <div className="flex items-center gap-3">
                               <ProfileImageWithUpload size="lg" />
                               <div>
-                                <p className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-1">
+                                <p className="text-sm font-semibold text-gray-900 dark:text-white">
                                   {getUserName()}
-                                  {isPremium && <Crown className="w-3 h-3 text-amber-500" />}
                                 </p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[150px]">
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
                                   {user?.email || userProfile?.email || 'No email'}
                                 </p>
                                 <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 mt-0.5">
@@ -2467,16 +2351,6 @@ const MainLayout = () => {
                           </div>
 
                           <div className="py-1 max-h-[60vh] overflow-y-auto">
-                            {(userRole === 'record_keeper' || userRole === 'admin_asst') && (
-                              <Link
-                                to="/admin-asst/profile"
-                                className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50/80 dark:hover:bg-gray-800/80 transition-all"
-                                onClick={() => setIsDropdownOpen(false)}
-                              >
-                                <UserCog className="w-4 h-4" />
-                                My Profile
-                              </Link>
-                            )}
                             {userRole === 'teacher' && (
                               <Link
                                 to="/teacher/profile"
@@ -2506,7 +2380,7 @@ const MainLayout = () => {
                               Settings
                             </Link>
                             
-                            {!isPremium && (
+                            {!isPremium && showPremium && (
                               <button
                                 onClick={() => {
                                   setIsDropdownOpen(false);
@@ -2590,20 +2464,9 @@ const MainLayout = () => {
         </>
       )}
 
-      {/* Tutorial Component */}
-      <Tutorial
-        userId={user?.id || ''}
-        role={userRole === 'admin_asst' ? 'record_keeper' : userRole}
-        isOpen={showTutorial}
-        onClose={() => {
-          setShowTutorial(false);
-          setTutorialChecked(true);
-        }}
-      />
-
-      {/* Premium Modal */}
+      {/* Premium Modal - Only for Admin Roles */}
       <AnimatePresence>
-        {showPremiumModal && (
+        {showPremiumModal && showPremium && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
             <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}

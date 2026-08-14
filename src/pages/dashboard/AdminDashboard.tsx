@@ -10,6 +10,7 @@ import { Eye, Package, CalendarDays, User, HandHelping, Box, ChevronRight, Schoo
 import HeroBanner from './components/HeroBanner';
 import KpiCards from './components/KpiCards';
 import RevenueChart from './components/RevenueChart';
+import LiveActivityLog from './components/LiveActivityLog';
 import AttendanceChart from './components/AttendanceChart';
 import AcademicPerformance from './components/AcademicPerformance';
 import RecentPayments from './components/RecentPayments';
@@ -351,17 +352,19 @@ const AdminDashboard: React.FC = () => {
         lowStockItems={lowStockItems}
         pendingAdmissions={pendingAdmissions}
       />
+      <RevenueChart/>
 
-      <KpiCards />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
-        <RevenueChart />
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <AttendanceChart />
         <AcademicPerformance />
       </div>
 
+      {/* Live Activity Log & Payment Audit Feed */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
+          <LiveActivityLog />
           <RecentPayments />
           <Announcements />
         </div>

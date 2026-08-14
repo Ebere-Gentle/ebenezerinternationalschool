@@ -5896,6 +5896,51 @@ const CreateFee: React.FC = () => {
   };
 
   // ============================================
+  // CUSTOM CATEGORY CRUD
+  // ============================================
+  const handleCreateCategory = async (data: any) => {
+    if (!data || !data.name) {
+      toast.error('Category name is required');
+      return;
+    }
+    try {
+      const payload = {
+        name: data.name.trim(),
+        icon: data.icon || 'BookOpen',
+        color: data.color || 'blue',
+        description: data.description || null,
+        default_frequency: data.default_frequency || 'termly',
+        is_mandatory: !!data.is_mandatory,
+        is_optional: !!data.is_optional,
+        is_recurring: !!data.is_recurring,
+        requires_class_assignment: data.requires_class_assignment !== false,
+        apply_to_new_students: data.apply_to_new_students !== false,
+        sibling_discount_eligible: !!data.sibling_discount_eligible,
+        waiver_eligible: !!data.waiver_eligible,
+        early_payment_eligible: !!data.early_payment_eligible,
+        suggested_amount_min: data.suggested_amount_min ?? null,
+        suggested_amount_max: data.suggested_amount_max ?? null,
+        branch_id: branchId,
+        created_by: user?.id,
+      };
+
+      const { data: inserted, error } = await supabase
+        .from('fee_categories')
+        .insert([payload])
+        .select()
+        .single();
+
+      if (error) throw error;
+      toast.success(`Category "${inserted.name}" created`);
+      setShowCustomCategoryModal(false);
+      await loadCustomCategories(branchId);
+    } catch (error: any) {
+      console.error('Error creating category:', error);
+      toast.error(error.message || 'Failed to create category');
+    }
+  };
+
+  // ============================================
   // AI / ANALYTICS FUNCTIONS
   // ============================================
 

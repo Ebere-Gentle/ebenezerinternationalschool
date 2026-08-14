@@ -20,7 +20,15 @@ import {
   Archive,
   BookOpen,
   Calendar,
-  Users
+  Users,
+  Gift,
+  Shield,
+  ListChecks,
+  ChevronDown,
+  ChevronUp,
+  Receipt,
+  Tag,
+  User as UserIcon
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
@@ -57,6 +65,26 @@ interface Fee {
   total_payments?: number;
   total_amount_paid?: number;
   total_students_paid?: number;
+  target_type?: string;
+  target_ids?: string[];
+  total_waived_amount?: number;
+  total_waived_students?: number;
+  waiver_history?: WaiverRecord[];
+  fee_breakdown?: {
+    items: any[];
+    total_amount: number;
+  };
+}
+
+interface WaiverRecord {
+  student_name: string;
+  student_id?: string;
+  amount: number;
+  breakdown_item?: string;
+  breakdown_item_id?: string;
+  type?: string;
+  applied_at?: string;
+  student_id_number?: string;
 }
 
 const categoryLabels: Record<string, string> = {
@@ -100,25 +128,51 @@ const FeesList: React.FC = () => {
   const [sessionOptions, setSessionOptions] = useState<string[]>([]);
   const [termOptions, setTermOptions] = useState<string[]>([]);
   const [loadingFilters, setLoadingFilters] = useState(true);
+  const [classMap, setClassMap] = useState<Record<string, string>>({});
+  const [expandedFee, setExpandedFee] = useState<string | null>(null);
 
   const pageSize = 10;
 
+  // ==================== Load class map ====================
+  useEffect(() => {
+    const loadClassMap = async () => {
+      if (!user?.branch_id) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('classes')
+          .select('id, name')
+          .eq('branch_id', user.branch_id)
+          .eq('status', 'active');
+
+        if (error) throw error;
+
+        const map: Record<string, string> = {};
+        (data || []).forEach(cls => {
+          map[cls.id] = cls.name;
+        });
+        setClassMap(map);
+      } catch (error) {
+        console.error('Error loading class map:', error);
+      }
+    };
+
+    loadClassMap();
+  }, [user?.branch_id]);
+
   // ==================== Wait for auth to load ====================
   useEffect(() => {
-    // If auth is still loading, do nothing - just wait
     if (authLoading) {
       console.log("⏳ Auth is still loading, waiting...");
       return;
     }
 
-    // If auth is done but no user, we can't proceed
     if (!user) {
       console.warn("⚠️ No user found after auth loading completed");
       setLoadingFilters(false);
       return;
     }
 
-    // If user exists but no branch_id, something is wrong
     if (!user.branch_id) {
       console.warn("⚠️ User has no branch_id:", user);
       setLoadingFilters(false);
@@ -127,18 +181,15 @@ const FeesList: React.FC = () => {
 
     console.log("✅ Auth ready, fetching filters...");
     fetchFilterOptions();
-
   }, [user, authLoading]);
 
   useEffect(() => {
-    // Only fetch fees if user is ready and auth is not loading
     if (user?.branch_id && !authLoading) {
       fetchFees();
     }
   }, [currentPage, searchTerm, statusFilter, categoryFilter, sessionFilter, termFilter, user, authLoading]);
 
   const fetchFilterOptions = async () => {
-    // Guard: Ensure user is ready
     if (!user) {
       console.warn("❌ fetchFilterOptions: No user found");
       setLoadingFilters(false);
@@ -167,7 +218,6 @@ const FeesList: React.FC = () => {
 
       console.log(`📊 Found ${data?.length || 0} fees`);
 
-      // Extract unique sessions
       const sessions = [
         ...new Set(
           (data || [])
@@ -176,7 +226,6 @@ const FeesList: React.FC = () => {
         )
       ].sort().reverse();
 
-      // Extract unique terms
       const allTerms = [
         ...new Set(
           (data || [])
@@ -193,7 +242,6 @@ const FeesList: React.FC = () => {
       setSessionOptions(sessions);
       setTermOptions(orderedTerms);
 
-      // Set default filters
       if (sessions.length > 0) {
         setSessionFilter(sessions[0]);
       } else {
@@ -215,7 +263,6 @@ const FeesList: React.FC = () => {
   };
 
   const fetchTermsForSession = async (session: string) => {
-    // Guard: Ensure user is ready
     if (!user?.branch_id) {
       console.warn("❌ fetchTermsForSession: No branch_id found");
       return;
@@ -254,8 +301,135 @@ const FeesList: React.FC = () => {
     }
   };
 
+  // ==================== Get class name from target_ids ====================
+  const getFeeClassName = (fee: Fee): string => {
+    if (fee.class_id && classMap[fee.class_id]) {
+      return classMap[fee.class_id];
+    }
+
+    if (fee.target_type === 'class' && fee.target_ids && fee.target_ids.length > 0) {
+      const classNames = fee.target_ids
+        .map(id => classMap[id])
+        .filter(Boolean);
+      
+      if (classNames.length === 1) {
+        return classNames[0];
+      } else if (classNames.length > 1) {
+        return `${classNames.length} classes`;
+      }
+    }
+
+    if (fee.metadata?.class_name) {
+      return fee.metadata.class_name;
+    }
+
+    return fee.class_name || 'All Classes';
+  };
+
+  // ==================== Get breakdown items ====================
+  const getBreakdownItems = (fee: Fee): any[] => {
+    if (fee.metadata?.fee_breakdown?.items) {
+      return fee.metadata.fee_breakdown.items;
+    }
+    if (fee.metadata?.fee_breakdown_items) {
+      return fee.metadata.fee_breakdown_items;
+    }
+    return [];
+  };
+
+  // ==================== Get waiver info with proper formatting ====================
+  const getWaiverInfo = (fee: Fee): { totalWaived: number; studentCount: number; waiverRecords: WaiverRecord[] } => {
+    let totalWaived = 0;
+    const waiverRecords: WaiverRecord[] = [];
+    const seen = new Set<string>();
+
+    // Helper to add waiver record with deduplication
+    const addWaiverRecord = (record: WaiverRecord) => {
+      const key = `${record.student_name}-${record.breakdown_item || 'full'}-${record.amount}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        waiverRecords.push(record);
+        totalWaived += record.amount;
+      }
+    };
+
+    // Check metadata for waiver history
+    if (fee.metadata?.waiver_history && Array.isArray(fee.metadata.waiver_history)) {
+      fee.metadata.waiver_history.forEach((w: any) => {
+        // Get breakdown item name
+        let breakdownItem = 'Full Fee';
+        if (w.breakdown_items && w.breakdown_items.length > 0) {
+          // If breakdown_items is an array of objects with item_name
+          if (typeof w.breakdown_items[0] === 'object' && w.breakdown_items[0].item_name) {
+            breakdownItem = w.breakdown_items.map((item: any) => item.item_name).join(', ');
+          } else if (typeof w.breakdown_items[0] === 'string') {
+            breakdownItem = w.breakdown_items.join(', ');
+          }
+        } else if (w.breakdown_item) {
+          breakdownItem = w.breakdown_item;
+        } else if (w.item_name) {
+          breakdownItem = w.item_name;
+        }
+
+        addWaiverRecord({
+          student_name: w.student_name || 'Unknown Student',
+          student_id: w.student_id,
+          amount: w.amount || 0,
+          breakdown_item: breakdownItem,
+          breakdown_item_id: w.breakdown_item_id,
+          type: w.type || 'waiver',
+          applied_at: w.applied_at,
+          student_id_number: w.student_id_number
+        });
+      });
+    }
+
+    // Check assignment-level waivers
+    if (fee.metadata?.waiver_applied) {
+      const w = fee.metadata.waiver_applied;
+      if (!waiverRecords.some(r => r.applied_at === w.applied_at)) {
+        let breakdownItem = 'Full Fee';
+        if (w.breakdown_items && w.breakdown_items.length > 0) {
+          if (typeof w.breakdown_items[0] === 'object' && w.breakdown_items[0].item_name) {
+            breakdownItem = w.breakdown_items.map((item: any) => item.item_name).join(', ');
+          } else if (typeof w.breakdown_items[0] === 'string') {
+            breakdownItem = w.breakdown_items.join(', ');
+          }
+        } else if (w.breakdown_item) {
+          breakdownItem = w.breakdown_item;
+        } else if (w.item_name) {
+          breakdownItem = w.item_name;
+        }
+
+        addWaiverRecord({
+          student_name: w.student_name || 'Unknown Student',
+          student_id: w.student_id,
+          amount: w.amount || 0,
+          breakdown_item: breakdownItem,
+          breakdown_item_id: w.breakdown_item_id,
+          type: w.type || 'waiver',
+          applied_at: w.applied_at,
+          student_id_number: w.student_id_number
+        });
+      }
+    }
+
+    return {
+      totalWaived,
+      studentCount: waiverRecords.length,
+      waiverRecords
+    };
+  };
+
+  // ==================== Get student initials ====================
+  const getInitials = (name: string): string => {
+    if (!name) return 'S';
+    const parts = name.trim().split(' ');
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  };
+
   const fetchFees = async () => {
-    // Guard: Ensure user is ready
     if (!user?.branch_id) {
       console.warn("❌ fetchFees: No branch_id found");
       setLoading(false);
@@ -268,10 +442,10 @@ const FeesList: React.FC = () => {
         .from('fees')
         .select(`
           *,
-          classes!fk_fees_class (
+          classes:class_id (
             name
           ),
-          branches!fk_fees_branch (
+          branches:branch_id (
             school_name
           )
         `, { count: 'exact' });
@@ -314,9 +488,9 @@ const FeesList: React.FC = () => {
         (data || []).map(async (fee: any) => {
           const { data: paymentData, error: paymentError } = await supabase
             .from('payments')
-            .select('amount_paid, status, student_id')
+            .select('amount_paid, status, student_id, payment_method')
             .eq('fee_id', fee.id)
-            .eq('status', 'completed');
+            .in('status', ['completed', 'paid', 'approved']);
 
           if (paymentError) {
             return {
@@ -326,10 +500,15 @@ const FeesList: React.FC = () => {
               total_payments: 0,
               total_amount_paid: 0,
               total_students_paid: 0,
+              target_type: fee.target_type || 'all',
+              target_ids: fee.target_ids || [],
             };
           }
 
           const uniqueStudents = new Set(paymentData?.map(p => p.student_id) || []);
+          
+          // Get waiver info with proper formatting
+          const { totalWaived, studentCount, waiverRecords } = getWaiverInfo(fee);
           
           return {
             ...fee,
@@ -338,6 +517,12 @@ const FeesList: React.FC = () => {
             total_payments: paymentData?.length || 0,
             total_amount_paid: paymentData?.reduce((sum, p) => sum + (p.amount_paid || 0), 0) || 0,
             total_students_paid: uniqueStudents.size,
+            target_type: fee.target_type || 'all',
+            target_ids: fee.target_ids || [],
+            total_waived_amount: totalWaived,
+            total_waived_students: studentCount,
+            waiver_history: waiverRecords,
+            fee_breakdown: fee.metadata?.fee_breakdown || null,
           };
         })
       );
@@ -405,6 +590,10 @@ const FeesList: React.FC = () => {
 
   const handleEditFee = (fee: Fee) => {
     navigate(`/fees/edit/${fee.id}`);
+  };
+
+  const toggleExpandFee = (feeId: string) => {
+    setExpandedFee(expandedFee === feeId ? null : feeId);
   };
 
   const getStatusBadge = (status: string) => {
@@ -492,10 +681,10 @@ const FeesList: React.FC = () => {
   const recurringFees = fees.filter(f => f.is_recurring).length;
   const totalAmount = fees.reduce((sum, f) => sum + f.amount, 0);
   const totalCollected = fees.reduce((sum, f) => sum + (f.total_amount_paid || 0), 0);
+  const totalWaived = fees.reduce((sum, f) => sum + (f.total_waived_amount || 0), 0);
+  const totalWaivedStudents = fees.reduce((sum, f) => sum + (f.total_waived_students || 0), 0);
 
   // ==================== SHOW LOADING WHILE AUTH IS INITIALIZING ====================
-  // Show loading while auth is initializing or filters are loading
-  // This prevents the "Not Authenticated" flash
   if (authLoading || loadingFilters) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -504,7 +693,6 @@ const FeesList: React.FC = () => {
     );
   }
 
-  // If auth is done but no user, show empty state (shouldn't happen with ProtectedRoute)
   if (!user) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[200px] text-center">
@@ -514,7 +702,6 @@ const FeesList: React.FC = () => {
     );
   }
 
-  // If user has no branch, show appropriate message
   if (!user.branch_id) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] text-center">
@@ -561,7 +748,7 @@ const FeesList: React.FC = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
           <p className="text-sm text-gray-500 dark:text-gray-400">Total Fees</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">{totalFees}</p>
@@ -579,11 +766,16 @@ const FeesList: React.FC = () => {
           <p className="text-sm text-gray-500 dark:text-gray-400">Recurring</p>
           <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{recurringFees}</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
           <p className="text-sm text-gray-500 dark:text-gray-400">Collected</p>
           <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{formatCurrency(totalCollected)}</p>
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-purple-200 dark:border-purple-800">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Waived</p>
+          <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{formatCurrency(totalWaived)}</p>
+          <p className="text-xs text-gray-400">{totalWaivedStudents} students</p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
           <p className="text-sm text-gray-500 dark:text-gray-400">Collection Rate</p>
           <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">
             {totalAmount > 0 ? Math.round((totalCollected / totalAmount) * 100) : 0}%
@@ -671,7 +863,7 @@ const FeesList: React.FC = () => {
         </div>
       </div>
 
-      {/* Fees Table */}
+      {/* Fees Table with Expandable Rows */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -729,111 +921,257 @@ const FeesList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                fees.map((fee) => (
-                  <tr key={fee.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition">
-                    <td className="px-4 sm:px-6 py-4">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900 dark:text-white">{fee.name}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{fee.fee_id}</p>
-                        {fee.is_recurring && (
-                          <span className="inline-flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400">
-                            <Clock className="w-3 h-3" />
-                            {fee.recurrence_period || 'Recurring'}
+                fees.map((fee) => {
+                  const breakdownItems = getBreakdownItems(fee);
+                  const hasBreakdown = breakdownItems.length > 0;
+                  const hasWaiver = (fee.total_waived_amount || 0) > 0 || (fee.total_waived_students || 0) > 0;
+                  const isExpanded = expandedFee === fee.id;
+                  const waiverRecords = fee.waiver_history || [];
+                  
+                  return (
+                    <React.Fragment key={fee.id}>
+                      <tr className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition">
+                        <td className="px-4 sm:px-6 py-4">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">{fee.name}</p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400">{fee.fee_id}</p>
+                            {fee.is_recurring && (
+                              <span className="inline-flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400">
+                                <Clock className="w-3 h-3" />
+                                {fee.recurrence_period || 'Recurring'}
+                              </span>
+                            )}
+                            {hasWaiver && (
+                              <span className="inline-flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400 ml-2">
+                                <Gift className="w-3 h-3" />
+                                Waiver: {formatCurrency(fee.total_waived_amount || 0)}
+                              </span>
+                            )}
+                            {hasBreakdown && (
+                              <span className="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 ml-2">
+                                <ListChecks className="w-3 h-3" />
+                                {breakdownItems.length} items
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="hidden md:table-cell px-4 sm:px-6 py-4">
+                          <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${getCategoryBadge(fee.category)}`}>
+                            {categoryLabels[fee.category] || fee.category}
                           </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="hidden md:table-cell px-4 sm:px-6 py-4">
-                      <span className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium ${getCategoryBadge(fee.category)}`}>
-                        {categoryLabels[fee.category] || fee.category}
-                      </span>
-                    </td>
-                    <td className="px-4 sm:px-6 py-4">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                          {formatCurrency(fee.amount)}
-                        </p>
-                        {fee.late_fee_amount > 0 && (
-                          <p className="text-xs text-red-500">Late: {formatCurrency(fee.late_fee_amount)}</p>
-                        )}
-                        {fee.total_amount_paid > 0 && (
-                          <p className="text-xs text-green-500">Collected: {formatCurrency(fee.total_amount_paid)}</p>
-                        )}
-                      </div>
-                    </td>
-                    <td className="hidden lg:table-cell px-4 sm:px-6 py-4">
-                      <p className="text-sm text-gray-600 dark:text-gray-300">{fee.session || 'N/A'}</p>
-                    </td>
-                    <td className="hidden xl:table-cell px-4 sm:px-6 py-4">
-                      <p className="text-sm text-gray-600 dark:text-gray-300">{fee.term || 'N/A'}</p>
-                    </td>
-                    <td className="hidden lg:table-cell px-4 sm:px-6 py-4">
-                      <p className="text-sm text-gray-600 dark:text-gray-300">{fee.class_name}</p>
-                    </td>
-                    <td className="hidden xl:table-cell px-4 sm:px-6 py-4">
-                      <div>
-                        <p className="text-sm font-medium text-gray-900 dark:text-white">
-                          {fee.total_payments || 0}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {fee.total_students_paid || 0} students
-                        </p>
-                      </div>
-                    </td>
-                    <td className="px-4 sm:px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(fee.status)}`}>
-                        {fee.status === 'active' ? (
-                          <CheckCircle className="w-3 h-3" />
-                        ) : fee.status === 'inactive' ? (
-                          <XCircle className="w-3 h-3" />
-                        ) : (
-                          <AlertCircle className="w-3 h-3" />
-                        )}
-                        {fee.status.charAt(0).toUpperCase() + fee.status.slice(1)}
-                      </span>
-                    </td>
-                    <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleViewFee(fee)}
-                          className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-blue-600 dark:text-blue-400"
-                          title="View Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleEditFee(fee)}
-                          className="p-1.5 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-all text-yellow-600 dark:text-yellow-400"
-                          title="Edit Fee"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => toggleFeeStatus(fee)}
-                          disabled={processing}
-                          className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all text-gray-500 dark:text-gray-400"
-                          title={fee.status === 'active' ? 'Deactivate' : 'Activate'}
-                        >
-                          {fee.status === 'active' ? (
-                            <Archive className="w-4 h-4" />
-                          ) : (
-                            <RefreshCw className="w-4 h-4" />
+                        </td>
+                        <td className="px-4 sm:px-6 py-4">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                              {formatCurrency(fee.amount)}
+                            </p>
+                            {fee.late_fee_amount > 0 && (
+                              <p className="text-xs text-red-500">Late: {formatCurrency(fee.late_fee_amount)}</p>
+                            )}
+                            {fee.total_amount_paid > 0 && (
+                              <p className="text-xs text-green-500">Collected: {formatCurrency(fee.total_amount_paid)}</p>
+                            )}
+                            {fee.total_waived_amount > 0 && (
+                              <p className="text-xs text-purple-500">Waived: {formatCurrency(fee.total_waived_amount)}</p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="hidden lg:table-cell px-4 sm:px-6 py-4">
+                          <p className="text-sm text-gray-600 dark:text-gray-300">{fee.session || 'N/A'}</p>
+                        </td>
+                        <td className="hidden xl:table-cell px-4 sm:px-6 py-4">
+                          <p className="text-sm text-gray-600 dark:text-gray-300">{fee.term || 'N/A'}</p>
+                        </td>
+                        <td className="hidden lg:table-cell px-4 sm:px-6 py-4">
+                          <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                            {getFeeClassName(fee)}
+                          </p>
+                          {fee.target_type === 'class' && fee.target_ids && fee.target_ids.length > 1 && (
+                            <p className="text-xs text-gray-400">
+                              {fee.target_ids.length} classes
+                            </p>
                           )}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelectedFee(fee);
-                            setShowDeleteModal(true);
-                          }}
-                          className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-red-600 dark:text-red-400"
-                          title="Delete Fee"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                          {fee.target_type === 'all' && (
+                            <p className="text-xs text-gray-400">All Classes</p>
+                          )}
+                        </td>
+                        <td className="hidden xl:table-cell px-4 sm:px-6 py-4">
+                          <div>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">
+                              {fee.total_payments || 0}
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              {fee.total_students_paid || 0} students paid
+                            </p>
+                            {fee.total_waived_students > 0 && (
+                              <p className="text-xs text-purple-400">
+                                {fee.total_waived_students} waived
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(fee.status)}`}>
+                            {fee.status === 'active' ? (
+                              <CheckCircle className="w-3 h-3" />
+                            ) : fee.status === 'inactive' ? (
+                              <XCircle className="w-3 h-3" />
+                            ) : (
+                              <AlertCircle className="w-3 h-3" />
+                            )}
+                            {fee.status.charAt(0).toUpperCase() + fee.status.slice(1)}
+                          </span>
+                        </td>
+                        <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => toggleExpandFee(fee.id)}
+                              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all text-gray-500 dark:text-gray-400"
+                              title="Expand Details"
+                            >
+                              {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            </button>
+                            <button
+                              onClick={() => handleViewFee(fee)}
+                              className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-blue-600 dark:text-blue-400"
+                              title="View Details"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleEditFee(fee)}
+                              className="p-1.5 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-all text-yellow-600 dark:text-yellow-400"
+                              title="Edit Fee"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => toggleFeeStatus(fee)}
+                              disabled={processing}
+                              className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all text-gray-500 dark:text-gray-400"
+                              title={fee.status === 'active' ? 'Deactivate' : 'Activate'}
+                            >
+                              {fee.status === 'active' ? (
+                                <Archive className="w-4 h-4" />
+                              ) : (
+                                <RefreshCw className="w-4 h-4" />
+                              )}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setSelectedFee(fee);
+                                setShowDeleteModal(true);
+                              }}
+                              className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-red-600 dark:text-red-400"
+                              title="Delete Fee"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Expanded Row - Shows Breakdown and Waiver Details */}
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={9} className="px-4 sm:px-6 py-4 bg-gray-50 dark:bg-gray-700/30">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {/* Breakdown Items */}
+                              {hasBreakdown && (
+                                <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                                    <Receipt className="w-4 h-4 text-indigo-500" />
+                                    Fee Breakdown
+                                    <span className="text-xs text-gray-400">({breakdownItems.length} items)</span>
+                                  </h4>
+                                  <div className="space-y-2">
+                                    {breakdownItems.map((item: any, index: number) => (
+                                      <div key={index} className="flex items-center justify-between text-sm border-b border-gray-100 dark:border-gray-700 pb-1">
+                                        <span className="text-gray-600 dark:text-gray-300">{item.item_name || 'Item'}</span>
+                                        <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(item.amount || 0)}</span>
+                                      </div>
+                                    ))}
+                                    <div className="flex items-center justify-between text-sm font-bold pt-2 border-t-2 border-gray-200 dark:border-gray-600">
+                                      <span className="text-gray-900 dark:text-white">Total</span>
+                                      <span className="text-indigo-600 dark:text-indigo-400">
+                                        {formatCurrency(breakdownItems.reduce((sum: number, item: any) => sum + (item.amount || 0), 0))}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Waiver Details - With Student Name and Item */}
+                              {hasWaiver && waiverRecords.length > 0 && (
+                                <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                                    <Gift className="w-4 h-4 text-purple-500" />
+                                    Waiver Details
+                                    <span className="text-xs text-gray-400">({waiverRecords.length} student{waiverRecords.length > 1 ? 's' : ''})</span>
+                                  </h4>
+                                  <div className="space-y-2">
+                                    <div className="flex items-center justify-between text-sm pb-2 border-b border-gray-100 dark:border-gray-700">
+                                      <span className="text-gray-500 dark:text-gray-400">Total Waived Amount</span>
+                                      <span className="font-bold text-purple-600 dark:text-purple-400">
+                                        {formatCurrency(fee.total_waived_amount || 0)}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center justify-between text-sm pb-2 border-b border-gray-100 dark:border-gray-700">
+                                      <span className="text-gray-500 dark:text-gray-400">Waived Students</span>
+                                      <span className="font-medium text-gray-900 dark:text-white">{waiverRecords.length}</span>
+                                    </div>
+                                    <div className="mt-2 pt-2">
+                                      <p className="text-xs text-gray-400 mb-2">Recent Waivers</p>
+                                      <div className="space-y-2">
+                                        {waiverRecords.slice(0, 5).map((waiver: WaiverRecord, index: number) => (
+                                          <div key={index} className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
+                                            <div className="flex items-center justify-between">
+                                              <div className="flex items-center gap-2 min-w-0">
+                                                <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600 dark:text-purple-400 font-medium text-xs flex-shrink-0">
+                                                  {getInitials(waiver.student_name)}
+                                                </div>
+                                                <div className="min-w-0">
+                                                  <p className="font-medium text-gray-800 dark:text-gray-200 text-sm truncate">
+                                                    {waiver.student_name || 'Unknown Student'}
+                                                  </p>
+                                                  <div className="flex items-center gap-1">
+                                                    <Tag className="w-3 h-3 text-purple-400 flex-shrink-0" />
+                                                    <span className="text-xs text-purple-600 dark:text-purple-400 font-medium truncate">
+                                                      {waiver.breakdown_item || 'Full Fee'}
+                                                    </span>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                              <span className="font-semibold text-purple-600 dark:text-purple-400 flex-shrink-0 ml-2 text-sm">
+                                                -{formatCurrency(waiver.amount || 0)}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                        {waiverRecords.length > 5 && (
+                                          <p className="text-xs text-gray-400 mt-1 text-center">
+                                            + {waiverRecords.length - 5} more waivers
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* No Breakdown and No Waiver */}
+                              {!hasBreakdown && !hasWaiver && (
+                                <div className="col-span-2 text-center py-4 text-gray-500 dark:text-gray-400">
+                                  <p className="text-sm">No additional details available for this fee</p>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -894,6 +1232,16 @@ const FeesList: React.FC = () => {
                 <span className="text-gray-500 dark:text-gray-400">Category:</span>
                 <span className="font-medium text-gray-900 dark:text-white">{categoryLabels[selectedFee.category] || selectedFee.category}</span>
               </div>
+              <div className="flex justify-between text-sm mt-1">
+                <span className="text-gray-500 dark:text-gray-400">Class:</span>
+                <span className="font-medium text-gray-900 dark:text-white">{getFeeClassName(selectedFee)}</span>
+              </div>
+              {selectedFee.total_waived_amount > 0 && (
+                <div className="flex justify-between text-sm mt-1">
+                  <span className="text-gray-500 dark:text-gray-400">Waived:</span>
+                  <span className="font-medium text-purple-600 dark:text-purple-400">{formatCurrency(selectedFee.total_waived_amount)}</span>
+                </div>
+              )}
               {selectedFee.session && (
                 <div className="flex justify-between text-sm mt-1">
                   <span className="text-gray-500 dark:text-gray-400">Session:</span>

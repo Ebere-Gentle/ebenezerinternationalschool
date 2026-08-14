@@ -40,7 +40,29 @@ import {
   Calendar as CalendarIcon,
   BookOpen,
   Hash,
-  Filter
+  Filter,
+  Sparkles,
+  Crown,
+  Star,
+  Zap,
+  Award,
+  TrendingUp,
+  PieChart,
+  BarChart3,
+  DollarSign,
+  Users,
+  Activity,
+  Clock as ClockIcon,
+  AlertCircle,
+  BadgeCheck,
+  SearchCode,
+  Scan,
+  Fingerprint,
+  ShieldCheck,
+  Lock,
+  Key,
+  Verified,
+  Gift
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
@@ -55,6 +77,7 @@ interface Payment {
   id: string;
   payment_id: string;
   receipt_number: string;
+  receipt_code?: string;
   student_id: string;
   fee_id: string;
   assignment_id?: string;
@@ -83,13 +106,15 @@ interface Payment {
   student_admission?: string;
   student_class_name?: string;
   fee_name?: string;
-  // Session/Term fields
   academic_session?: string;
   academic_term?: string;
   term_id?: string;
   session_id?: string;
   fee_term?: string;
   fee_session?: string;
+  verification_token?: string;
+  receipt_signature?: string;
+  receipt_security_status?: string;
   metadata?: {
     receipt_url?: string;
     receipt_path?: string;
@@ -117,6 +142,8 @@ interface Payment {
     transaction_reference?: string;
     approved_at?: string;
     approved_by?: string;
+    verification_token?: string;
+    receipt_code?: string;
   };
 }
 
@@ -129,6 +156,10 @@ interface PaymentStats {
   failedPayments: number;
   revenueChange: number;
   paymentChange: number;
+  averagePayment: number;
+  thisMonthRevenue: number;
+  lastMonthRevenue: number;
+  approvalRate: number;
 }
 
 interface SchoolInfo {
@@ -167,6 +198,7 @@ const PaymentsList: React.FC = () => {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [searchType, setSearchType] = useState<'all' | 'receipt' | 'student' | 'reference' | 'code' | 'token' | 'student_id'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [stats, setStats] = useState<PaymentStats>({
@@ -178,6 +210,10 @@ const PaymentsList: React.FC = () => {
     failedPayments: 0,
     revenueChange: 0,
     paymentChange: 0,
+    averagePayment: 0,
+    thisMonthRevenue: 0,
+    lastMonthRevenue: 0,
+    approvalRate: 0,
   });
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sessionFilter, setSessionFilter] = useState<string>('all');
@@ -204,6 +240,8 @@ const PaymentsList: React.FC = () => {
   const [viewerImageError, setViewerImageError] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [isPremium, setIsPremium] = useState(true); // Set to true for premium features
 
   const pageSize = 10;
 
@@ -214,7 +252,6 @@ const PaymentsList: React.FC = () => {
     let termId = payment.term_id || '';
     let sessionId = payment.session_id || '';
 
-    // If columns are empty, try to get from metadata
     if (!session && payment.metadata) {
       session = payment.metadata.session || payment.metadata.fee_session || '';
       term = payment.metadata.term || payment.metadata.fee_term || '';
@@ -242,7 +279,7 @@ const PaymentsList: React.FC = () => {
             setSchoolInfo({
               id: '',
               school_id: 'BRANCH-001',
-              school_name: branchData.name || 'ebenezer International School',
+              school_name: branchData.name || 'Ebenezer International School',
               address: branchData.address || '42 Allen Avenue, Ikeja, Lagos',
               email: branchData.email || 'info@ebenezer.edu.ng',
               website: '',
@@ -277,7 +314,7 @@ const PaymentsList: React.FC = () => {
           setSchoolInfo({
             id: '',
             school_id: 'EBE-001',
-            school_name: 'ebenezer International School',
+            school_name: 'Ebenezer International School',
             address: '42 Allen Avenue, Ikeja, Lagos',
             email: 'info@ebenezer.edu.ng',
             website: 'www.ebenezer.edu.ng',
@@ -342,6 +379,51 @@ const PaymentsList: React.FC = () => {
     fetchUserBranch();
   }, [user]);
 
+  // Enhanced search function
+  const matchesSearch = useCallback((payment: Payment, term: string): boolean => {
+    if (!term) return true;
+    const lowerTerm = term.toLowerCase().trim();
+    
+    switch (searchType) {
+      case 'receipt':
+        return payment.receipt_number?.toLowerCase().includes(lowerTerm) ||
+               payment.receipt_code?.toLowerCase().includes(lowerTerm);
+      case 'student':
+        return payment.student_name?.toLowerCase().includes(lowerTerm) ||
+               payment.student_first_name?.toLowerCase().includes(lowerTerm) ||
+               payment.student_last_name?.toLowerCase().includes(lowerTerm) ||
+               payment.student_admission?.toLowerCase().includes(lowerTerm);
+      case 'reference':
+        return payment.transaction_reference?.toLowerCase().includes(lowerTerm) ||
+               payment.payment_id?.toLowerCase().includes(lowerTerm);
+      case 'code':
+        return payment.receipt_code?.toLowerCase().includes(lowerTerm);
+      case 'token':
+        return payment.verification_token?.toLowerCase().includes(lowerTerm) ||
+               payment.metadata?.verification_token?.toLowerCase().includes(lowerTerm);
+      case 'student_id':
+        return payment.student_id?.toLowerCase().includes(lowerTerm);
+      case 'all':
+      default:
+        return (
+          payment.receipt_number?.toLowerCase().includes(lowerTerm) ||
+          payment.receipt_code?.toLowerCase().includes(lowerTerm) ||
+          payment.student_name?.toLowerCase().includes(lowerTerm) ||
+          payment.student_first_name?.toLowerCase().includes(lowerTerm) ||
+          payment.student_last_name?.toLowerCase().includes(lowerTerm) ||
+          payment.student_admission?.toLowerCase().includes(lowerTerm) ||
+          payment.transaction_reference?.toLowerCase().includes(lowerTerm) ||
+          payment.payment_id?.toLowerCase().includes(lowerTerm) ||
+          payment.fee_name?.toLowerCase().includes(lowerTerm) ||
+          payment.academic_session?.toLowerCase().includes(lowerTerm) ||
+          payment.academic_term?.toLowerCase().includes(lowerTerm) ||
+          payment.verification_token?.toLowerCase().includes(lowerTerm) ||
+          payment.metadata?.verification_token?.toLowerCase().includes(lowerTerm) ||
+          payment.metadata?.receipt_code?.toLowerCase().includes(lowerTerm)
+        );
+    }
+  }, [searchType]);
+
   // Memoized fetch functions
   const fetchPayments = useCallback(async () => {
     if (!userBranchId) {
@@ -362,12 +444,10 @@ const PaymentsList: React.FC = () => {
         query = query.eq('status', statusFilter);
       }
 
-      // FIX 1: Date range with inclusive end date
       if (dateRange.start) {
         query = query.gte('payment_date', dateRange.start);
       }
       if (dateRange.end) {
-        // Add 1 day to include the full end date
         const endDatePlusOne = dayjs(dateRange.end).add(1, 'day').format('YYYY-MM-DD');
         query = query.lt('payment_date', endDatePlusOne);
       }
@@ -389,7 +469,6 @@ const PaymentsList: React.FC = () => {
           let studentClassName = 'N/A';
 
           if (payment.student_id) {
-            // Fetch student with class info
             const { data: studentData } = await supabase
               .from('students')
               .select(`
@@ -428,10 +507,8 @@ const PaymentsList: React.FC = () => {
             }
           }
 
-          // Extract session/term from payment or metadata
           const { session, term, termId, sessionId } = extractSessionAndTerm(payment);
 
-          // Use fee data if available, otherwise use extracted data
           const finalSession = feeSession || session || payment.academic_session || '';
           const finalTerm = feeTerm || term || payment.academic_term || '';
 
@@ -453,7 +530,7 @@ const PaymentsList: React.FC = () => {
         })
       );
 
-      // Apply session and term filters (client-side since they may come from metadata)
+      // Apply session and term filters (client-side)
       let filteredPayments = paymentsWithDetails;
       
       if (sessionFilter !== 'all') {
@@ -468,20 +545,9 @@ const PaymentsList: React.FC = () => {
         );
       }
 
+      // Apply enhanced search
       if (searchTerm) {
-        const term = searchTerm.toLowerCase();
-        filteredPayments = filteredPayments.filter(p => 
-          p.receipt_number?.toLowerCase().includes(term) ||
-          p.transaction_reference?.toLowerCase().includes(term) ||
-          p.student_name?.toLowerCase().includes(term) ||
-          p.student_first_name?.toLowerCase().includes(term) ||
-          p.student_last_name?.toLowerCase().includes(term) ||
-          p.student_admission?.toLowerCase().includes(term) ||
-          p.payment_id?.toLowerCase().includes(term) ||
-          p.fee_name?.toLowerCase().includes(term) ||
-          p.academic_session?.toLowerCase().includes(term) ||
-          p.academic_term?.toLowerCase().includes(term)
-        );
+        filteredPayments = filteredPayments.filter(p => matchesSearch(p, searchTerm));
       }
 
       setPayments(filteredPayments);
@@ -496,7 +562,7 @@ const PaymentsList: React.FC = () => {
       setLoading(false);
       setIsInitialLoad(false);
     }
-  }, [userBranchId, statusFilter, dateRange, currentPage, searchTerm, sessionFilter, termFilter, extractSessionAndTerm]);
+  }, [userBranchId, statusFilter, dateRange, currentPage, searchTerm, sessionFilter, termFilter, extractSessionAndTerm, matchesSearch]);
 
   const fetchPaymentStats = useCallback(async () => {
     if (!userBranchId) return;
@@ -521,14 +587,19 @@ const PaymentsList: React.FC = () => {
         p.status === 'pending' && p.due_date && dayjs(p.due_date).isBefore(dayjs())
       ).length || 0;
 
-      const lastMonth = dayjs().subtract(1, 'month').startOf('month');
       const thisMonth = dayjs().startOf('month');
+      const lastMonth = dayjs().subtract(1, 'month').startOf('month');
+      
+      const thisMonthRevenue = data?.filter(p => dayjs(p.created_at).isAfter(thisMonth))
+        .reduce((sum, p) => sum + (p.amount_paid || 0), 0) || 0;
       
       const lastMonthRevenue = data?.filter(p => dayjs(p.created_at).isBefore(thisMonth) && dayjs(p.created_at).isAfter(lastMonth))
         .reduce((sum, p) => sum + (p.amount_paid || 0), 0) || 0;
       
+      const averagePayment = totalPayments > 0 ? totalRevenue / totalPayments : 0;
+      const approvalRate = totalPayments > 0 ? (completedPayments / totalPayments) * 100 : 0;
       const revenueChange = lastMonthRevenue > 0 
-        ? Number(((totalRevenue - lastMonthRevenue) / lastMonthRevenue * 100).toFixed(1))
+        ? Number(((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue * 100).toFixed(1))
         : 0;
 
       setStats({
@@ -540,6 +611,10 @@ const PaymentsList: React.FC = () => {
         failedPayments,
         revenueChange,
         paymentChange: 0,
+        averagePayment,
+        thisMonthRevenue,
+        lastMonthRevenue,
+        approvalRate,
       });
     } catch (error) {
       console.error('Error fetching payment stats:', error);
@@ -556,7 +631,6 @@ const PaymentsList: React.FC = () => {
 
   // --- Get receipt URL from multiple sources ---
   const getReceiptUrl = useCallback((payment: Payment): string | null => {
-    // Check direct URL fields first
     if (payment.receipt_url && payment.receipt_url.startsWith('http')) {
       return payment.receipt_url;
     }
@@ -573,7 +647,6 @@ const PaymentsList: React.FC = () => {
       return payment.metadata.proof_url;
     }
 
-    // Try to construct from paths
     const path = payment.receipt_path || payment.metadata?.receipt_path || 
                  payment.payment_proof_path || payment.metadata?.proof_path;
     
@@ -677,11 +750,10 @@ const PaymentsList: React.FC = () => {
   const handleRotate = useCallback(() => setImageRotation(prev => (prev + 90) % 360), []);
   const handleReset = useCallback(() => { setImageZoom(1); setImageRotation(0); }, []);
 
-  // FIX 2: Updated handleApprovePayment with session/term population
+  // Updated handleApprovePayment with session/term population
   const handleApprovePayment = async (paymentId: string) => {
     setProcessing(true);
     try {
-      // First, get the payment to find its fee_id and assignment_id
       const { data: payment, error: fetchError } = await supabase
         .from('payments')
         .select('fee_id, assignment_id, student_id, branch_id, metadata')
@@ -694,7 +766,6 @@ const PaymentsList: React.FC = () => {
       let academicTerm = '';
       let termId = '';
 
-      // Try to get from fee
       if (payment?.fee_id) {
         const { data: feeData } = await supabase
           .from('fees')
@@ -709,7 +780,6 @@ const PaymentsList: React.FC = () => {
         }
       }
 
-      // If not found in fee, try from assignment
       if (!academicSession && payment?.assignment_id) {
         const { data: assignmentData } = await supabase
           .from('student_fee_assignments')
@@ -724,7 +794,6 @@ const PaymentsList: React.FC = () => {
         }
       }
 
-      // If still not found, try from the branch's current session
       if (!academicSession && payment?.branch_id) {
         const { data: branchData } = await supabase
           .from('branches')
@@ -733,7 +802,6 @@ const PaymentsList: React.FC = () => {
           .single();
         
         if (branchData) {
-          // Try to get session details
           if (branchData.current_session_id) {
             const { data: sessionData } = await supabase
               .from('academic_sessions')
@@ -750,15 +818,14 @@ const PaymentsList: React.FC = () => {
         }
       }
 
-      // Update the payment with status, approval info, AND session/term data
       const updateData: any = {
         status: 'completed',
         approved_by: user?.id,
         approved_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        receipt_security_status: 'AUTHENTIC',
       };
 
-      // Only add session/term fields if we have values
       if (academicSession) {
         updateData.academic_session = academicSession;
       }
@@ -767,11 +834,9 @@ const PaymentsList: React.FC = () => {
       }
       if (termId) {
         updateData.term_id = termId;
-        // Also update session_id if we have the term ID
         updateData.session_id = termId;
       }
 
-      // Update metadata with session/term info
       const currentMetadata = payment?.metadata || {};
       updateData.metadata = {
         ...currentMetadata,
@@ -783,6 +848,7 @@ const PaymentsList: React.FC = () => {
         fee_session: academicSession || currentMetadata?.fee_session || '',
         approved_at: new Date().toISOString(),
         approved_by: user?.id,
+        receipt_security_status: 'AUTHENTIC',
       };
 
       const { error } = await supabase
@@ -792,7 +858,7 @@ const PaymentsList: React.FC = () => {
 
       if (error) throw error;
 
-      toast.success('Payment approved successfully! Session and term data populated.');
+      toast.success('✅ Payment approved successfully! Session and term data populated.');
       setShowApproveModal(false);
       fetchPayments();
       fetchPaymentStats();
@@ -890,16 +956,16 @@ const PaymentsList: React.FC = () => {
 
   const copyToClipboard = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
-    toast.success('Copied to clipboard');
+    toast.success('📋 Copied to clipboard');
   }, []);
 
   const exportPayments = () => {
-    toast.success('Export started. Download will begin shortly.');
+    toast.success('📊 Export started. Download will begin shortly.');
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
 
-  // Format payment for receipt modal - ensure all required fields exist
+  // Format payment for receipt modal
   const formatPaymentForReceipt = (payment: Payment) => {
     return {
       ...payment,
@@ -921,6 +987,7 @@ const PaymentsList: React.FC = () => {
     setSessionFilter('all');
     setTermFilter('all');
     setSearchTerm('');
+    setSearchType('all');
     setDateRange({
       start: dayjs().subtract(30, 'days').format('YYYY-MM-DD'),
       end: dayjs().format('YYYY-MM-DD'),
@@ -938,12 +1005,46 @@ const PaymentsList: React.FC = () => {
 
   return (
     <div className="space-y-6 print:space-y-0">
+      {/* Premium Banner */}
+      {isPremium && (
+        <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-pink-500 rounded-2xl p-4 sm:p-6 text-white shadow-lg shadow-amber-500/25 print:hidden">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Crown className="w-8 h-8 text-white/90" />
+              <div>
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  Premium Payments Dashboard
+                  <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">PRO</span>
+                </h3>
+                <p className="text-white/80 text-sm">
+                  Enhanced analytics, advanced search, and premium features
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-sm bg-white/20 px-4 py-2 rounded-xl">
+              <Sparkles className="w-4 h-4" />
+              <span>{payments.length} payments tracked</span>
+              <span className="w-px h-4 bg-white/30" />
+              <span>{formatCurrency(stats.totalRevenue)} revenue</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 print:hidden">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Payments</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            Payments
+            {isPremium && (
+              <span className="text-xs bg-gradient-to-r from-amber-500 to-orange-500 text-white px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                <Star className="w-3 h-3" />
+                Premium
+              </span>
+            )}
+          </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
-            Track and manage all payments
+            Track and manage all payments with advanced search
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -964,39 +1065,92 @@ const PaymentsList: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 print:hidden">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Total Revenue</p>
+      {/* Premium Stats Cards - Enhanced */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4 print:hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Total Revenue</p>
+            <DollarSign className="w-4 h-4 text-green-500" />
+          </div>
           <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(stats.totalRevenue)}</p>
           <div className={`flex items-center gap-1 text-xs ${stats.revenueChange >= 0 ? 'text-green-600' : 'text-red-600'} mt-1`}>
             {stats.revenueChange >= 0 ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
-            {Math.abs(stats.revenueChange)}%
+            {Math.abs(stats.revenueChange)}% this month
           </div>
+          {isPremium && (
+            <div className="text-[10px] text-gray-400 mt-1">
+              Avg: {formatCurrency(stats.averagePayment)}/payment
+            </div>
+          )}
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Total Payments</p>
+        
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Total Payments</p>
+            <Receipt className="w-4 h-4 text-blue-500" />
+          </div>
           <p className="text-xl font-bold text-gray-900 dark:text-white">{stats.totalPayments}</p>
+          {isPremium && (
+            <div className="text-[10px] text-gray-400 mt-1">
+              {stats.thisMonthRevenue > 0 ? `${Math.round((stats.thisMonthRevenue / stats.totalRevenue) * 100)}% this month` : 'No data'}
+            </div>
+          )}
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Completed</p>
+        
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Completed</p>
+            <BadgeCheck className="w-4 h-4 text-green-500" />
+          </div>
           <p className="text-xl font-bold text-green-600 dark:text-green-400">{stats.completedPayments}</p>
+          {isPremium && (
+            <div className="text-[10px] text-gray-400 mt-1">
+              {stats.approvalRate.toFixed(0)}% approval rate
+            </div>
+          )}
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
+        
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
+            <ClockIcon className="w-4 h-4 text-yellow-500" />
+          </div>
           <p className="text-xl font-bold text-yellow-600 dark:text-yellow-400">{stats.pendingPayments}</p>
+          {isPremium && (
+            <div className="text-[10px] text-gray-400 mt-1">
+              {stats.pendingPayments > 0 ? 'Awaiting approval' : 'All clear ✅'}
+            </div>
+          )}
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Overdue</p>
+        
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Overdue</p>
+            <AlertCircle className="w-4 h-4 text-red-500" />
+          </div>
           <p className="text-xl font-bold text-red-600 dark:text-red-400">{stats.overduePayments}</p>
+          {isPremium && (
+            <div className="text-[10px] text-gray-400 mt-1">
+              {stats.overduePayments > 0 ? `⚠️ ${stats.overduePayments} need attention` : 'All good ✅'}
+            </div>
+          )}
         </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Failed</p>
+        
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Failed</p>
+            <XCircle className="w-4 h-4 text-red-500" />
+          </div>
           <p className="text-xl font-bold text-gray-600 dark:text-gray-400">{stats.failedPayments}</p>
+          {isPremium && (
+            <div className="text-[10px] text-gray-400 mt-1">
+              {stats.failedPayments > 0 ? `${Math.round((stats.failedPayments / stats.totalPayments) * 100)}% failure rate` : 'No failures ✅'}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Premium Search - Enhanced with search type selector */}
       <div className="flex flex-col gap-3 print:hidden">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1 relative">
@@ -1008,11 +1162,46 @@ const PaymentsList: React.FC = () => {
                 setSearchTerm(e.target.value);
                 setCurrentPage(1);
               }}
-              placeholder="Search by receipt, reference, student, admission, or session..."
+              placeholder={
+                searchType === 'receipt' ? 'Search by Receipt Number or Code...' :
+                searchType === 'student' ? 'Search by Student Name or Admission...' :
+                searchType === 'reference' ? 'Search by Transaction Reference...' :
+                searchType === 'code' ? 'Search by Receipt Code...' :
+                searchType === 'token' ? 'Search by Verification Token...' :
+                searchType === 'student_id' ? 'Search by Student ID...' :
+                'Search by receipt, code, student, reference, token...'
+              }
               className="w-full pl-10 pr-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
             />
+            {isPremium && searchTerm && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                <span className="text-xs text-blue-500 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded-full">
+                  {searchType === 'all' ? 'All fields' : searchType}
+                </span>
+              </div>
+            )}
           </div>
+          
           <div className="flex flex-wrap items-center gap-2">
+            {isPremium && (
+              <select
+                value={searchType}
+                onChange={(e) => {
+                  setSearchType(e.target.value as any);
+                  setCurrentPage(1);
+                }}
+                className="px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
+              >
+                <option value="all">All Fields</option>
+                <option value="receipt">Receipt #</option>
+                <option value="code">Receipt Code</option>
+                <option value="student">Student</option>
+                <option value="reference">Reference</option>
+                <option value="token">Verification Token</option>
+                <option value="student_id">Student ID</option>
+              </select>
+            )}
+            
             <select
               value={statusFilter}
               onChange={(e) => {
@@ -1028,77 +1217,108 @@ const PaymentsList: React.FC = () => {
               <option value="processing">Processing</option>
             </select>
             
-            {/* Session Filter */}
-            <select
-              value={sessionFilter}
-              onChange={(e) => {
-                setSessionFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
+            <button
+              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+              className="flex items-center gap-1.5 px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all text-sm"
             >
-              <option value="all">All Sessions</option>
-              {AVAILABLE_SESSIONS.map(session => (
-                <option key={session} value={session}>{session}</option>
-              ))}
-            </select>
-            
-            {/* Term Filter */}
-            <select
-              value={termFilter}
-              onChange={(e) => {
-                setTermFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
-            >
-              <option value="all">All Terms</option>
-              {AVAILABLE_TERMS.map(term => (
-                <option key={term} value={term}>{term}</option>
-              ))}
-            </select>
+              <Filter className="w-4 h-4" />
+              {showAdvancedFilters ? 'Hide' : 'Advanced'}
+            </button>
           </div>
         </div>
         
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <CalendarIcon className="w-4 h-4 text-gray-400" />
-            <input
-              type="date"
-              value={dateRange.start}
-              onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
-            />
-            <span className="text-gray-500 dark:text-gray-400">to</span>
-            <input
-              type="date"
-              value={dateRange.end}
-              onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-              className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
-            />
-          </div>
-          
-          {(statusFilter !== 'all' || sessionFilter !== 'all' || termFilter !== 'all' || searchTerm) && (
-            <button
-              onClick={clearFilters}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
+        {/* Advanced Filters */}
+        <AnimatePresence>
+          {showAdvancedFilters && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden"
             >
-              <X className="w-4 h-4" />
-              Clear Filters
-            </button>
+              <div className="p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <CalendarIcon className="w-4 h-4 text-gray-400" />
+                    <input
+                      type="date"
+                      value={dateRange.start}
+                      onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+                      className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
+                    />
+                    <span className="text-gray-500 dark:text-gray-400">to</span>
+                    <input
+                      type="date"
+                      value={dateRange.end}
+                      onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+                      className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
+                    />
+                  </div>
+                  
+                  {/* Session Filter */}
+                  <select
+                    value={sessionFilter}
+                    onChange={(e) => {
+                      setSessionFilter(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
+                  >
+                    <option value="all">All Sessions</option>
+                    {AVAILABLE_SESSIONS.map(session => (
+                      <option key={session} value={session}>{session}</option>
+                    ))}
+                  </select>
+                  
+                  {/* Term Filter */}
+                  <select
+                    value={termFilter}
+                    onChange={(e) => {
+                      setTermFilter(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white text-sm"
+                  >
+                    <option value="all">All Terms</option>
+                    {AVAILABLE_TERMS.map(term => (
+                      <option key={term} value={term}>{term}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="flex flex-wrap items-center gap-3">
+                  {isPremium && (
+                    <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                      <ShieldCheck className="w-4 h-4 text-green-500" />
+                      <span>Secure verification enabled</span>
+                    </div>
+                  )}
+                  
+                  {(statusFilter !== 'all' || sessionFilter !== 'all' || termFilter !== 'all' || searchTerm) && (
+                    <button
+                      onClick={clearFilters}
+                      className="flex items-center gap-1.5 px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all"
+                    >
+                      <X className="w-4 h-4" />
+                      Clear All Filters
+                    </button>
+                  )}
+                  
+                  <button
+                    onClick={() => {
+                      fetchPayments();
+                      toast.success('🔄 Data refreshed!');
+                    }}
+                    className="p-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
+                    title="Refresh"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </motion.div>
           )}
-          
-          <button
-            onClick={() => {
-              fetchPayments();
-              toast.success('Refreshed!');
-            }}
-            className="p-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
-            title="Refresh"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-        </div>
+        </AnimatePresence>
       </div>
 
       {/* Payments Table */}
@@ -1151,13 +1371,22 @@ const PaymentsList: React.FC = () => {
                   const isOverdue = isPending && payment.due_date && dayjs(payment.due_date).isBefore(dayjs());
                   const hasReceiptImage = hasReceipt(payment);
                   const isSuccessful = payment.status === 'completed' || payment.status === 'paid' || payment.status === 'approved';
+                  const isVerified = payment.receipt_security_status === 'AUTHENTIC';
 
                   return (
                     <tr key={payment.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition">
                       <td className="px-4 sm:px-6 py-4">
                         <div>
-                          <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-2">
                             {payment.receipt_number}
+                            {isVerified && (
+                              <Verified className="w-3 h-3 text-green-500" />
+                            )}
+                            {payment.receipt_code && (
+                              <span className="text-xs text-gray-400 font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
+                                {payment.receipt_code}
+                              </span>
+                            )}
                           </p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">
                             {payment.student_name} • {payment.student_admission}
@@ -1167,17 +1396,25 @@ const PaymentsList: React.FC = () => {
                               Class: {payment.student_class_name}
                             </p>
                           )}
-                          {hasReceiptImage && (
-                            <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
-                              <Check className="w-3 h-3" />
-                              Receipt uploaded
-                            </span>
-                          )}
-                          {payment.assignment_id && (
-                            <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 ml-2">
-                              ✓ Assigned
-                            </span>
-                          )}
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            {hasReceiptImage && (
+                              <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                                <Check className="w-3 h-3" />
+                                Receipt uploaded
+                              </span>
+                            )}
+                            {payment.assignment_id && (
+                              <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+                                ✓ Assigned
+                              </span>
+                            )}
+                            {payment.verification_token && (
+                              <span className="inline-flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400">
+                                <Key className="w-3 h-3" />
+                                Token: {payment.verification_token.substring(0, 12)}...
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="hidden md:table-cell px-4 sm:px-6 py-4">
@@ -1223,13 +1460,21 @@ const PaymentsList: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-4 sm:px-6 py-4">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(payment.status)}`}>
-                          {getStatusIcon(payment.status)}
-                          {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
-                          {isOverdue && (
-                            <span className="ml-1 text-red-500">(Overdue)</span>
+                        <div className="flex flex-col gap-1">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(payment.status)}`}>
+                            {getStatusIcon(payment.status)}
+                            {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
+                            {isOverdue && (
+                              <span className="ml-1 text-red-500">(Overdue)</span>
+                            )}
+                          </span>
+                          {isVerified && (
+                            <span className="text-[10px] text-green-600 dark:text-green-400 flex items-center gap-0.5">
+                              <ShieldCheck className="w-3 h-3" />
+                              Verified
+                            </span>
                           )}
-                        </span>
+                        </div>
                       </td>
                       <td className="hidden lg:table-cell px-4 sm:px-6 py-4">
                         <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -1572,8 +1817,20 @@ const PaymentsList: React.FC = () => {
                   <p className="font-medium text-gray-900 dark:text-white">{selectedPayment.receipt_number}</p>
                 </div>
                 <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Receipt Code</p>
+                  <p className="font-medium text-gray-900 dark:text-white font-mono text-sm">
+                    {selectedPayment.receipt_code || 'N/A'}
+                  </p>
+                </div>
+                <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Transaction Reference</p>
                   <p className="font-medium text-gray-900 dark:text-white">{selectedPayment.transaction_reference || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Verification Token</p>
+                  <p className="font-medium text-gray-900 dark:text-white font-mono text-sm">
+                    {selectedPayment.verification_token || selectedPayment.metadata?.verification_token || 'N/A'}
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Student</p>
@@ -1610,6 +1867,21 @@ const PaymentsList: React.FC = () => {
                   <p className="font-medium text-gray-900 dark:text-white capitalize">
                     {selectedPayment.payment_method?.replace('_', ' ') || 'N/A'}
                   </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Security Status</p>
+                  <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                    selectedPayment.receipt_security_status === 'AUTHENTIC' 
+                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                      : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                  }`}>
+                    {selectedPayment.receipt_security_status === 'AUTHENTIC' ? (
+                      <ShieldCheck className="w-3 h-3" />
+                    ) : (
+                      <Shield className="w-3 h-3" />
+                    )}
+                    {selectedPayment.receipt_security_status || 'PENDING'}
+                  </span>
                 </div>
                 <div>
                   <p className="text-sm text-gray-500 dark:text-gray-400">Status</p>

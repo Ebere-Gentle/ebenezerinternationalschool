@@ -1,0 +1,455 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers':
+    'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const RECEIPT_SIGNING_SECRET = Deno.env.get('RECEIPT_SIGNING_SECRET');
+
+if (!RECEIPT_SIGNING_SECRET) {
+  throw new Error('RECEIPT_SIGNING_SECRET is not configured');
+}
+
+const supabaseAdmin = createClient(
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
+);
+
+function hex(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function hmacSha256(
+  secret: string,
+  message: string,
+): Promise<string> {
+  const encoder = new TextEncoder();
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    {
+      name: 'HMAC',
+      hash: 'SHA-256',
+    },
+    false,
+    ['sign'],
+  );
+
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    encoder.encode(message),
+  );
+
+  return hex(signature);
+}
+
+function constantTimeEqual(
+  a: string,
+  b: string,
+): boolean {
+  if (a.length !== b.length) return false;
+
+  let result = 0;
+
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+
+  return result === 0;
+}
+
+function canonicalPayload(payment: {
+  id: string;
+  receipt_number: string;
+  student_id: string;
+  amount_paid: number;
+  transaction_reference?: string | null;
+  payment_date?: string | null;
+}): string {
+  return [
+    'EIS-RECEIPT-V1',
+    payment.id,
+    payment.receipt_number,
+    payment.student_id,
+    Number(payment.amount_paid || 0).toFixed(2),
+    payment.transaction_reference || '',
+    payment.payment_date || '',
+  ].join('|');
+}
+
+async function logVerification(input: {
+  receiptNumber: string;
+  paymentId?: string | null;
+  status: string;
+  scannedSignature?: string | null;
+  storedSignature?: string | null;
+  request: Request;
+}) {
+  const forwardedFor =
+    input.request.headers.get('x-forwarded-for');
+
+  const realIp =
+    input.request.headers.get('x-real-ip');
+
+  const ipAddress =
+    forwardedFor?.split(',')[0]?.trim() ||
+    realIp ||
+    null;
+
+  await supabaseAdmin
+    .from('receipt_verification_logs')
+    .insert({
+      receipt_number: input.receiptNumber,
+      payment_id: input.paymentId || null,
+      verification_status: input.status,
+      scanned_signature:
+        input.scannedSignature || null,
+      stored_signature:
+        input.storedSignature || null,
+      verification_method:
+        input.scannedSignature
+          ? 'qr_or_barcode'
+          : 'receipt_number',
+      ip_address: ipAddress,
+      user_agent:
+        input.request.headers.get('user-agent'),
+      metadata: {},
+    });
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', {
+      headers: corsHeaders,
+    });
+  }
+
+  if (req.method !== 'POST') {
+    return new Response(
+      JSON.stringify({
+        valid: false,
+        status: 'ERROR',
+        message: 'POST required',
+      }),
+      {
+        status: 405,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+  }
+
+  try {
+    const body = await req.json();
+
+    let receiptNumber =
+      String(body.receiptNumber || '').trim();
+
+    let scannedSignature =
+      String(body.signature || '').trim();
+
+    /*
+     * Allow QR payloads to be sent directly.
+     */
+    if (body.qrPayload) {
+      try {
+        const parsed =
+          typeof body.qrPayload === 'string'
+            ? JSON.parse(body.qrPayload)
+            : body.qrPayload;
+
+        receiptNumber =
+          String(parsed.receipt || '').trim();
+
+        scannedSignature =
+          String(parsed.signature || '').trim();
+      } catch {
+        // Continue with normal receipt/signature fields.
+      }
+    }
+
+    /*
+     * Allow CODE128 payload:
+     *
+     * EIS|RECEIPT|SIGNATURE
+     */
+    if (
+      body.barcodePayload &&
+      !receiptNumber
+    ) {
+      const parts =
+        String(body.barcodePayload).split('|');
+
+      if (
+        parts.length >= 3 &&
+        parts[0] === 'EIS'
+      ) {
+        receiptNumber = parts[1].trim();
+        scannedSignature = parts[2].trim();
+      }
+    }
+
+    if (!receiptNumber) {
+      return new Response(
+        JSON.stringify({
+          valid: false,
+          status: 'NOT_FOUND',
+          message: 'Receipt number is required.',
+        }),
+        {
+          status: 400,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    }
+
+    const { data: payment, error } =
+      await supabaseAdmin
+        .from('payments')
+        .select(
+          'id, receipt_number, student_id, amount_paid, transaction_reference, payment_date, receipt_signature, receipt_security_status, receipt_revoked_at, status',
+        )
+        .eq('receipt_number', receiptNumber)
+        .maybeSingle();
+
+    if (error) {
+      console.error(error);
+
+      return new Response(
+        JSON.stringify({
+          valid: false,
+          status: 'ERROR',
+          message: error.message,
+        }),
+        {
+          status: 500,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    }
+
+    if (!payment) {
+      await logVerification({
+        receiptNumber,
+        status: 'NOT_FOUND',
+        scannedSignature,
+        request: req,
+      });
+
+      return new Response(
+        JSON.stringify({
+          valid: false,
+          status: 'NOT_FOUND',
+          message:
+            'This receipt number does not exist in the official school payment records.',
+        }),
+        {
+          status: 404,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    }
+
+    if (
+      payment.receipt_revoked_at ||
+      payment.receipt_security_status === 'REVOKED'
+    ) {
+      await logVerification({
+        receiptNumber,
+        paymentId: payment.id,
+        status: 'REVOKED',
+        scannedSignature,
+        storedSignature:
+          payment.receipt_signature,
+        request: req,
+      });
+
+      return new Response(
+        JSON.stringify({
+          valid: false,
+          status: 'REVOKED',
+          message:
+            'This receipt has been revoked by the school.',
+        }),
+        {
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    }
+
+    const canonical =
+      canonicalPayload(payment);
+
+    const expectedSignature =
+      await hmacSha256(
+        RECEIPT_SIGNING_SECRET,
+        canonical,
+      );
+
+    /*
+     * First verify the stored receipt itself.
+     */
+    const storedSignature =
+      payment.receipt_signature || '';
+
+    if (
+      !storedSignature ||
+      !constantTimeEqual(
+        expectedSignature,
+        storedSignature,
+      )
+    ) {
+      await logVerification({
+        receiptNumber,
+        paymentId: payment.id,
+        status: 'TAMPERED',
+        scannedSignature,
+        storedSignature,
+        request: req,
+      });
+
+      return new Response(
+        JSON.stringify({
+          valid: false,
+          status: 'TAMPERED',
+          message:
+            'The official payment record no longer matches its cryptographic receipt signature.',
+        }),
+        {
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    }
+
+    /*
+     * If a signature was scanned, compare it.
+     */
+    if (
+      scannedSignature &&
+      !constantTimeEqual(
+        expectedSignature,
+        scannedSignature,
+      )
+    ) {
+      await logVerification({
+        receiptNumber,
+        paymentId: payment.id,
+        status: 'INVALID_SIGNATURE',
+        scannedSignature,
+        storedSignature,
+        request: req,
+      });
+
+      return new Response(
+        JSON.stringify({
+          valid: false,
+          status: 'INVALID_SIGNATURE',
+          message:
+            'The barcode or QR signature does not match the official receipt.',
+        }),
+        {
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+    }
+
+    await supabaseAdmin
+      .from('payments')
+      .update({
+        receipt_security_status: 'AUTHENTIC',
+      })
+      .eq('id', payment.id);
+
+    await logVerification({
+      receiptNumber,
+      paymentId: payment.id,
+      status: 'AUTHENTIC',
+      scannedSignature,
+      storedSignature,
+      request: req,
+    });
+
+    return new Response(
+      JSON.stringify({
+        valid: true,
+        status: 'AUTHENTIC',
+        message:
+          'This receipt is authentic and matches the official school payment record.',
+        receipt: {
+          receipt_number:
+            payment.receipt_number,
+          amount:
+            Number(payment.amount_paid || 0),
+          currency: 'NGN',
+          student_id:
+            payment.student_id,
+          transaction_reference:
+            payment.transaction_reference,
+          payment_id:
+            payment.id,
+          issued_at:
+            payment.payment_date,
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+  } catch (error) {
+    console.error(error);
+
+    return new Response(
+      JSON.stringify({
+        valid: false,
+        status: 'ERROR',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'Unexpected server error',
+      }),
+      {
+        status: 500,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+  }
+});

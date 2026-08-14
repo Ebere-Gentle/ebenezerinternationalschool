@@ -37,7 +37,6 @@ import {
   Shield as ShieldIcon,
   X,
   BookOpen,
-  Shield,
   Bus,
   HeartHandshake,
   Save,
@@ -47,7 +46,9 @@ import {
   Landmark,
   Smartphone,
   Eye,
-  Copy
+  Copy,
+  Percent,
+  ListChecks
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
@@ -85,6 +86,9 @@ interface Fee {
   branch_name?: string;
   class_name?: string;
   fee_template_id?: string;
+  target_type?: string;
+  target_ids?: string[];
+  is_template_instance?: boolean;
 }
 
 interface StudentFeeAssignment {
@@ -114,6 +118,15 @@ interface StudentFeeAssignment {
   student_email?: string;
   student_id_number?: string;
   student_class?: string;
+  // Waiver breakdown items
+  waiver_breakdown_items?: WaiverBreakdownItem[];
+}
+
+interface WaiverBreakdownItem {
+  item_name: string;
+  amount: number;
+  waiver_amount: number;
+  original_amount: number;
 }
 
 interface FeeExemption {
@@ -159,11 +172,26 @@ interface PaymentRecord {
   student_id_number?: string;
 }
 
+interface BreakdownItem {
+  id?: string;
+  item_name: string;
+  amount: number;
+  description?: string;
+  is_mandatory?: boolean;
+  is_optional?: boolean;
+  percentage_of_total?: number;
+  original_amount?: number;
+  waiver_percentage?: number;
+  waiver_amount?: number;
+  final_amount?: number;
+  waiver_applied?: boolean;
+}
+
 // Category labels
 const categoryLabels: Record<string, { label: string; description: string; icon: any }> = {
   school_fees: { label: 'School Fees', description: 'Main tuition fees - usually termly', icon: School },
   books: { label: 'Books & Stationery', description: 'Textbooks and stationery - per session', icon: BookOpen },
-  uniform: { label: 'School Uniform', description: 'Complete uniform set - same price for all classes', icon: Shield },
+  uniform: { label: 'School Uniform', description: 'Complete uniform set - same price for all classes', icon: ShieldIcon },
   sportswear: { label: 'Sports Wear', description: 'PE kits and sports jerseys', icon: TrendingUp },
   bus: { label: 'School Bus', description: 'Transportation service - optional', icon: Bus },
   pta: { label: 'PTA Levy', description: 'Parent-Teacher Association contribution', icon: HeartHandshake },
@@ -218,17 +246,25 @@ const FeeDetail: React.FC = () => {
   const [selectedPayment, setSelectedPayment] = useState<PaymentRecord | null>(null);
   const [showPaymentDetails, setShowPaymentDetails] = useState(false);
   
+  // Waiver state
+  const [waiverType, setWaiverType] = useState<'percentage' | 'amount'>('percentage');
+  const [waiverValue, setWaiverValue] = useState<number>(0);
+  const [waiverReason, setWaiverReason] = useState<string>('');
+  const [selectedBreakdownItems, setSelectedBreakdownItems] = useState<string[]>([]);
+  const [breakdownItems, setBreakdownItems] = useState<BreakdownItem[]>([]);
+  
+  // Exemption state
+  const [exemptionType, setExemptionType] = useState<'percentage' | 'amount'>('percentage');
+  const [exemptionValue, setExemptionValue] = useState<number>(0);
+  const [exemptionReason, setExemptionReason] = useState<string>('');
+  const [exemptionCategory, setExemptionCategory] = useState<string>('staff_child');
+  
   // Form states
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [paymentReference, setPaymentReference] = useState('');
   const [amountPaid, setAmountPaid] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<string>('cash');
-  const [waiverPercentage, setWaiverPercentage] = useState<number>(100);
-  const [waiverReason, setWaiverReason] = useState<string>('');
-  const [exemptionType, setExemptionType] = useState<string>('staff_child');
-  const [exemptionReason, setExemptionReason] = useState<string>('');
-  const [exemptionPercentage, setExemptionPercentage] = useState<number>(100);
   
   // Summary
   const [summaryData, setSummaryData] = useState({
@@ -287,30 +323,40 @@ const FeeDetail: React.FC = () => {
       }
 
       let className = 'All Classes';
-      if (feeData.class_id) {
+      
+      if (feeData.target_type === 'class' && feeData.target_ids && feeData.target_ids.length > 0) {
+        const { data: classData, error: classError } = await supabase
+          .from('classes')
+          .select('name')
+          .in('id', feeData.target_ids);
+        
+        if (!classError && classData && classData.length > 0) {
+          const classNames = classData.map(c => c.name).filter(Boolean);
+          if (classNames.length === 1) {
+            className = classNames[0];
+          } else if (classNames.length > 1) {
+            className = `${classNames.length} classes`;
+          }
+        }
+      } else if (feeData.class_id) {
         const { data: classData } = await supabase
           .from('classes')
           .select('name')
           .eq('id', feeData.class_id)
           .single();
         if (classData) className = classData.name;
+      } else if (feeData.metadata?.class_name) {
+        className = feeData.metadata.class_name;
       }
 
-      // ============================================
-      // FIX: Check if fee has breakdown in metadata
-      // If not, try to get it from the template
-      // ============================================
       let metadata = feeData.metadata || {};
       
-      // Check if breakdown exists in fee metadata
       const hasBreakdown = metadata?.fee_breakdown && 
-                           Array.isArray(metadata.fee_breakdown) && 
-                           metadata.fee_breakdown.length > 0;
+                           typeof metadata.fee_breakdown === 'object' &&
+                           Array.isArray(metadata.fee_breakdown?.items) && 
+                           metadata.fee_breakdown.items.length > 0;
       
-      // If no breakdown and fee has a template, fetch from template
       if (!hasBreakdown && feeData.fee_template_id) {
-        console.log('Fetching breakdown from template:', feeData.fee_template_id);
-        
         const { data: templateData, error: templateError } = await supabase
           .from('fee_templates')
           .select('metadata')
@@ -318,23 +364,29 @@ const FeeDetail: React.FC = () => {
           .single();
         
         if (!templateError && templateData?.metadata?.fee_breakdown) {
-          // Copy breakdown from template to fee metadata
           metadata = {
             ...metadata,
             fee_breakdown: templateData.metadata.fee_breakdown,
             breakdown_from_template: true,
             template_id: feeData.fee_template_id
           };
-          
-          console.log('Breakdown loaded from template:', templateData.metadata.fee_breakdown);
         }
+      }
+      
+      if (!metadata?.fee_breakdown && metadata?.fee_breakdown_items) {
+        metadata.fee_breakdown = {
+          items: metadata.fee_breakdown_items,
+          total_amount: metadata.fee_breakdown_items?.reduce((sum: number, item: any) => sum + (item.amount || 0), 0) || 0
+        };
       }
 
       setFee({ 
         ...feeData, 
         branch_name: branchName, 
         class_name: className,
-        metadata: metadata 
+        metadata: metadata,
+        target_type: feeData.target_type || 'all',
+        target_ids: feeData.target_ids || []
       });
     } catch (error: any) {
       console.error('Error fetching fee details:', error);
@@ -343,6 +395,72 @@ const FeeDetail: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // ============================================
+  // Extract waiver breakdown items from assignment metadata
+  // ============================================
+  const extractWaiverBreakdownItems = (assignment: StudentFeeAssignment): WaiverBreakdownItem[] => {
+    const items: WaiverBreakdownItem[] = [];
+    
+    // Check assignment metadata for waiver breakdown
+    if (assignment.metadata?.waiver_applied?.breakdown_items) {
+      const breakdown = assignment.metadata.waiver_applied.breakdown_items;
+      
+      // Handle different formats
+      if (Array.isArray(breakdown)) {
+        breakdown.forEach((item: any) => {
+          // Check if it's an object with item_name
+          if (typeof item === 'object' && item.item_name) {
+            items.push({
+              item_name: item.item_name,
+              amount: item.amount || 0,
+              waiver_amount: item.waiver_amount || 0,
+              original_amount: item.original_amount || item.amount || 0
+            });
+          } else if (typeof item === 'string') {
+            // If it's just a string (item name), try to find it in the fee breakdown
+            const feeBreakdown = fee?.metadata?.fee_breakdown?.items || [];
+            const foundItem = feeBreakdown.find((fb: any) => fb.item_name === item);
+            if (foundItem) {
+              items.push({
+                item_name: item,
+                amount: foundItem.amount || 0,
+                waiver_amount: 0, // We don't know the exact waiver amount per item here
+                original_amount: foundItem.amount || 0
+              });
+            }
+          }
+        });
+      }
+    }
+    
+    // If no breakdown items found, check if there's a waiver applied to the whole fee
+    if (items.length === 0 && assignment.discount_amount > 0) {
+      // Try to get the waiver from fee metadata
+      const waiverHistory = fee?.metadata?.waiver_history || [];
+      const matchingWaiver = waiverHistory.find((w: any) => 
+        w.assignment_id === assignment.id || w.student_id === assignment.student_id
+      );
+      
+      if (matchingWaiver && matchingWaiver.breakdown_items) {
+        const breakdown = matchingWaiver.breakdown_items;
+        if (Array.isArray(breakdown)) {
+          breakdown.forEach((item: any) => {
+            if (typeof item === 'object' && item.item_name) {
+              items.push({
+                item_name: item.item_name,
+                amount: item.amount || 0,
+                waiver_amount: item.waiver_amount || 0,
+                original_amount: item.original_amount || item.amount || 0
+              });
+            }
+          });
+        }
+      }
+    }
+    
+    return items;
   };
 
   const fetchAssignments = async () => {
@@ -451,6 +569,9 @@ const FeeDetail: React.FC = () => {
           status = 'unpaid';
         }
 
+        // Extract waiver breakdown items
+        const waiverBreakdownItems = extractWaiverBreakdownItems(assignment);
+
         return {
           ...assignment,
           student_name: studentName,
@@ -460,6 +581,7 @@ const FeeDetail: React.FC = () => {
           amount_paid: totalPaid,
           balance: balance,
           payment_status: status,
+          waiver_breakdown_items: waiverBreakdownItems,
         };
       });
 
@@ -723,7 +845,27 @@ const FeeDetail: React.FC = () => {
 
   const handleOpenWaiverModal = (assignment: StudentFeeAssignment) => {
     setSelectedAssignment(assignment);
-    setWaiverPercentage(100);
+    
+    const breakdown = fee?.metadata?.fee_breakdown?.items || [];
+    
+    if (breakdown.length > 0) {
+      setBreakdownItems(breakdown.map((item: any) => ({
+        ...item,
+        id: item.id || `item-${Math.random()}`,
+        original_amount: item.amount,
+        waiver_percentage: 0,
+        waiver_amount: 0,
+        final_amount: item.amount,
+        waiver_applied: false
+      })));
+      setSelectedBreakdownItems([]);
+    } else {
+      setBreakdownItems([]);
+      setSelectedBreakdownItems([]);
+    }
+    
+    setWaiverType('percentage');
+    setWaiverValue(0);
     setWaiverReason('');
     setShowWaiverModal(true);
   };
@@ -731,8 +873,68 @@ const FeeDetail: React.FC = () => {
   const handleCloseWaiverModal = () => {
     setShowWaiverModal(false);
     setSelectedAssignment(null);
-    setWaiverPercentage(100);
+    setWaiverType('percentage');
+    setWaiverValue(0);
     setWaiverReason('');
+    setSelectedBreakdownItems([]);
+    setBreakdownItems([]);
+  };
+
+  const handleSelectBreakdownItem = (itemId: string) => {
+    setSelectedBreakdownItems(prev => {
+      if (prev.includes(itemId)) {
+        return prev.filter(id => id !== itemId);
+      } else {
+        return [...prev, itemId];
+      }
+    });
+  };
+
+  const handleSelectAllBreakdownItems = () => {
+    if (selectedBreakdownItems.length === breakdownItems.length) {
+      setSelectedBreakdownItems([]);
+    } else {
+      setSelectedBreakdownItems(breakdownItems.map(item => item.id || ''));
+    }
+  };
+
+  const handleWaiverValueChange = (value: number) => {
+    setWaiverValue(value);
+    
+    if (breakdownItems.length > 0 && selectedBreakdownItems.length > 0) {
+      const updatedItems = breakdownItems.map(item => {
+        const isSelected = selectedBreakdownItems.includes(item.id || '');
+        if (!isSelected) return item;
+        
+        let waiverAmount = 0;
+        let finalAmount = item.original_amount || item.amount;
+        
+        if (waiverType === 'percentage') {
+          waiverAmount = (item.original_amount || item.amount) * (value / 100);
+          finalAmount = (item.original_amount || item.amount) - waiverAmount;
+        } else {
+          const totalSelectedAmount = breakdownItems
+            .filter(i => selectedBreakdownItems.includes(i.id || ''))
+            .reduce((sum, i) => sum + (i.original_amount || i.amount), 0);
+          
+          if (totalSelectedAmount > 0) {
+            const proportion = (item.original_amount || item.amount) / totalSelectedAmount;
+            waiverAmount = value * proportion;
+            finalAmount = (item.original_amount || item.amount) - waiverAmount;
+          }
+        }
+        
+        return {
+          ...item,
+          waiver_percentage: waiverType === 'percentage' ? value : (waiverAmount / (item.original_amount || item.amount) * 100),
+          waiver_amount: waiverAmount,
+          final_amount: Math.max(finalAmount, 0),
+          waiver_applied: true
+        };
+      });
+      
+      setBreakdownItems(updatedItems);
+    }
   };
 
   const handleSubmitWaiver = async () => {
@@ -741,16 +943,59 @@ const FeeDetail: React.FC = () => {
       return;
     }
 
-    if (waiverPercentage <= 0 || waiverPercentage > 100) {
-      toast.error('Waiver percentage must be between 1 and 100');
+    if (waiverValue <= 0) {
+      toast.error('Waiver value must be greater than 0');
+      return;
+    }
+
+    if (waiverType === 'percentage' && waiverValue > 100) {
+      toast.error('Waiver percentage cannot exceed 100%');
+      return;
+    }
+
+    if (waiverType === 'amount' && waiverValue > selectedAssignment.balance) {
+      toast.error('Waiver amount cannot exceed balance');
+      return;
+    }
+
+    if (breakdownItems.length > 0 && selectedBreakdownItems.length === 0) {
+      toast.error('Please select at least one breakdown item to apply waiver');
       return;
     }
 
     try {
       toast.loading('Applying waiver...');
 
-      const waiverAmount = selectedAssignment.balance * (waiverPercentage / 100);
-      const newBalance = selectedAssignment.balance - waiverAmount;
+      let waiverAmount = 0;
+      let updatedBreakdown = breakdownItems;
+
+      if (breakdownItems.length > 0) {
+        waiverAmount = breakdownItems
+          .filter(item => selectedBreakdownItems.includes(item.id || ''))
+          .reduce((sum, item) => sum + (item.waiver_amount || 0), 0);
+        
+        const breakdownWithWaivers = breakdownItems.map(item => ({
+          ...item,
+          waiver_applied: selectedBreakdownItems.includes(item.id || ''),
+          waiver_percentage: selectedBreakdownItems.includes(item.id || '') 
+            ? (waiverType === 'percentage' ? waiverValue : (item.waiver_amount || 0) / (item.original_amount || item.amount) * 100)
+            : 0,
+          waiver_amount: selectedBreakdownItems.includes(item.id || '') ? (item.waiver_amount || 0) : 0,
+          final_amount: selectedBreakdownItems.includes(item.id || '') 
+            ? (item.final_amount || item.amount) 
+            : (item.original_amount || item.amount)
+        }));
+        
+        updatedBreakdown = breakdownWithWaivers;
+      } else {
+        if (waiverType === 'percentage') {
+          waiverAmount = selectedAssignment.balance * (waiverValue / 100);
+        } else {
+          waiverAmount = Math.min(waiverValue, selectedAssignment.balance);
+        }
+      }
+
+      const newBalance = Math.max(0, selectedAssignment.balance - waiverAmount);
       const isFullyWaived = newBalance <= 0;
 
       const { error: updateError } = await supabase
@@ -758,23 +1003,61 @@ const FeeDetail: React.FC = () => {
         .update({
           discount_amount: selectedAssignment.discount_amount + waiverAmount,
           amount_due: Math.max(0, selectedAssignment.original_amount - (selectedAssignment.discount_amount + waiverAmount)),
-          balance: Math.max(newBalance, 0),
+          balance: newBalance,
           payment_status: isFullyWaived ? 'waived' : 'partial',
           updated_at: new Date().toISOString(),
           metadata: {
             ...selectedAssignment.metadata,
             waiver_applied: {
-              percentage: waiverPercentage,
+              type: waiverType,
+              value: waiverValue,
               amount: waiverAmount,
               reason: waiverReason,
               applied_by: user.email,
-              applied_at: new Date().toISOString()
+              applied_at: new Date().toISOString(),
+              breakdown_items: breakdownItems.length > 0 ? updatedBreakdown : undefined,
+              breakdown_item_names: breakdownItems.length > 0 
+                ? breakdownItems.filter(item => selectedBreakdownItems.includes(item.id || '')).map(item => item.item_name)
+                : undefined
             }
           }
         })
         .eq('id', selectedAssignment.id);
 
       if (updateError) throw updateError;
+
+      if (breakdownItems.length > 0 && fee) {
+        const { error: feeUpdateError } = await supabase
+          .from('fees')
+          .update({
+            metadata: {
+              ...fee.metadata,
+              fee_breakdown: {
+                ...fee.metadata.fee_breakdown,
+                items: updatedBreakdown
+              },
+              waiver_history: [
+                ...(fee.metadata?.waiver_history || []),
+                {
+                  assignment_id: selectedAssignment.id,
+                  student_id: selectedAssignment.student_id,
+                  student_name: selectedAssignment.student_name,
+                  type: waiverType,
+                  value: waiverValue,
+                  amount: waiverAmount,
+                  reason: waiverReason,
+                  applied_by: user.email,
+                  applied_at: new Date().toISOString(),
+                  breakdown_items: selectedBreakdownItems,
+                  breakdown_item_names: breakdownItems.filter(item => selectedBreakdownItems.includes(item.id || '')).map(item => item.item_name)
+                }
+              ]
+            }
+          })
+          .eq('id', fee.id);
+          
+        if (feeUpdateError) console.error('Error updating fee metadata:', feeUpdateError);
+      }
 
       await supabase.from('payments').insert([{
         payment_id: `WAV-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -784,7 +1067,7 @@ const FeeDetail: React.FC = () => {
         assignment_id: selectedAssignment.id,
         amount: selectedAssignment.original_amount,
         amount_paid: waiverAmount,
-        balance: Math.max(newBalance, 0),
+        balance: newBalance,
         payment_method: 'waiver',
         payment_date: new Date().toISOString(),
         due_date: fee?.due_date,
@@ -796,17 +1079,23 @@ const FeeDetail: React.FC = () => {
         updated_at: new Date().toISOString(),
         metadata: {
           assignment_id: selectedAssignment.id,
-          waiver_percentage: waiverPercentage,
+          waiver_type: waiverType,
+          waiver_value: waiverValue,
+          waiver_amount: waiverAmount,
           waiver_reason: waiverReason,
           student_name: selectedAssignment.student_name,
+          breakdown_items_applied: breakdownItems.length > 0 ? selectedBreakdownItems : undefined,
+          breakdown_item_names: breakdownItems.length > 0 
+            ? breakdownItems.filter(item => selectedBreakdownItems.includes(item.id || '')).map(item => item.item_name)
+            : undefined
         }
       }]);
 
       toast.dismiss();
-      toast.success(`Waiver of ${waiverPercentage}% applied successfully!`);
+      toast.success(`Waiver of ${waiverType === 'percentage' ? waiverValue + '%' : formatCurrency(waiverValue)} applied successfully!`);
       
       handleCloseWaiverModal();
-      await Promise.all([fetchAssignments(), fetchPayments()]);
+      await Promise.all([fetchAssignments(), fetchPayments(), fetchFeeDetails()]);
     } catch (error: any) {
       toast.dismiss();
       console.error('Error applying waiver:', error);
@@ -820,18 +1109,20 @@ const FeeDetail: React.FC = () => {
 
   const handleOpenExemptionModal = (assignment: StudentFeeAssignment) => {
     setSelectedAssignment(assignment);
-    setExemptionType('staff_child');
+    setExemptionCategory('staff_child');
+    setExemptionType('percentage');
+    setExemptionValue(100);
     setExemptionReason('');
-    setExemptionPercentage(100);
     setShowExemptionModal(true);
   };
 
   const handleCloseExemptionModal = () => {
     setShowExemptionModal(false);
     setSelectedAssignment(null);
-    setExemptionType('staff_child');
+    setExemptionCategory('staff_child');
+    setExemptionType('percentage');
+    setExemptionValue(100);
     setExemptionReason('');
-    setExemptionPercentage(100);
   };
 
   const handleSubmitExemption = async () => {
@@ -840,8 +1131,18 @@ const FeeDetail: React.FC = () => {
       return;
     }
 
-    if (exemptionPercentage <= 0 || exemptionPercentage > 100) {
-      toast.error('Exemption percentage must be between 1 and 100');
+    if (exemptionValue <= 0) {
+      toast.error('Exemption value must be greater than 0');
+      return;
+    }
+
+    if (exemptionType === 'percentage' && exemptionValue > 100) {
+      toast.error('Exemption percentage cannot exceed 100%');
+      return;
+    }
+
+    if (exemptionType === 'amount' && exemptionValue > selectedAssignment.balance) {
+      toast.error('Exemption amount cannot exceed balance');
       return;
     }
 
@@ -862,14 +1163,25 @@ const FeeDetail: React.FC = () => {
         return;
       }
 
+      let waiverAmount = 0;
+      let waiverPercentage = 0;
+      
+      if (exemptionType === 'percentage') {
+        waiverPercentage = exemptionValue;
+        waiverAmount = selectedAssignment.balance * (exemptionValue / 100);
+      } else {
+        waiverAmount = Math.min(exemptionValue, selectedAssignment.balance);
+        waiverPercentage = (waiverAmount / selectedAssignment.balance) * 100;
+      }
+
       const { error: exemptionError } = await supabase
         .from('fee_exemptions')
         .insert([{
           fee_id: fee.id,
           student_id: selectedAssignment.student_id,
           branch_id: fee.branch_id,
-          exemption_type: exemptionType,
-          waiver_percentage: exemptionPercentage,
+          exemption_type: exemptionCategory,
+          waiver_percentage: waiverPercentage,
           exemption_reason: exemptionReason,
           created_by: user.id,
           created_at: new Date().toISOString(),
@@ -878,12 +1190,14 @@ const FeeDetail: React.FC = () => {
           metadata: {
             created_by_email: user.email,
             student_name: selectedAssignment.student_name,
+            exemption_type: exemptionType,
+            exemption_value: exemptionValue,
+            waiver_amount: waiverAmount
           }
         }]);
 
       if (exemptionError) throw exemptionError;
 
-      const waiverAmount = selectedAssignment.balance * (exemptionPercentage / 100);
       const newBalance = selectedAssignment.balance - waiverAmount;
       const isFullyWaived = newBalance <= 0;
 
@@ -898,8 +1212,11 @@ const FeeDetail: React.FC = () => {
           metadata: {
             ...selectedAssignment.metadata,
             exemption_applied: {
-              type: exemptionType,
-              percentage: exemptionPercentage,
+              type: exemptionCategory,
+              exemption_type: exemptionType,
+              value: exemptionValue,
+              amount: waiverAmount,
+              percentage: waiverPercentage,
               reason: exemptionReason,
               applied_by: user.email,
               applied_at: new Date().toISOString()
@@ -911,7 +1228,7 @@ const FeeDetail: React.FC = () => {
       if (updateError) throw updateError;
 
       toast.dismiss();
-      toast.success(`Exemption (${exemptionType}) created successfully!`);
+      toast.success(`Exemption (${exemptionCategory}) created successfully!`);
       
       handleCloseExemptionModal();
       await Promise.all([fetchAssignments(), fetchExemptions()]);
@@ -1187,6 +1504,11 @@ const FeeDetail: React.FC = () => {
                 {fee.is_mandatory && <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full text-xs"><BadgeCheck className="w-3 h-3" /> Mandatory</span>}
                 {fee.is_optional && <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full text-xs">Optional</span>}
                 {fee.is_recurring && <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-full text-xs"><Repeat className="w-3 h-3" /> Recurring</span>}
+                {fee.is_template_instance && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 rounded-full text-xs">
+                    <Copy className="w-3 h-3" /> Template Instance
+                  </span>
+                )}
               </div>
             </div>
             <div className="col-span-2">
@@ -1195,12 +1517,13 @@ const FeeDetail: React.FC = () => {
             </div>
           </div>
 
-          {/* ============================================ */}
-          {/* FEE BREAKDOWN SECTION - WITH TEMPLATE FALLBACK */}
-          {/* ============================================ */}
+          {/* FEE BREAKDOWN SECTION */}
           {(() => {
             const breakdown = fee?.metadata?.fee_breakdown;
-            const hasBreakdown = breakdown && Array.isArray(breakdown) && breakdown.length > 0;
+            const hasBreakdown = breakdown && 
+                                 typeof breakdown === 'object' &&
+                                 Array.isArray(breakdown?.items) && 
+                                 breakdown.items.length > 0;
             const isFromTemplate = fee?.metadata?.breakdown_from_template;
             
             return hasBreakdown ? (
@@ -1215,7 +1538,7 @@ const FeeDetail: React.FC = () => {
                     </span>
                   )}
                   <span className="text-xs font-normal text-gray-500 dark:text-gray-400 ml-2">
-                    ({breakdown.length} items)
+                    ({breakdown.items.length} items)
                   </span>
                 </h3>
                 <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl overflow-hidden">
@@ -1228,10 +1551,10 @@ const FeeDetail: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                      {breakdown.map((item: any, index: number) => (
+                      {breakdown.items.map((item: any, index: number) => (
                         <tr key={index} className="hover:bg-gray-100 dark:hover:bg-gray-700/50 transition">
                           <td className="px-4 py-2.5 text-sm font-medium text-gray-800 dark:text-gray-200">
-                            {item.item || 'Unnamed Item'}
+                            {item.item_name || 'Unnamed Item'}
                           </td>
                           <td className="px-4 py-2.5 text-sm font-semibold text-gray-900 dark:text-white">
                             {formatCurrency(item.amount || 0)}
@@ -1241,17 +1564,12 @@ const FeeDetail: React.FC = () => {
                           </td>
                         </tr>
                       ))}
-                      {/* Total Row */}
                       <tr className="bg-blue-50 dark:bg-blue-900/20">
-                        <td className="px-4 py-3 text-sm font-bold text-gray-900 dark:text-white">
-                          Total
-                        </td>
+                        <td className="px-4 py-3 text-sm font-bold text-gray-900 dark:text-white">Total</td>
                         <td className="px-4 py-3 text-sm font-bold text-blue-600 dark:text-blue-400">
-                          {formatCurrency(breakdown.reduce((sum: number, item: any) => sum + (item.amount || 0), 0))}
+                          {formatCurrency(breakdown.items.reduce((sum: number, item: any) => sum + (item.amount || 0), 0))}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                          {breakdown.length} item(s)
-                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{breakdown.items.length} item(s)</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1346,6 +1664,8 @@ const FeeDetail: React.FC = () => {
                 {paginatedAssignments.map((assignment) => {
                   const StatusIcon = getStatusIcon(assignment.payment_status);
                   const isPaidOrWaived = assignment.payment_status === 'paid' || assignment.payment_status === 'waived';
+                  const waiverItems = assignment.waiver_breakdown_items || [];
+                  const hasWaiverItems = waiverItems.length > 0;
                   
                   return (
                     <React.Fragment key={assignment.id}>
@@ -1365,6 +1685,21 @@ const FeeDetail: React.FC = () => {
                               {assignment.student_class && (
                                 <p className="text-xs text-blue-500">{assignment.student_class}</p>
                               )}
+                              {/* Show waiver breakdown items */}
+                              {hasWaiverItems && (
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {waiverItems.map((item, idx) => (
+                                    <span 
+                                      key={idx}
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded text-[10px] font-medium"
+                                    >
+                                      <Tag className="w-2.5 h-2.5" />
+                                      {item.item_name}
+                                      <span className="text-purple-500">-{formatCurrency(item.waiver_amount || item.amount)}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -1373,7 +1708,7 @@ const FeeDetail: React.FC = () => {
                             {formatCurrency(assignment.original_amount)}
                           </p>
                           {assignment.discount_amount > 0 && (
-                            <p className="text-xs text-green-500">-{formatCurrency(assignment.discount_amount)}</p>
+                            <p className="text-xs text-purple-500">-{formatCurrency(assignment.discount_amount)}</p>
                           )}
                         </td>
                         <td className="px-4 sm:px-6 py-4">
@@ -1466,7 +1801,7 @@ const FeeDetail: React.FC = () => {
                                   {assignment.discount_amount > 0 && (
                                     <div className="flex justify-between text-sm">
                                       <span className="text-gray-500">Discount</span>
-                                      <span className="font-medium text-green-500">-{formatCurrency(assignment.discount_amount)}</span>
+                                      <span className="font-medium text-purple-500">-{formatCurrency(assignment.discount_amount)}</span>
                                     </div>
                                   )}
                                   <div className="flex justify-between text-sm">
@@ -1555,6 +1890,41 @@ const FeeDetail: React.FC = () => {
                                 </div>
                               </div>
                             </div>
+
+                            {/* Waiver Breakdown Items - Show in expanded view */}
+                            {hasWaiverItems && (
+                              <div className="mt-4 bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                                  <Gift className="w-4 h-4 text-purple-500" />
+                                  Waiver Breakdown
+                                  <span className="text-xs text-gray-400">({waiverItems.length} item{waiverItems.length > 1 ? 's' : ''})</span>
+                                </h4>
+                                <div className="space-y-2">
+                                  {waiverItems.map((item, idx) => (
+                                    <div key={idx} className="flex items-center justify-between text-sm border-b border-gray-100 dark:border-gray-700 pb-1">
+                                      <span className="text-gray-600 dark:text-gray-300">
+                                        <Tag className="w-3 h-3 inline mr-1 text-purple-400" />
+                                        {item.item_name}
+                                      </span>
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-gray-400 line-through text-xs">
+                                          {formatCurrency(item.original_amount)}
+                                        </span>
+                                        <span className="text-purple-600 dark:text-purple-400 font-medium">
+                                          -{formatCurrency(item.waiver_amount || item.amount)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  <div className="flex items-center justify-between text-sm font-bold pt-2 border-t-2 border-gray-200 dark:border-gray-600">
+                                    <span className="text-gray-900 dark:text-white">Total Waived</span>
+                                    <span className="text-purple-600 dark:text-purple-400">
+                                      -{formatCurrency(assignment.discount_amount)}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </td>
                         </tr>
                       )}
@@ -1584,6 +1954,333 @@ const FeeDetail: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* ============================================ */}
+      {/* WAIVER MODAL */}
+      {/* ============================================ */}
+      <AnimatePresence>
+        {showWaiverModal && selectedAssignment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            >
+              <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Gift className="w-5 h-5 text-purple-600" />
+                  Apply Waiver
+                </h3>
+                <button onClick={handleCloseWaiverModal} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4">
+                  <h4 className="text-sm font-medium text-purple-600 dark:text-purple-400 mb-2">Student</h4>
+                  <p className="font-medium text-gray-900 dark:text-white">{selectedAssignment.student_name}</p>
+                  <p className="text-sm text-gray-500">Balance: {formatCurrency(selectedAssignment.balance)}</p>
+                  <p className="text-sm text-gray-500">Original Amount: {formatCurrency(selectedAssignment.original_amount)}</p>
+                </div>
+
+                {/* Waiver Type Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Waiver Type</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWaiverType('percentage');
+                        setWaiverValue(0);
+                      }}
+                      className={`px-4 py-2 rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${
+                        waiverType === 'percentage'
+                          ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-purple-300'
+                      }`}
+                    >
+                      <Percent className="w-4 h-4" /> Percentage
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWaiverType('amount');
+                        setWaiverValue(0);
+                      }}
+                      className={`px-4 py-2 rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${
+                        waiverType === 'amount'
+                          ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-purple-300'
+                      }`}
+                    >
+                      <DollarSign className="w-4 h-4" /> Amount
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    {waiverType === 'percentage' ? 'Waiver Percentage (%)' : 'Waiver Amount (₦)'}
+                  </label>
+                  <input
+                    type="number"
+                    value={waiverValue || ''}
+                    onChange={(e) => handleWaiverValueChange(parseFloat(e.target.value) || 0)}
+                    min={waiverType === 'percentage' ? 1 : 1}
+                    max={waiverType === 'percentage' ? 100 : selectedAssignment.balance}
+                    step={waiverType === 'percentage' ? 1 : 100}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-700/50 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all dark:text-white"
+                    placeholder={waiverType === 'percentage' ? 'Enter percentage...' : 'Enter amount...'}
+                  />
+                  {waiverType === 'percentage' ? (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Waiver amount: {formatCurrency(selectedAssignment.balance * (waiverValue / 100) || 0)}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Max waiver: {formatCurrency(selectedAssignment.balance)}
+                    </p>
+                  )}
+                </div>
+
+                {/* Breakdown Items Selection */}
+                {breakdownItems.length > 0 ? (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        <ListChecks className="w-4 h-4 inline mr-1" />
+                        Select Breakdown Items to Apply Waiver
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleSelectAllBreakdownItems}
+                        className="text-xs text-purple-600 hover:text-purple-700 font-medium"
+                      >
+                        {selectedBreakdownItems.length === breakdownItems.length ? 'Deselect All' : 'Select All'}
+                      </button>
+                    </div>
+                    <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-3 space-y-2 max-h-48 overflow-y-auto">
+                      {breakdownItems.map((item) => {
+                        const isSelected = selectedBreakdownItems.includes(item.id || '');
+                        const itemAmount = item.original_amount || item.amount;
+                        return (
+                          <label
+                            key={item.id}
+                            className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800'
+                                : 'hover:bg-gray-100 dark:hover:bg-gray-700/50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleSelectBreakdownItem(item.id || '')}
+                              className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                            />
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                                {item.item_name}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {formatCurrency(itemAmount)}
+                              </p>
+                            </div>
+                            {isSelected && waiverValue > 0 && (
+                              <div className="text-right">
+                                <p className="text-xs text-purple-600 font-medium">
+                                  -{formatCurrency(item.waiver_amount || 0)}
+                                </p>
+                                <p className="text-xs text-green-600 font-medium">
+                                  = {formatCurrency(item.final_amount || itemAmount)}
+                                </p>
+                              </div>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    {selectedBreakdownItems.length > 0 && waiverValue > 0 && (
+                      <div className="mt-2 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                        <p className="text-sm font-medium text-green-700 dark:text-green-300">
+                          Total Waiver: {formatCurrency(
+                            breakdownItems
+                              .filter(item => selectedBreakdownItems.includes(item.id || ''))
+                              .reduce((sum, item) => sum + (item.waiver_amount || 0), 0)
+                          )}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex-shrink-0">
+                        <Info className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                          No Fee Breakdown Available
+                        </p>
+                        <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                          This fee doesn't have a breakdown. The waiver will be applied to the total balance of <strong>{formatCurrency(selectedAssignment?.balance || 0)}</strong>.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Reason (Optional)</label>
+                  <textarea
+                    value={waiverReason}
+                    onChange={(e) => setWaiverReason(e.target.value)}
+                    rows={2}
+                    placeholder="Reason for waiver..."
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-700/50 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all dark:text-white"
+                  />
+                </div>
+
+                <button
+                  onClick={handleSubmitWaiver}
+                  disabled={waiverValue <= 0 || (waiverType === 'percentage' && waiverValue > 100) || (waiverType === 'amount' && waiverValue > selectedAssignment.balance)}
+                  className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-medium hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <Gift className="w-4 h-4" /> Apply Waiver
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ============================================ */}
+      {/* EXEMPTION MODAL */}
+      {/* ============================================ */}
+      <AnimatePresence>
+        {showExemptionModal && selectedAssignment && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
+            >
+              <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <ShieldIcon className="w-5 h-5 text-indigo-600" />
+                  Create Exemption
+                </h3>
+                <button onClick={handleCloseExemptionModal} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl p-4">
+                  <h4 className="text-sm font-medium text-indigo-600 dark:text-indigo-400 mb-2">Student</h4>
+                  <p className="font-medium text-gray-900 dark:text-white">{selectedAssignment.student_name}</p>
+                  <p className="text-sm text-gray-500">Balance: {formatCurrency(selectedAssignment.balance)}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Exemption Type</label>
+                  <select
+                    value={exemptionCategory}
+                    onChange={(e) => setExemptionCategory(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-700/50 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all dark:text-white"
+                  >
+                    <option value="staff_child">Staff Child</option>
+                    <option value="orphan">Orphan</option>
+                    <option value="scholarship">Scholarship</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Waiver Type</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExemptionType('percentage');
+                        setExemptionValue(100);
+                      }}
+                      className={`px-4 py-2 rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${
+                        exemptionType === 'percentage'
+                          ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
+                      }`}
+                    >
+                      <Percent className="w-4 h-4" /> Percentage
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setExemptionType('amount');
+                        setExemptionValue(0);
+                      }}
+                      className={`px-4 py-2 rounded-xl border-2 transition-all flex items-center justify-center gap-2 ${
+                        exemptionType === 'amount'
+                          ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-indigo-300'
+                      }`}
+                    >
+                      <DollarSign className="w-4 h-4" /> Amount
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    {exemptionType === 'percentage' ? 'Waiver Percentage (%)' : 'Waiver Amount (₦)'}
+                  </label>
+                  <input
+                    type="number"
+                    value={exemptionValue || ''}
+                    onChange={(e) => setExemptionValue(parseFloat(e.target.value) || 0)}
+                    min={exemptionType === 'percentage' ? 1 : 1}
+                    max={exemptionType === 'percentage' ? 100 : selectedAssignment.balance}
+                    step={exemptionType === 'percentage' ? 1 : 100}
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-700/50 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all dark:text-white"
+                    placeholder={exemptionType === 'percentage' ? 'Enter percentage...' : 'Enter amount...'}
+                  />
+                  {exemptionType === 'percentage' ? (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Waiver amount: {formatCurrency(selectedAssignment.balance * (exemptionValue / 100) || 0)}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Max waiver: {formatCurrency(selectedAssignment.balance)}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Reason (Optional)</label>
+                  <textarea
+                    value={exemptionReason}
+                    onChange={(e) => setExemptionReason(e.target.value)}
+                    rows={2}
+                    placeholder="Reason for exemption..."
+                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-700/50 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all dark:text-white"
+                  />
+                </div>
+
+                <button
+                  onClick={handleSubmitExemption}
+                  disabled={exemptionValue <= 0 || (exemptionType === 'percentage' && exemptionValue > 100) || (exemptionType === 'amount' && exemptionValue > selectedAssignment.balance)}
+                  className="w-full px-4 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  <ShieldIcon className="w-4 h-4" /> Create Exemption
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ============================================ */}
       {/* PAYMENT MODAL */}
@@ -1619,7 +2316,7 @@ const FeeDetail: React.FC = () => {
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount to Pay</label>
                     <input
                       type="number"
-                      value={amountPaid}
+                      value={amountPaid || ''}
                       onChange={(e) => setAmountPaid(parseFloat(e.target.value) || 0)}
                       max={selectedAssignment.balance}
                       className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-700/50 focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all dark:text-white"
@@ -1678,149 +2375,6 @@ const FeeDetail: React.FC = () => {
                     <Save className="w-4 h-4" /> Record Payment
                   </button>
                 </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* WAIVER MODAL */}
-      <AnimatePresence>
-        {showWaiverModal && selectedAssignment && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white dark:bg-gray-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
-            >
-              <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                  <Gift className="w-5 h-5 text-purple-600" />
-                  Apply Waiver
-                </h3>
-                <button onClick={handleCloseWaiverModal} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-4">
-                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4">
-                  <h4 className="text-sm font-medium text-purple-600 dark:text-purple-400 mb-2">Student</h4>
-                  <p className="font-medium text-gray-900 dark:text-white">{selectedAssignment.student_name}</p>
-                  <p className="text-sm text-gray-500">Balance: {formatCurrency(selectedAssignment.balance)}</p>
-                  <p className="text-sm text-gray-500">Original Amount: {formatCurrency(selectedAssignment.original_amount)}</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Waiver Percentage (%)</label>
-                  <input
-                    type="number"
-                    value={waiverPercentage}
-                    onChange={(e) => setWaiverPercentage(parseFloat(e.target.value) || 0)}
-                    min="1"
-                    max="100"
-                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-700/50 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all dark:text-white"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Waiver amount: {formatCurrency(selectedAssignment.balance * (waiverPercentage / 100))}</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Reason (Optional)</label>
-                  <textarea
-                    value={waiverReason}
-                    onChange={(e) => setWaiverReason(e.target.value)}
-                    rows={2}
-                    placeholder="Reason for waiver..."
-                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-700/50 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all dark:text-white"
-                  />
-                </div>
-
-                <button
-                  onClick={handleSubmitWaiver}
-                  disabled={waiverPercentage <= 0 || waiverPercentage > 100}
-                  className="w-full px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-medium hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  <Gift className="w-4 h-4" /> Apply Waiver
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* EXEMPTION MODAL */}
-      <AnimatePresence>
-        {showExemptionModal && selectedAssignment && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white dark:bg-gray-800 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
-            >
-              <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                  <ShieldIcon className="w-5 h-5 text-indigo-600" />
-                  Create Exemption
-                </h3>
-                <button onClick={handleCloseExemptionModal} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="p-6 space-y-4">
-                <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl p-4">
-                  <h4 className="text-sm font-medium text-indigo-600 dark:text-indigo-400 mb-2">Student</h4>
-                  <p className="font-medium text-gray-900 dark:text-white">{selectedAssignment.student_name}</p>
-                  <p className="text-sm text-gray-500">Balance: {formatCurrency(selectedAssignment.balance)}</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Exemption Type</label>
-                  <select
-                    value={exemptionType}
-                    onChange={(e) => setExemptionType(e.target.value)}
-                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-700/50 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all dark:text-white"
-                  >
-                    <option value="staff_child">Staff Child</option>
-                    <option value="orphan">Orphan</option>
-                    <option value="scholarship">Scholarship</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Waiver Percentage (%)</label>
-                  <input
-                    type="number"
-                    value={exemptionPercentage}
-                    onChange={(e) => setExemptionPercentage(parseFloat(e.target.value) || 0)}
-                    min="1"
-                    max="100"
-                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-700/50 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all dark:text-white"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Waiver amount: {formatCurrency(selectedAssignment.balance * (exemptionPercentage / 100))}</p>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Reason (Optional)</label>
-                  <textarea
-                    value={exemptionReason}
-                    onChange={(e) => setExemptionReason(e.target.value)}
-                    rows={2}
-                    placeholder="Reason for exemption..."
-                    className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-700/50 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all dark:text-white"
-                  />
-                </div>
-
-                <button
-                  onClick={handleSubmitExemption}
-                  disabled={exemptionPercentage <= 0 || exemptionPercentage > 100}
-                  className="w-full px-4 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  <ShieldIcon className="w-4 h-4" /> Create Exemption
-                </button>
               </div>
             </motion.div>
           </div>
