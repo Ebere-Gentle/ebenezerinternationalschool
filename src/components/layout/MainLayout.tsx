@@ -114,7 +114,7 @@ const navigation: NavigationItem[] = [
   { label: 'Reports', icon: BarChart3, path: '/admin-asst/reports', roles: ['record_keeper'] },
   { label: 'Activity Log', icon: History, path: '/admin-asst/activity', roles: ['record_keeper'] },
   { label: 'Payment', icon: CreditCard, path: '/admin-asst/payment', roles: ['record_keeper', 'admin_asst'] },
-  { label: 'Receipt Verification', icon: ShieldCheck, path: '/admin-asst/verify-receipt', roles: ['record_keeper', 'admin_asst'] },
+  { label: 'Receipt Verification', icon: ShieldCheck, path: '/verify-receipt', roles: ['record_keeper', 'admin_asst'] },
 
   // Admin Routes
   { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'super_admin', 'director', 'finance'] },
@@ -132,7 +132,7 @@ const navigation: NavigationItem[] = [
       { label: 'Payments', icon: CreditCard, path: '/payments', roles: ['admin', 'super_admin', 'director', 'finance'] },
       { label: 'Invoice', icon: Coins, path: '/fees', roles: ['admin', 'super_admin', 'director', 'finance'] },
       { label: 'Reports', icon: BarChart3, path: '/reports', roles: ['admin', 'super_admin', 'director', 'finance'] },
-      { label: 'Receipt Verification', icon: ShieldCheck, path: '/verify-receipt', roles: ['admin', 'super_admin', 'director', 'finance'] },
+      { label: 'Receipt Verification', icon: ShieldCheck, path: '/verify-receipt', roles: ['admin', 'super_admin', 'director', 'finance', 'admin_asst', 'record_keeper'] },
     ]
   },
   { label: 'Human Resources', icon: Users2, path: '#', roles: ['admin', 'super_admin', 'director'],

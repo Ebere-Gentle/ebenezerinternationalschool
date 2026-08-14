@@ -1,4 +1,3 @@
-
 import React, {
   useCallback,
   useEffect,
@@ -29,6 +28,10 @@ import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 
+/* ============================================================
+   TYPES
+============================================================ */
+
 interface Branch {
   id: string;
   branch_id: string;
@@ -46,6 +49,15 @@ interface Branch {
   updated_at: string | null;
   created_by: string | null;
   metadata: Record<string, any> | null;
+}
+
+interface BankMetadataAccount {
+  currency?: string | null;
+  bank_name?: string | null;
+  sort_code?: string | null;
+  account_name?: string | null;
+  account_label?: string | null;
+  account_number?: string | null;
 }
 
 interface PaymentGateway {
@@ -88,6 +100,10 @@ interface BankAccountForm {
   is_active: boolean;
 }
 
+/* ============================================================
+   DEFAULT BANK FORM
+============================================================ */
+
 const emptyBankAccount: BankAccountForm = {
   bank_name: '',
   bank_account_number: '',
@@ -100,33 +116,23 @@ const emptyBankAccount: BankAccountForm = {
   is_active: true,
 };
 
+/* ============================================================
+   COMPONENT
+============================================================ */
+
 const BranchesList: React.FC = () => {
-  /**
-   * ------------------------------------------------------------
-   * AUTH
-   * ------------------------------------------------------------
-   */
   const auth = useAuth();
 
   const user = auth?.user;
 
-  /**
-   * Some versions of the auth hook expose `loading`,
-   * while others may expose `authLoading`.
-   *
-   * We safely check both.
-   */
-  const authLoading =
-    Boolean(
-      (auth as any)?.loading ??
-        (auth as any)?.authLoading
-    );
+  const authLoading = Boolean(
+    (auth as any)?.loading ??
+      (auth as any)?.authLoading
+  );
 
-  /**
-   * ------------------------------------------------------------
-   * STATE
-   * ------------------------------------------------------------
-   */
+  /* ==========================================================
+     STATE
+  ========================================================== */
 
   const [branch, setBranch] =
     useState<Branch | null>(null);
@@ -134,14 +140,6 @@ const BranchesList: React.FC = () => {
   const [paystackGateway, setPaystackGateway] =
     useState<PaymentGateway | null>(null);
 
-  /**
-   * Four possible bank account rows.
-   *
-   * Index 0 = Account 1
-   * Index 1 = Account 2
-   * Index 2 = Account 3
-   * Index 3 = Account 4
-   */
   const [bankAccounts, setBankAccounts] =
     useState<(PaymentGateway | null)[]>([
       null,
@@ -172,12 +170,6 @@ const BranchesList: React.FC = () => {
   const [success, setSuccess] =
     useState('');
 
-  /**
-   * Paystack secret visibility.
-   *
-   * It remains false until the user's password
-   * has been verified.
-   */
   const [
     showPaystackSecret,
     setShowPaystackSecret,
@@ -229,18 +221,14 @@ const BranchesList: React.FC = () => {
     paystack_callback_url: '',
   });
 
-  /**
-   * ------------------------------------------------------------
-   * GET USER BRANCH
-   * ------------------------------------------------------------
-   *
-   * Your users table stores the UUID of branches
-   * in users.branch_id.
-   *
-   * Therefore:
-   *
-   * users.branch_id = branches.id
-   */
+  /* ==========================================================
+     GET USER BRANCH
+
+     IMPORTANT:
+     This function only returns the branch.
+     It does NOT display an error to the user.
+  ========================================================== */
+
   const getUserBranch =
     useCallback(
       async (): Promise<Branch | null> => {
@@ -248,43 +236,43 @@ const BranchesList: React.FC = () => {
           return null;
         }
 
-        const { data, error } =
-          await supabase
-            .from('branches')
-            .select(
-              `
-                id,
-                branch_id,
-                branch_code,
-                school_name,
-                logo_url,
-                email,
-                website,
-                phone_number,
-                address,
-                principal_id,
-                director_id,
-                status,
-                created_at,
-                updated_at,
-                created_by,
-                metadata
-              `
-            )
-            .eq(
-              'id',
-              user.branch_id
-            )
-            .limit(1)
-            .maybeSingle();
+        const {
+          data,
+          error,
+        } = await supabase
+          .from('branches')
+          .select(`
+            id,
+            branch_id,
+            branch_code,
+            school_name,
+            logo_url,
+            email,
+            website,
+            phone_number,
+            address,
+            principal_id,
+            director_id,
+            status,
+            created_at,
+            updated_at,
+            created_by,
+            metadata
+          `)
+          .eq(
+            'id',
+            user.branch_id
+          )
+          .limit(1)
+          .maybeSingle();
 
         if (error) {
           console.error(
-            'Error loading branch:',
+            'Branch loading attempt:',
             error
           );
 
-          throw error;
+          return null;
         }
 
         return data as Branch | null;
@@ -292,67 +280,157 @@ const BranchesList: React.FC = () => {
       [user?.branch_id]
     );
 
-  /**
-   * ------------------------------------------------------------
-   * LOAD PAYMENT GATEWAYS
-   * ------------------------------------------------------------
-   *
-   * IMPORTANT:
-   *
-   * We deliberately DO NOT use maybeSingle().
-   *
-   * A branch can have:
-   *
-   * Paystack
-   * Account 1
-   * Account 2
-   * Account 3
-   * Account 4
-   *
-   * Therefore payment_gateways returns an ARRAY.
-   */
+  /* ==========================================================
+     CREATE BANK GATEWAY FROM METADATA
+
+     Your current database has bank information inside:
+
+     payment_gateways
+       gateway_name = paystack
+
+     metadata.bank_accounts = [...]
+
+     This function converts that metadata account into
+     the same structure used by the UI.
+  ========================================================== */
+
+  const createMetadataGateway = (
+    account: BankMetadataAccount,
+    index: number,
+    paystack: PaymentGateway
+  ): PaymentGateway => {
+    return {
+      id: `metadata-${paystack.id}-${index + 1}`,
+
+      branch_id:
+        paystack.branch_id,
+
+      gateway_name:
+        `bank_transfer_${index + 1}`,
+
+      is_active:
+        paystack.is_active ?? true,
+
+      paystack_public_key:
+        null,
+
+      paystack_secret_key:
+        null,
+
+      paystack_merchant_email:
+        null,
+
+      paystack_callback_url:
+        null,
+
+      bank_name:
+        account.bank_name || null,
+
+      bank_account_number:
+        account.account_number || null,
+
+      bank_account_name:
+        account.account_name || null,
+
+      bank_sort_code:
+        account.sort_code || null,
+
+      bank_currency:
+        account.currency || 'NGN',
+
+      payment_instructions:
+        paystack.payment_instructions || null,
+
+      support_email:
+        paystack.support_email || null,
+
+      support_phone:
+        paystack.support_phone || null,
+
+      created_at:
+        paystack.created_at,
+
+      updated_at:
+        paystack.updated_at,
+
+      created_by:
+        paystack.created_by,
+
+      metadata: {
+        account_number:
+          index + 1,
+
+        account_label:
+          account.account_label ||
+          `Account ${index + 1}`,
+
+        payment_type:
+          'bank_transfer',
+
+        payment_category:
+          index === 0
+            ? 'other_fees'
+            : index === 1
+            ? 'logistics'
+            : 'other',
+
+        source:
+          'paystack_metadata',
+
+        parent_paystack_gateway_id:
+          paystack.id,
+      },
+    };
+  };
+
+  /* ==========================================================
+     LOAD PAYMENT GATEWAYS
+  ========================================================== */
+
   const loadPaymentGateways =
     useCallback(
       async (
         branchId: string
       ) => {
-        const { data, error } =
-          await supabase
-            .from('payment_gateways')
-            .select('*')
-            .eq(
-              'branch_id',
-              branchId
-            )
-            .order(
-              'created_at',
-              {
-                ascending: true,
-              }
-            );
+        const {
+          data,
+          error,
+        } = await supabase
+          .from('payment_gateways')
+          .select('*')
+          .eq(
+            'branch_id',
+            branchId
+          )
+          .order(
+            'created_at',
+            {
+              ascending: true,
+            }
+          );
 
         if (error) {
           console.error(
-            'Error fetching branch payment gateways:',
+            'Payment gateways loading attempt:',
             error
           );
 
-          throw error;
+          return false;
         }
 
         const gateways =
           (data || []) as PaymentGateway[];
 
-        /**
-         * ------------------------------------------------------
-         * PAYSTACK
-         * ------------------------------------------------------
-         */
+        /* ======================================================
+           PAYSTACK
+        ====================================================== */
+
         const paystack =
           gateways.find(
-            (gateway) =>
+            gateway =>
               gateway.gateway_name
-                ?.toLowerCase() ===
+                ?.toLowerCase()
+                .trim() ===
               'paystack'
           ) || null;
 
@@ -384,29 +462,21 @@ const BranchesList: React.FC = () => {
           });
         }
 
-        /**
-         * ------------------------------------------------------
-         * BANK ACCOUNTS
-         * ------------------------------------------------------
-         *
-         * Account number is determined from:
-         *
-         * metadata.account_number
-         *
-         * We also support:
-         *
-         * bank_transfer_1
-         * bank_transfer_2
-         * bank_transfer_3
-         * bank_transfer_4
-         *
-         * and:
-         *
-         * bank_account_1
-         * bank_account_2
-         * bank_account_3
-         * bank_account_4
-         */
+        /* ======================================================
+           BANK ACCOUNTS
+
+           We support TWO database structures:
+
+           1. bank_transfer_1
+           2. bank_transfer_2
+           3. bank_transfer_3
+           4. bank_transfer_4
+
+           AND
+
+           paystack.metadata.bank_accounts[]
+        ====================================================== */
+
         const accounts:
           (PaymentGateway | null)[] = [
             null,
@@ -415,21 +485,66 @@ const BranchesList: React.FC = () => {
             null,
           ];
 
+        /* ------------------------------------------------------
+           FIRST: READ BANK ACCOUNTS FROM PAYSTACK METADATA
+        ------------------------------------------------------ */
+
+        if (paystack) {
+          const metadata =
+            paystack.metadata || {};
+
+          const metadataAccounts =
+            Array.isArray(
+              metadata.bank_accounts
+            )
+              ? metadata.bank_accounts
+              : [];
+
+          metadataAccounts
+            .slice(0, 4)
+            .forEach(
+              (
+                account: BankMetadataAccount,
+                index: number
+              ) => {
+                if (
+                  account &&
+                  (
+                    account.bank_name ||
+                    account.account_number ||
+                    account.account_name
+                  )
+                ) {
+                  accounts[index] =
+                    createMetadataGateway(
+                      account,
+                      index,
+                      paystack
+                    );
+                }
+              }
+            );
+        }
+
+        /* ------------------------------------------------------
+           SECOND: READ INDIVIDUAL BANK TRANSFER ROWS
+
+           These override metadata because they are the newer,
+           independently editable records.
+        ------------------------------------------------------ */
+
         gateways.forEach(
-          (gateway) => {
+          gateway => {
             const gatewayName =
               gateway.gateway_name
                 ?.toLowerCase()
                 .trim() || '';
 
+            let index = -1;
+
             const metadata =
               gateway.metadata || {};
 
-            let index = -1;
-
-            /**
-             * First use metadata.
-             */
             const metadataAccountNumber =
               Number(
                 metadata.account_number
@@ -440,14 +555,12 @@ const BranchesList: React.FC = () => {
               metadataAccountNumber <= 4
             ) {
               index =
-                metadataAccountNumber -
-                1;
+                metadataAccountNumber - 1;
             }
 
-            /**
-             * Fallback to gateway name.
-             */
-            if (index === -1) {
+            if (
+              index === -1
+            ) {
               const match =
                 gatewayName.match(
                   /(?:bank_transfer|bank_account)_(\d+)/
@@ -471,24 +584,39 @@ const BranchesList: React.FC = () => {
               index >= 0 &&
               index < 4
             ) {
-              accounts[index] =
-                gateway;
+              /*
+               * Ignore fake/empty bank rows.
+               */
+              const hasBankData =
+                Boolean(
+                  gateway.bank_name ||
+                  gateway.bank_account_number ||
+                  gateway.bank_account_name
+                );
+
+              if (hasBankData) {
+                accounts[index] =
+                  gateway;
+              }
             }
           }
         );
+
+        /* ------------------------------------------------------
+           SAVE ACCOUNTS
+        ------------------------------------------------------ */
 
         setBankAccounts(
           accounts
         );
 
-        /**
-         * ------------------------------------------------------
-         * POPULATE FORMS
-         * ------------------------------------------------------
-         */
+        /* ======================================================
+           POPULATE FORM FIELDS
+        ====================================================== */
+
         setBankForms(
           accounts.map(
-            (account) => {
+            account => {
               if (!account) {
                 return {
                   ...emptyBankAccount,
@@ -535,73 +663,104 @@ const BranchesList: React.FC = () => {
             }
           )
         );
+
+        return true;
       },
       []
     );
 
-  /**
-   * ------------------------------------------------------------
-   * LOAD EVERYTHING
-   * ------------------------------------------------------------
-   */
+  /* ==========================================================
+     LOAD EVERYTHING
+
+     IMPORTANT:
+
+     There is NO branch error screen anymore.
+
+     If branch isn't ready, we simply keep loading.
+  ========================================================== */
+
   const loadBranchData =
     useCallback(
       async () => {
+        /*
+         * Do not start until auth has finished.
+         */
+        if (authLoading) {
+          setLoading(true);
+          return false;
+        }
+
+        /*
+         * No authenticated user yet.
+         *
+         * Keep loading.
+         */
+        if (!user) {
+          setLoading(true);
+          return false;
+        }
+
+        /*
+         * User exists but branch_id isn't available yet.
+         *
+         * Keep loading.
+         */
+        if (!user.branch_id) {
+          setLoading(true);
+          return false;
+        }
+
         try {
           setLoading(true);
-          setError('');
-          setSuccess('');
-
-          /**
-           * Do not attempt branch loading until
-           * authentication has finished.
-           */
-          if (authLoading) {
-            return;
-          }
-
-          if (!user) {
-            throw new Error(
-              'You must be signed in to access branch settings.'
-            );
-          }
-
-          if (!user.branch_id) {
-            throw new Error(
-              'Your account is not currently linked to a valid branch.'
-            );
-          }
 
           const branchData =
             await getUserBranch();
 
+          /*
+           * Branch isn't available yet.
+           *
+           * DO NOT SHOW ERROR.
+           */
           if (!branchData) {
-            throw new Error(
-              'Your account is not currently linked to a valid branch.'
-            );
+            setLoading(true);
+            return false;
           }
 
+          /*
+           * Branch successfully loaded.
+           */
           setBranch(
             branchData
           );
 
+          /*
+           * Load payment data.
+           */
           await loadPaymentGateways(
             branchData.id
           );
-        } catch (err: any) {
+
+          /*
+           * Everything is ready.
+           */
+          setLoading(false);
+
+          return true;
+        } catch (err) {
+          /*
+           * Do not show the error to the user.
+           *
+           * Keep loading and let the retry mechanism
+           * attempt again.
+           */
           console.error(
-            'Error loading branch:',
+            'Branch loading attempt:',
             err
           );
 
-          setBranch(null);
+          setLoading(true);
 
-          setError(
-            err?.message ||
-              'Branch information could not be loaded.'
-          );
-        } finally {
-          setLoading(false);
+          return false;
         }
       },
       [
@@ -612,56 +771,85 @@ const BranchesList: React.FC = () => {
       ]
     );
 
-  /**
-   * ------------------------------------------------------------
-   * INITIAL LOAD
-   * ------------------------------------------------------------
-   */
+  /* ==========================================================
+     INITIAL LOAD + SILENT RETRY
+  ========================================================== */
+
   useEffect(() => {
-    /**
-     * Authentication is still being resolved.
-     *
-     * Keep the page in loading mode.
-     */
-    if (authLoading) {
-      setLoading(true);
-      return;
+    let cancelled = false;
+
+    let retryTimer:
+      ReturnType<
+        typeof setTimeout
+      > | null = null;
+
+    const attemptLoad =
+      async () => {
+        if (cancelled) {
+          return;
+        }
+
+        const loaded =
+          await loadBranchData();
+
+        if (
+          !loaded &&
+          !cancelled
+        ) {
+          /*
+           * Retry quietly every 1.5 seconds.
+           *
+           * The user only sees:
+           *
+           * "Please wait..."
+           */
+          retryTimer =
+            setTimeout(
+              attemptLoad,
+              1500
+            );
+        }
+      };
+
+    if (!authLoading) {
+      attemptLoad();
     }
 
-    /**
-     * Auth finished.
-     *
-     * Now load branch.
-     */
-    loadBranchData();
+    return () => {
+      cancelled = true;
+
+      if (retryTimer) {
+        clearTimeout(
+          retryTimer
+        );
+      }
+    };
   }, [
     authLoading,
     loadBranchData,
   ]);
 
-  /**
-   * ------------------------------------------------------------
-   * UPDATE PAYSTACK FIELD
-   * ------------------------------------------------------------
-   */
+  /* ==========================================================
+     PAYSTACK FIELD
+  ========================================================== */
+
   const updatePaystackField =
     (
       field: keyof typeof paystackForm,
       value: string | boolean
     ) => {
       setPaystackForm(
-        (previous) => ({
+        previous => ({
           ...previous,
           [field]: value,
         })
       );
     };
 
-  /**
-   * ------------------------------------------------------------
-   * UPDATE BANK FIELD
-   * ------------------------------------------------------------
-   */
+  /* ==========================================================
+     BANK FIELD
+  ========================================================== */
+
   const updateBankField =
     (
       index: number,
@@ -669,7 +857,7 @@ const BranchesList: React.FC = () => {
       value: string | boolean
     ) => {
       setBankForms(
-        (previous) => {
+        previous => {
           const copy = [
             ...previous,
           ];
@@ -684,23 +872,17 @@ const BranchesList: React.FC = () => {
       );
     };
 
-  /**
-   * ------------------------------------------------------------
-   * VERIFY PASSWORD BEFORE REVEALING SECRET KEY
-   * ------------------------------------------------------------
-   *
-   * Supabase Auth password verification is performed by
-   * signing in again with the currently authenticated
-   * user's email and the password supplied in the dialog.
-   *
-   * This does NOT expose the password to the database.
-   */
+  /* ==========================================================
+     VERIFY PASSWORD
+  ========================================================== */
+
   const verifyPassword =
     async () => {
       if (!user?.email) {
         setPasswordError(
           'Your authenticated email address could not be determined.'
         );
+
         return;
       }
 
@@ -710,6 +892,7 @@ const BranchesList: React.FC = () => {
         setPasswordError(
           'Please enter your password.'
         );
+
         return;
       }
 
@@ -736,9 +919,6 @@ const BranchesList: React.FC = () => {
           throw error;
         }
 
-        /**
-         * Password is valid.
-         */
         setPasswordVerified(
           true
         );
@@ -752,9 +932,8 @@ const BranchesList: React.FC = () => {
         );
 
         setPasswordInput('');
-
         setPasswordError('');
-      } catch (err: any) {
+      } catch (err) {
         console.error(
           'Password verification failed:',
           err
@@ -770,40 +949,32 @@ const BranchesList: React.FC = () => {
       }
     };
 
-  /**
-   * ------------------------------------------------------------
-   * TOGGLE PAYSTACK SECRET
-   * ------------------------------------------------------------
-   */
+  /* ==========================================================
+     TOGGLE PAYSTACK SECRET
+  ========================================================== */
+
   const togglePaystackSecret =
     () => {
-      /**
-       * If already visible, hide it immediately.
-       */
       if (
         showPaystackSecret
       ) {
         setShowPaystackSecret(
           false
         );
+
         return;
       }
 
-      /**
-       * Already verified during this session.
-       */
       if (
         passwordVerified
       ) {
         setShowPaystackSecret(
           true
         );
+
         return;
       }
 
-      /**
-       * Ask for password.
-       */
       setPasswordError('');
       setPasswordInput('');
       setPasswordDialogOpen(
@@ -811,11 +982,10 @@ const BranchesList: React.FC = () => {
       );
     };
 
-  /**
-   * ------------------------------------------------------------
-   * SAVE PAYSTACK
-   * ------------------------------------------------------------
-   */
+  /* ==========================================================
+     SAVE PAYSTACK
+  ========================================================== */
+
   const savePaystack =
     async () => {
       if (!branch) {
@@ -862,18 +1032,28 @@ const BranchesList: React.FC = () => {
           paystackForm.paystack_callback_url.trim() ||
           null,
 
-        bank_name: null,
+        bank_name:
+          paystackGateway?.bank_name ||
+          null,
+
         bank_account_number:
+          paystackGateway?.bank_account_number ||
           null,
+
         bank_account_name:
+          paystackGateway?.bank_account_name ||
           null,
+
         bank_sort_code:
+          paystackGateway?.bank_sort_code ||
           null,
 
         bank_currency:
+          paystackGateway?.bank_currency ||
           'NGN',
 
         payment_instructions:
+          paystackGateway?.payment_instructions ||
           null,
 
         support_email:
@@ -885,7 +1065,9 @@ const BranchesList: React.FC = () => {
           null,
 
         created_by:
-          user?.id || null,
+          paystackGateway?.created_by ||
+          user?.id ||
+          null,
 
         metadata: {
           ...(paystackGateway?.metadata ||
@@ -907,37 +1089,46 @@ const BranchesList: React.FC = () => {
       if (
         paystackGateway?.id
       ) {
-        const {
-          data,
-          error,
-        } =
-          await supabase
-            .from(
-              'payment_gateways'
-            )
-            .update(
-              payload
-            )
-            .eq(
-              'id',
-              paystackGateway.id
-            )
-            .eq(
-              'branch_id',
-              branch.id
-            )
-            .select('*')
-            .limit(1)
-            .maybeSingle();
+        /*
+         * Only update if this is a real database UUID.
+         */
+        if (
+          !paystackGateway.id.startsWith(
+            'metadata-'
+          )
+        ) {
+          const {
+            data,
+            error,
+          } =
+            await supabase
+              .from(
+                'payment_gateways'
+              )
+              .update(
+                payload
+              )
+              .eq(
+                'id',
+                paystackGateway.id
+              )
+              .eq(
+                'branch_id',
+                branch.id
+              )
+              .select('*')
+              .limit(1)
+              .maybeSingle();
 
-        if (error) {
-          throw error;
-        }
+          if (error) {
+            throw error;
+          }
 
-        if (data) {
-          setPaystackGateway(
-            data as PaymentGateway
-          );
+          if (data) {
+            setPaystackGateway(
+              data as PaymentGateway
+            );
+          }
         }
       } else {
         const {
@@ -950,6 +1141,7 @@ const BranchesList: React.FC = () => {
             )
             .insert({
               ...payload,
+
               created_at:
                 new Date().toISOString(),
             })
@@ -969,11 +1161,10 @@ const BranchesList: React.FC = () => {
       }
     };
 
-  /**
-   * ------------------------------------------------------------
-   * SAVE BANK ACCOUNT
-   * ------------------------------------------------------------
-   */
+  /* ==========================================================
+     SAVE BANK ACCOUNT
+  ========================================================== */
+
   const saveBankAccount =
     async (
       index: number
@@ -990,9 +1181,8 @@ const BranchesList: React.FC = () => {
         !form.bank_account_number.trim() &&
         !form.bank_account_name.trim();
 
-      /**
-       * Empty account slot:
-       * nothing to save.
+      /*
+       * Empty slot = nothing to save.
        */
       if (isEmpty) {
         return;
@@ -1037,9 +1227,12 @@ const BranchesList: React.FC = () => {
       const existingAccount =
         bankAccounts[index];
 
-      /**
-       * Preserve existing metadata.
-       */
+      const existingIsRealRow =
+        existingAccount?.id &&
+        !existingAccount.id.startsWith(
+          'metadata-'
+        );
+
       const existingMetadata =
         existingAccount?.metadata ||
         {};
@@ -1121,10 +1314,6 @@ const BranchesList: React.FC = () => {
             'bank_transfer',
           ],
 
-          /**
-           * This identifies the intended use
-           * of the two main accounts.
-           */
           payment_category:
             accountNumber === 1
               ? 'other_fees'
@@ -1138,11 +1327,12 @@ const BranchesList: React.FC = () => {
           new Date().toISOString(),
       };
 
-      /**
-       * UPDATE EXISTING ROW
-       */
+      /* ======================================================
+         UPDATE EXISTING REAL ROW
+      ====================================================== */
+
       if (
-        existingAccount?.id
+        existingIsRealRow
       ) {
         const {
           data,
@@ -1157,7 +1347,7 @@ const BranchesList: React.FC = () => {
             )
             .eq(
               'id',
-              existingAccount.id
+              existingAccount!.id
             )
             .eq(
               'branch_id',
@@ -1168,19 +1358,12 @@ const BranchesList: React.FC = () => {
             .maybeSingle();
 
         if (error) {
-          console.error(
-            `Bank Account ${
-              accountNumber
-            } update error:`,
-            error
-          );
-
           throw error;
         }
 
         if (data) {
           setBankAccounts(
-            (previous) => {
+            previous => {
               const copy = [
                 ...previous,
               ];
@@ -1196,9 +1379,13 @@ const BranchesList: React.FC = () => {
         return;
       }
 
-      /**
-       * INSERT NEW ROW
-       */
+      /* ======================================================
+         INSERT NEW REAL ROW
+
+         This is also used when the account originally came
+         from paystack.metadata.bank_accounts.
+      ====================================================== */
+
       const {
         data,
         error,
@@ -1209,6 +1396,7 @@ const BranchesList: React.FC = () => {
           )
           .insert({
             ...payload,
+
             created_at:
               new Date().toISOString(),
           })
@@ -1217,19 +1405,12 @@ const BranchesList: React.FC = () => {
           .maybeSingle();
 
       if (error) {
-        console.error(
-          `Bank Account ${
-            accountNumber
-          } insert error:`,
-          error
-        );
-
         throw error;
       }
 
       if (data) {
         setBankAccounts(
-          (previous) => {
+          previous => {
             const copy = [
               ...previous,
             ];
@@ -1243,11 +1424,10 @@ const BranchesList: React.FC = () => {
       }
     };
 
-  /**
-   * ------------------------------------------------------------
-   * DELETE BANK ACCOUNT
-   * ------------------------------------------------------------
-   */
+  /* ==========================================================
+     DELETE BANK ACCOUNT
+  ========================================================== */
+
   const deleteBankAccount =
     async (
       index: number
@@ -1259,9 +1439,19 @@ const BranchesList: React.FC = () => {
       const existing =
         bankAccounts[index];
 
-      if (!existing?.id) {
+      /*
+       * Metadata-only account isn't a database row.
+       *
+       * Just clear the form.
+       */
+      if (
+        !existing?.id ||
+        existing.id.startsWith(
+          'metadata-'
+        )
+      ) {
         setBankForms(
-          (previous) => {
+          previous => {
             const copy = [
               ...previous,
             ];
@@ -1269,6 +1459,19 @@ const BranchesList: React.FC = () => {
             copy[index] = {
               ...emptyBankAccount,
             };
+
+            return copy;
+          }
+        );
+
+        setBankAccounts(
+          previous => {
+            const copy = [
+              ...previous,
+            ];
+
+            copy[index] =
+              null;
 
             return copy;
           }
@@ -1315,7 +1518,7 @@ const BranchesList: React.FC = () => {
         }
 
         setBankAccounts(
-          (previous) => {
+          previous => {
             const copy = [
               ...previous,
             ];
@@ -1328,7 +1531,7 @@ const BranchesList: React.FC = () => {
         );
 
         setBankForms(
-          (previous) => {
+          previous => {
             const copy = [
               ...previous,
             ];
@@ -1361,11 +1564,10 @@ const BranchesList: React.FC = () => {
       }
     };
 
-  /**
-   * ------------------------------------------------------------
-   * SAVE EVERYTHING
-   * ------------------------------------------------------------
-   */
+  /* ==========================================================
+     SAVE EVERYTHING
+  ========================================================== */
+
   const handleSave =
     async (
       event: React.FormEvent
@@ -1373,10 +1575,6 @@ const BranchesList: React.FC = () => {
       event.preventDefault();
 
       if (!branch) {
-        setError(
-          'No valid branch was found.'
-        );
-
         return;
       }
 
@@ -1385,14 +1583,8 @@ const BranchesList: React.FC = () => {
         setError('');
         setSuccess('');
 
-        /**
-         * Save Paystack.
-         */
         await savePaystack();
 
-        /**
-         * Save Accounts 1-4.
-         */
         for (
           let index = 0;
           index < 4;
@@ -1403,9 +1595,6 @@ const BranchesList: React.FC = () => {
           );
         }
 
-        /**
-         * Reload from database.
-         */
         await loadPaymentGateways(
           branch.id
         );
@@ -1428,17 +1617,16 @@ const BranchesList: React.FC = () => {
       }
     };
 
-  /**
-   * ------------------------------------------------------------
-   * TOGGLE BANK ACCOUNT NUMBER
-   * ------------------------------------------------------------
-   */
+  /* ==========================================================
+     TOGGLE BANK NUMBER
+  ========================================================== */
+
   const toggleBankNumber =
     (
       index: number
     ) => {
       setShowBankNumbers(
-        (previous) => {
+        previous => {
           const copy = [
             ...previous,
           ];
@@ -1451,19 +1639,16 @@ const BranchesList: React.FC = () => {
       );
     };
 
-  /**
-   * ------------------------------------------------------------
-   * LOADING
-   * ------------------------------------------------------------
-   *
-   * This must come BEFORE the branch error.
-   *
-   * While auth or branch data is resolving,
-   * the user sees "Please wait..."
-   */
+  /* ==========================================================
+     LOADING SCREEN
+
+     THERE IS NO BRANCH ERROR SCREEN ANYMORE.
+  ========================================================== */
+
   if (
     authLoading ||
-    loading
+    loading ||
+    !branch
   ) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center px-4">
@@ -1482,53 +1667,16 @@ const BranchesList: React.FC = () => {
     );
   }
 
-  /**
-   * ------------------------------------------------------------
-   * ERROR
-   * ------------------------------------------------------------
-   */
-  if (!branch) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center px-4">
-        <div className="w-full max-w-lg rounded-2xl border border-red-200 bg-white p-8 text-center shadow-sm dark:border-red-900/50 dark:bg-gray-800">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
-            <AlertCircle className="h-6 w-6 text-red-600 dark:text-red-400" />
-          </div>
+  /* ==========================================================
+     MAIN UI
+  ========================================================== */
 
-          <h1 className="mb-2 text-xl font-bold text-gray-900 dark:text-white">
-            Unable to load branch
-          </h1>
-
-          <p className="mx-auto mb-6 max-w-xl text-sm leading-6 text-gray-600 dark:text-gray-300">
-            {error ||
-              'Your account is not currently linked to a valid branch.'}
-          </p>
-
-          <button
-            type="button"
-            onClick={
-              loadBranchData
-            }
-            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Try Again
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  /**
-   * ------------------------------------------------------------
-   * MAIN UI
-   * ------------------------------------------------------------
-   */
   return (
     <div className="min-h-screen bg-gray-50 px-4 py-6 dark:bg-gray-950 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-6">
 
         {/* HEADER */}
+
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="mb-2 flex items-center gap-2">
@@ -1549,9 +1697,10 @@ const BranchesList: React.FC = () => {
 
           <button
             type="button"
-            onClick={
-              loadBranchData
-            }
+            onClick={() => {
+              setLoading(true);
+              loadBranchData();
+            }}
             disabled={saving}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700"
           >
@@ -1561,6 +1710,7 @@ const BranchesList: React.FC = () => {
         </div>
 
         {/* SUCCESS */}
+
         {success && (
           <div className="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-green-800 dark:border-green-900/50 dark:bg-green-950/20 dark:text-green-300">
             <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0" />
@@ -1572,6 +1722,7 @@ const BranchesList: React.FC = () => {
         )}
 
         {/* ERROR */}
+
         {error && (
           <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-800 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
             <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
@@ -1583,6 +1734,7 @@ const BranchesList: React.FC = () => {
         )}
 
         {/* BRANCH INFORMATION */}
+
         <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-6">
           <div className="mb-5 flex items-center gap-3">
             <div className="rounded-xl bg-blue-100 p-2.5 dark:bg-blue-900/30">
@@ -1601,6 +1753,7 @@ const BranchesList: React.FC = () => {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+
             <InfoItem
               icon={
                 <Building2 className="h-4 w-4" />
@@ -1662,6 +1815,7 @@ const BranchesList: React.FC = () => {
                 branch.address
               }
             />
+
           </div>
         </div>
 
@@ -1670,10 +1824,17 @@ const BranchesList: React.FC = () => {
             handleSave
           }
         >
-          {/* PAYSTACK */}
+
+          {/* ==================================================
+              PAYSTACK
+          ================================================== */}
+
           <div className="mb-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-6">
+
             <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+
               <div className="flex items-center gap-3">
+
                 <div className="rounded-xl bg-indigo-100 p-2.5 dark:bg-indigo-900/30">
                   <CreditCard className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                 </div>
@@ -1687,15 +1848,17 @@ const BranchesList: React.FC = () => {
                     Online card and payment gateway configuration.
                   </p>
                 </div>
+
               </div>
 
               <label className="flex cursor-pointer items-center gap-2">
+
                 <input
                   type="checkbox"
                   checked={
                     paystackForm.is_active
                   }
-                  onChange={(e) =>
+                  onChange={e =>
                     updatePaystackField(
                       'is_active',
                       e.target.checked
@@ -1707,16 +1870,19 @@ const BranchesList: React.FC = () => {
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
                   Active
                 </span>
+
               </label>
+
             </div>
 
             <div className="grid gap-5 md:grid-cols-2">
+
               <InputField
                 label="Paystack Public Key"
                 value={
                   paystackForm.paystack_public_key
                 }
-                onChange={(value) =>
+                onChange={value =>
                   updatePaystackField(
                     'paystack_public_key',
                     value
@@ -1725,13 +1891,16 @@ const BranchesList: React.FC = () => {
                 placeholder="pk_live_..."
               />
 
-              {/* SECRET KEY */}
+              {/* SECRET */}
+
               <div>
+
                 <label className="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-200">
                   Paystack Secret Key
                 </label>
 
                 <div className="relative">
+
                   <input
                     type={
                       showPaystackSecret
@@ -1765,11 +1934,13 @@ const BranchesList: React.FC = () => {
                       </>
                     )}
                   </button>
+
                 </div>
 
                 <p className="mt-1 text-xs text-gray-400">
                   Password verification is required before viewing this secret key.
                 </p>
+
               </div>
 
               <InputField
@@ -1778,13 +1949,13 @@ const BranchesList: React.FC = () => {
                 value={
                   paystackForm.paystack_merchant_email
                 }
-                onChange={(value) =>
+                onChange={value =>
                   updatePaystackField(
                     'paystack_merchant_email',
                     value
                   )
                 }
-                placeholder="finance@ebenezer.edu.ng"
+                placeholder="finance@ebeniza.edu.ng"
               />
 
               <InputField
@@ -1792,21 +1963,28 @@ const BranchesList: React.FC = () => {
                 value={
                   paystackForm.paystack_callback_url
                 }
-                onChange={(value) =>
+                onChange={value =>
                   updatePaystackField(
                     'paystack_callback_url',
                     value
                   )
                 }
-                placeholder="https://ebenezer.edu.ng/payment/verify"
+                placeholder="https://ebeniza.edu.ng/payment/verify"
               />
+
             </div>
           </div>
 
-          {/* BANK ACCOUNTS */}
+          {/* ==================================================
+              BANK ACCOUNTS
+          ================================================== */}
+
           <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-6">
+
             <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
               <div className="flex items-center gap-3">
+
                 <div className="rounded-xl bg-green-100 p-2.5 dark:bg-green-900/30">
                   <Landmark className="h-5 w-5 text-green-600 dark:text-green-400" />
                 </div>
@@ -1820,23 +1998,25 @@ const BranchesList: React.FC = () => {
                     Add up to 4 bank accounts for this branch.
                   </p>
                 </div>
+
               </div>
 
               <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700 dark:bg-green-900/30 dark:text-green-300">
                 Up to 4 accounts
               </span>
+
             </div>
 
             <div className="space-y-6">
+
               {bankForms.map(
                 (
                   form,
                   index
                 ) => {
+
                   const existing =
-                    bankAccounts[
-                      index
-                    ];
+                    bankAccounts[index];
 
                   const accountMetadata =
                     existing?.metadata ||
@@ -1844,6 +2024,13 @@ const BranchesList: React.FC = () => {
 
                   const paymentCategory =
                     accountMetadata.payment_category;
+
+                  const isMetadataAccount =
+                    Boolean(
+                      existing?.id?.startsWith(
+                        'metadata-'
+                      )
+                    );
 
                   return (
                     <div
@@ -1853,20 +2040,26 @@ const BranchesList: React.FC = () => {
                       }
                       className="rounded-2xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/50 sm:p-5"
                     >
+
+                      {/* ACCOUNT HEADER */}
+
                       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
                         <div className="flex items-center gap-3">
+
                           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
                             {index + 1}
                           </div>
 
                           <div>
+
                             <h3 className="font-bold text-gray-900 dark:text-white">
                               Bank Account{' '}
-                              {index +
-                                1}
+                              {index + 1}
                             </h3>
 
                             <p className="text-xs text-gray-500 dark:text-gray-400">
+
                               {paymentCategory ===
                               'logistics'
                                 ? 'Logistics payments'
@@ -1874,27 +2067,31 @@ const BranchesList: React.FC = () => {
                                   'other_fees'
                                 ? 'Other school fees'
                                 : existing
-                                ? 'Saved account'
+                                ? isMetadataAccount
+                                  ? 'Loaded from branch payment settings'
+                                  : 'Saved account'
                                 : 'New account'}
+
                             </p>
+
                           </div>
+
                         </div>
 
                         <div className="flex items-center gap-3">
+
                           <label className="flex cursor-pointer items-center gap-2">
+
                             <input
                               type="checkbox"
                               checked={
                                 form.is_active
                               }
-                              onChange={(
-                                e
-                              ) =>
+                              onChange={e =>
                                 updateBankField(
                                   index,
                                   'is_active',
-                                  e.target
-                                    .checked
+                                  e.target.checked
                                 )
                               }
                               className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -1903,37 +2100,42 @@ const BranchesList: React.FC = () => {
                             <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
                               Active
                             </span>
+
                           </label>
 
-                          {existing && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                deleteBankAccount(
-                                  index
-                                )
-                              }
-                              disabled={
-                                saving
-                              }
-                              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Remove
-                            </button>
-                          )}
+                          {existing &&
+                            !isMetadataAccount && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  deleteBankAccount(
+                                    index
+                                  )
+                                }
+                                disabled={
+                                  saving
+                                }
+                                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Remove
+                              </button>
+                            )}
+
                         </div>
+
                       </div>
 
+                      {/* ACCOUNT FIELDS */}
+
                       <div className="grid gap-5 md:grid-cols-2">
+
                         <InputField
                           label="Bank Name"
                           value={
                             form.bank_name
                           }
-                          onChange={(
-                            value
-                          ) =>
+                          onChange={value =>
                             updateBankField(
                               index,
                               'bank_name',
@@ -1944,12 +2146,15 @@ const BranchesList: React.FC = () => {
                         />
 
                         {/* ACCOUNT NUMBER */}
+
                         <div>
+
                           <label className="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-200">
                             Account Number
                           </label>
 
                           <div className="relative">
+
                             <input
                               type={
                                 showBankNumbers[
@@ -1961,14 +2166,11 @@ const BranchesList: React.FC = () => {
                               value={
                                 form.bank_account_number
                               }
-                              onChange={(
-                                e
-                              ) =>
+                              onChange={e =>
                                 updateBankField(
                                   index,
                                   'bank_account_number',
-                                  e.target
-                                    .value
+                                  e.target.value
                                 )
                               }
                               placeholder="1012345678"
@@ -1992,7 +2194,9 @@ const BranchesList: React.FC = () => {
                                 <Eye className="h-5 w-5" />
                               )}
                             </button>
+
                           </div>
+
                         </div>
 
                         <InputField
@@ -2000,9 +2204,7 @@ const BranchesList: React.FC = () => {
                           value={
                             form.bank_account_name
                           }
-                          onChange={(
-                            value
-                          ) =>
+                          onChange={value =>
                             updateBankField(
                               index,
                               'bank_account_name',
@@ -2017,9 +2219,7 @@ const BranchesList: React.FC = () => {
                           value={
                             form.bank_sort_code
                           }
-                          onChange={(
-                            value
-                          ) =>
+                          onChange={value =>
                             updateBankField(
                               index,
                               'bank_sort_code',
@@ -2034,9 +2234,7 @@ const BranchesList: React.FC = () => {
                           value={
                             form.bank_currency
                           }
-                          onChange={(
-                            value
-                          ) =>
+                          onChange={value =>
                             updateBankField(
                               index,
                               'bank_currency',
@@ -2051,9 +2249,7 @@ const BranchesList: React.FC = () => {
                           value={
                             form.support_phone
                           }
-                          onChange={(
-                            value
-                          ) =>
+                          onChange={value =>
                             updateBankField(
                               index,
                               'support_phone',
@@ -2069,19 +2265,18 @@ const BranchesList: React.FC = () => {
                           value={
                             form.support_email
                           }
-                          onChange={(
-                            value
-                          ) =>
+                          onChange={value =>
                             updateBankField(
                               index,
                               'support_email',
                               value
                             )
                           }
-                          placeholder="finance@ebenezer.edu.ng"
+                          placeholder="finance@ebeniza.edu.ng"
                         />
 
                         <div className="md:col-span-2">
+
                           <label className="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-200">
                             Payment Instructions
                           </label>
@@ -2091,14 +2286,11 @@ const BranchesList: React.FC = () => {
                             value={
                               form.payment_instructions
                             }
-                            onChange={(
-                              e
-                            ) =>
+                            onChange={e =>
                               updateBankField(
                                 index,
                                 'payment_instructions',
-                                e.target
-                                  .value
+                                e.target.value
                               )
                             }
                             placeholder={`Please use your child's admission number as reference when making bank transfers.
@@ -2109,40 +2301,56 @@ Reference: Child's Admission Number`}
                           />
 
                           <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 dark:border-blue-900/30 dark:bg-blue-950/20">
+
                             <div className="flex items-start gap-2">
+
                               <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600 dark:text-blue-400" />
 
                               <p className="text-xs text-blue-700 dark:text-blue-300">
+
                                 This account is stored as{' '}
+
                                 <strong>
                                   bank_transfer_
-                                  {index +
-                                    1}
+                                  {index + 1}
                                 </strong>{' '}
+
                                 in{' '}
+
                                 <strong>
                                   payment_gateways
-                                </strong>
-                                , with Account{' '}
-                                <strong>
-                                  {index +
-                                    1}
                                 </strong>{' '}
+
+                                with Account{' '}
+
+                                <strong>
+                                  {index + 1}
+                                </strong>{' '}
+
                                 identified in metadata.
+
                               </p>
+
                             </div>
+
                           </div>
+
                         </div>
+
                       </div>
+
                     </div>
                   );
                 }
               )}
+
             </div>
           </div>
 
           {/* SAVE */}
+
           <div className="sticky bottom-4 z-10 mt-6 flex justify-end">
+
             <button
               type="submit"
               disabled={
@@ -2150,6 +2358,7 @@ Reference: Child's Admission Number`}
               }
               className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
+
               {saving ? (
                 <>
                   <Loader2 className="h-5 w-5 animate-spin" />
@@ -2161,21 +2370,31 @@ Reference: Child's Admission Number`}
                   Save Settings
                 </>
               )}
+
             </button>
+
           </div>
+
         </form>
       </div>
 
-      {/* PASSWORD VERIFICATION MODAL */}
+      {/* ======================================================
+          PASSWORD VERIFICATION MODAL
+      ====================================================== */}
+
       {passwordDialogOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 backdrop-blur-sm">
+
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-800">
+
             <div className="mb-5 flex items-start gap-3">
+
               <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/30">
                 <Lock className="h-5 w-5 text-amber-600 dark:text-amber-400" />
               </div>
 
               <div>
+
                 <h2 className="text-lg font-bold text-gray-900 dark:text-white">
                   Verify your password
                 </h2>
@@ -2183,10 +2402,13 @@ Reference: Child's Admission Number`}
                 <p className="mt-1 text-sm leading-5 text-gray-500 dark:text-gray-400">
                   Enter your current account password to view the Paystack secret key.
                 </p>
+
               </div>
+
             </div>
 
             <div>
+
               <label className="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-200">
                 Password
               </label>
@@ -2197,19 +2419,14 @@ Reference: Child's Admission Number`}
                 value={
                   passwordInput
                 }
-                onChange={(
-                  e
-                ) => {
+                onChange={e => {
                   setPasswordInput(
                     e.target.value
                   );
-                  setPasswordError(
-                    ''
-                  );
+
+                  setPasswordError('');
                 }}
-                onKeyDown={(
-                  e
-                ) => {
+                onKeyDown={e => {
                   if (
                     e.key ===
                     'Enter'
@@ -2229,6 +2446,7 @@ Reference: Child's Admission Number`}
 
               {passwordError && (
                 <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700 dark:border-red-900/50 dark:bg-red-950/20 dark:text-red-300">
+
                   <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
 
                   <span>
@@ -2236,11 +2454,14 @@ Reference: Child's Admission Number`}
                       passwordError
                     }
                   </span>
+
                 </div>
               )}
+
             </div>
 
             <div className="mt-6 flex justify-end gap-3">
+
               <button
                 type="button"
                 onClick={() => {
@@ -2275,6 +2496,7 @@ Reference: Child's Admission Number`}
                 }
                 className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
+
                 {verifyingPassword ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -2286,20 +2508,24 @@ Reference: Child's Admission Number`}
                     Verify & View
                   </>
                 )}
+
               </button>
+
             </div>
+
           </div>
+
         </div>
       )}
+
     </div>
   );
 };
 
-/**
- * ------------------------------------------------------------
- * INFO ITEM
- * ------------------------------------------------------------
- */
+/* ============================================================
+   INFO ITEM
+============================================================ */
+
 const InfoItem: React.FC<{
   icon: React.ReactNode;
   label: string;
@@ -2311,27 +2537,30 @@ const InfoItem: React.FC<{
 }) => {
   return (
     <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/40">
+
       <div className="mb-2 flex items-center gap-2 text-blue-600 dark:text-blue-400">
+
         {icon}
 
         <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
           {label}
         </span>
+
       </div>
 
       <p className="break-words text-sm font-semibold text-gray-900 dark:text-white">
         {value ||
           'Not provided'}
       </p>
+
     </div>
   );
 };
 
-/**
- * ------------------------------------------------------------
- * INPUT FIELD
- * ------------------------------------------------------------
- */
+/* ============================================================
+   INPUT FIELD
+============================================================ */
+
 const InputField: React.FC<{
   label: string;
   value: string;
@@ -2349,6 +2578,7 @@ const InputField: React.FC<{
 }) => {
   return (
     <div>
+
       <label className="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-200">
         {label}
       </label>
@@ -2356,7 +2586,7 @@ const InputField: React.FC<{
       <input
         type={type}
         value={value}
-        onChange={(e) =>
+        onChange={e =>
           onChange(
             e.target.value
           )
@@ -2366,6 +2596,7 @@ const InputField: React.FC<{
         }
         className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
       />
+
     </div>
   );
 };

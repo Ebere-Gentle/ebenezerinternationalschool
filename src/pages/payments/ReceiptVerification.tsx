@@ -1,8 +1,7 @@
 // src/pages/ReceiptVerification.tsx
-// Fixed to properly search and display receipt verification
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import {
   ShieldCheck,
   Search,
@@ -17,23 +16,25 @@ import {
   Copy,
   Clock,
   Hash,
-  Building,
   User,
   Calendar,
-  Banknote,
   FileText,
-  Check,
-  AlertTriangle,
-  Verified,
-  Lock,
   ExternalLink,
-  Sparkles,
-  Crown,
-  Zap,
-  Star,
+  Fingerprint,
+  BadgeCheck,
+  Building2,
+  CreditCard,
+  ScanLine,
+  Check,
 } from 'lucide-react';
+
 import dayjs from 'dayjs';
 import toast from 'react-hot-toast';
+import JsBarcode from 'jsbarcode';
+import QRCode from 'qrcode';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -41,86 +42,244 @@ interface VerificationResult {
   receipt_number: string;
   receipt_code: string;
   transaction_ref: string;
+
   student_name: string;
   admission_number: string;
   class_name: string;
+
   branch_name: string;
+  branch_code: string;
+
   amount_paid: number;
   amount_in_words: string;
+
   payment_method: string;
   payment_date: string;
+
   verified_at: string;
+
   term_session: string;
+
   bursar_signature: string;
   digital_fingerprint: string;
-  fee_breakdown: { item: string; amount: number }[];
+
+  fee_breakdown: {
+    item: string;
+    amount: number;
+  }[];
+
   status: 'valid' | 'invalid' | 'flagged' | 'revoked' | 'pending';
+
   security_status: string;
   verification_token: string;
-  branch_code: string;
+
   academic_session: string;
   academic_term: string;
+
   rejection_reason?: string;
+
   approved_at?: string;
+  approved_by?: string;
+  approved_by_name?: string;
+
+  approval_time?: string;
+
+  qr_data?: string;
+  barcode_data?: string;
 }
 
-// ============================================
+// ============================================================
 // HELPERS
-// ============================================
+// ============================================================
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('en-NG', {
     style: 'currency',
     currency: 'NGN',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount);
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(amount || 0));
 };
 
 const numberToWords = (num: number): string => {
-  if (num === 0) return 'Zero';
-  
-  const units = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
-  const teens = ['Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  num = Math.floor(Number(num || 0));
+
+  if (num === 0) return 'Zero Naira Only';
+
+  const units = [
+    '',
+    'One',
+    'Two',
+    'Three',
+    'Four',
+    'Five',
+    'Six',
+    'Seven',
+    'Eight',
+    'Nine',
+  ];
+
+  const teens = [
+    'Ten',
+    'Eleven',
+    'Twelve',
+    'Thirteen',
+    'Fourteen',
+    'Fifteen',
+    'Sixteen',
+    'Seventeen',
+    'Eighteen',
+    'Nineteen',
+  ];
+
+  const tens = [
+    '',
+    '',
+    'Twenty',
+    'Thirty',
+    'Forty',
+    'Fifty',
+    'Sixty',
+    'Seventy',
+    'Eighty',
+    'Ninety',
+  ];
+
   const scales = ['', 'Thousand', 'Million', 'Billion', 'Trillion'];
 
-  if (num < 10) return units[num];
-  if (num < 20) return teens[num - 10];
-  if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 ? ' ' + units[num % 10] : '');
-  if (num < 1000) return units[Math.floor(num / 100)] + ' Hundred' + (num % 100 ? ' and ' + numberToWords(num % 100) : '');
+  const convertHundreds = (n: number): string => {
+    let result = '';
+
+    if (n >= 100) {
+      result += units[Math.floor(n / 100)] + ' Hundred';
+      n %= 100;
+
+      if (n > 0) result += ' and ';
+    }
+
+    if (n >= 20) {
+      result += tens[Math.floor(n / 10)];
+      n %= 10;
+
+      if (n > 0) result += ' ' + units[n];
+    } else if (n >= 10) {
+      result += teens[n - 10];
+    } else if (n > 0) {
+      result += units[n];
+    }
+
+    return result;
+  };
 
   let result = '';
   let scaleIndex = 0;
-  let n = num;
-  while (n > 0) {
-    if (n % 1000 !== 0) {
-      result = numberToWords(n % 1000) + (scales[scaleIndex] ? ' ' + scales[scaleIndex] : '') + (result ? ' ' + result : '');
+
+  while (num > 0) {
+    const group = num % 1000;
+
+    if (group !== 0) {
+      const groupWords = convertHundreds(group);
+
+      result =
+        groupWords +
+        (scales[scaleIndex]
+          ? ' ' + scales[scaleIndex]
+          : '') +
+        (result ? ' ' + result : '');
     }
-    n = Math.floor(n / 1000);
+
+    num = Math.floor(num / 1000);
     scaleIndex++;
   }
+
   return result + ' Naira Only';
 };
 
-// ============================================
-// RECEIPT VERIFICATION COMPONENT
-// ============================================
+const escapeForOrQuery = (value: string) => {
+  return value.replace(/[,%]/g, '');
+};
+
+const getDisplayApproverName = (payment: any): string => {
+  /*
+   * Try the common places where your system may already store
+   * the approving user's name.
+   */
+
+  const candidates = [
+    payment.approved_by_name,
+    payment.approver_name,
+    payment.approved_by_user?.full_name,
+    payment.approved_by_user?.name,
+    payment.approved_by_profile?.full_name,
+    payment.approved_by_profile?.name,
+    payment.metadata?.approved_by_name,
+    payment.metadata?.approver_name,
+    payment.metadata?.approved_by_user_name,
+    payment.metadata?.approvedByName,
+    payment.metadata?.approver?.name,
+    payment.metadata?.approver?.full_name,
+  ];
+
+  for (const candidate of candidates) {
+    if (
+      candidate &&
+      typeof candidate === 'string' &&
+      candidate.trim()
+    ) {
+      return candidate.trim();
+    }
+  }
+
+  /*
+   * If approved_by itself is already a human-readable name,
+   * display it directly.
+   */
+  if (
+    payment.approved_by &&
+    typeof payment.approved_by === 'string'
+  ) {
+    const value = payment.approved_by.trim();
+
+    if (
+      value &&
+      !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value)
+    ) {
+      return value;
+    }
+  }
+
+  return 'Authorized School Finance Officer';
+};
+
+// ============================================================
+// COMPONENT
+// ============================================================
 
 export const ReceiptVerification: React.FC = () => {
   const { user } = useAuth();
+
   const [receiptQuery, setReceiptQuery] = useState('');
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<VerificationResult | null>(null);
+
+  const [result, setResult] =
+    useState<VerificationResult | null>(null);
+
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [recentVerifications, setRecentVerifications] = useState<any[]>([]);
 
-  // Load recent verifications
+  const [recentVerifications, setRecentVerifications] =
+    useState<any[]>([]);
+
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  // ============================================================
+  // LOAD RECENT PAYMENTS
+  // ============================================================
+
   useEffect(() => {
     const loadRecent = async () => {
       if (!user?.id) return;
-      
+
       try {
         const { data, error } = await supabase
           .from('payments')
@@ -130,6 +289,8 @@ export const ReceiptVerification: React.FC = () => {
             amount_paid,
             payment_date,
             status,
+            approved_by,
+            approved_at,
             student:student_id (
               first_name,
               last_name,
@@ -143,8 +304,11 @@ export const ReceiptVerification: React.FC = () => {
         if (!error && data) {
           setRecentVerifications(data);
         }
-      } catch (error) {
-        console.error('Error loading recent verifications:', error);
+      } catch (err) {
+        console.error(
+          'Error loading recent verifications:',
+          err
+        );
       }
     };
 
@@ -153,12 +317,150 @@ export const ReceiptVerification: React.FC = () => {
     }
   }, [user]);
 
-  const handleVerify = async (e?: React.FormEvent) => {
+  // ============================================================
+  // GENERATE BARCODE + QR
+  // ============================================================
+
+  const generateSecurityCodes = async (
+    verification: VerificationResult
+  ) => {
+    const barcodeData =
+      verification.digital_fingerprint &&
+      verification.digital_fingerprint !== 'N/A'
+        ? verification.digital_fingerprint
+        : [
+            'EIS',
+            verification.receipt_number,
+            verification.receipt_code,
+            verification.verification_token,
+          ]
+            .filter(Boolean)
+            .join('|');
+
+    const verificationUrl =
+      `${window.location.origin}/receipt-verification?receipt=` +
+      encodeURIComponent(verification.receipt_number);
+
+    const qrPayload = JSON.stringify({
+      type: 'EBENEZER_RECEIPT_VERIFICATION',
+      receipt_number: verification.receipt_number,
+      receipt_code: verification.receipt_code,
+      verification_token: verification.verification_token,
+      transaction_ref: verification.transaction_ref,
+      amount: verification.amount_paid,
+      status: verification.status,
+      verification_url: verificationUrl,
+    });
+
+    return {
+      barcodeData,
+      qrPayload,
+    };
+  };
+
+  // ============================================================
+  // CREATE BARCODE WHEN RESULT EXISTS
+  // ============================================================
+
+  useEffect(() => {
+    if (!result) return;
+
+    const renderCodes = async () => {
+      try {
+        const barcodeCanvas =
+          document.getElementById(
+            'receipt-barcode'
+          ) as HTMLCanvasElement | null;
+
+        if (barcodeCanvas) {
+          const barcodeData =
+            result.barcode_data ||
+            result.digital_fingerprint ||
+            [
+              'EIS',
+              result.receipt_number,
+              result.receipt_code,
+              result.verification_token,
+            ]
+              .filter(Boolean)
+              .join('|');
+
+          JsBarcode(
+            barcodeCanvas,
+            barcodeData,
+            {
+              format: 'CODE128',
+              width: 2,
+              height: 65,
+              displayValue: true,
+              fontSize: 10,
+              margin: 8,
+              background: '#ffffff',
+              lineColor: '#111827',
+            }
+          );
+        }
+
+        const qrCanvas =
+          document.getElementById(
+            'receipt-qrcode'
+          ) as HTMLCanvasElement | null;
+
+        if (qrCanvas) {
+          const qrData =
+            result.qr_data ||
+            JSON.stringify({
+              type: 'EBENEZER_RECEIPT_VERIFICATION',
+              receipt_number: result.receipt_number,
+              receipt_code: result.receipt_code,
+              verification_token:
+                result.verification_token,
+              transaction_ref:
+                result.transaction_ref,
+              amount: result.amount_paid,
+              status: result.status,
+              verification_url:
+                `${window.location.origin}/receipt-verification?receipt=${encodeURIComponent(
+                  result.receipt_number
+                )}`,
+            });
+
+          await QRCode.toCanvas(
+            qrCanvas,
+            qrData,
+            {
+              width: 170,
+              margin: 2,
+              errorCorrectionLevel: 'H',
+            }
+          );
+        }
+      } catch (err) {
+        console.error(
+          'Barcode / QR generation error:',
+          err
+        );
+      }
+    };
+
+    setTimeout(renderCodes, 50);
+  }, [result]);
+
+  // ============================================================
+  // VERIFY RECEIPT
+  // ============================================================
+
+  const handleVerify = async (
+    e?: React.FormEvent
+  ) => {
     if (e) e.preventDefault();
-    
+
     const query = receiptQuery.trim();
+
     if (!query) {
-      toast.error('Please enter a Receipt Number, Receipt Code, or Token');
+      toast.error(
+        'Please enter a Receipt Number, Receipt Code, Token, or Transaction Reference'
+      );
       return;
     }
 
@@ -167,224 +469,560 @@ export const ReceiptVerification: React.FC = () => {
     setHasSearched(true);
 
     try {
-      // Build search conditions
-      let searchConditions: any[] = [
-        { column: 'receipt_number', value: query },
-        { column: 'receipt_code', value: query },
-        { column: 'payment_id', value: query },
-        { column: 'transaction_reference', value: query },
+      const safeQuery =
+        escapeForOrQuery(query);
+
+      const searchConditions = [
+        `receipt_number.ilike.%${safeQuery}%`,
+        `receipt_code.ilike.%${safeQuery}%`,
+        `payment_id.ilike.%${safeQuery}%`,
+        `transaction_reference.ilike.%${safeQuery}%`,
+        `verification_token.ilike.%${safeQuery}%`,
       ];
 
-      // If it looks like a verification token (starts with EIS-VFY-)
-      if (query.startsWith('EIS-VFY-')) {
-        searchConditions.push({ column: 'verification_token', value: query });
-      }
+      const orQuery =
+        searchConditions.join(',');
 
-      // Build the OR query
-      let orQuery = searchConditions
-        .filter(c => c.value)
-        .map(c => `${c.column}.ilike.%${c.value}%`)
-        .join(',');
-
-      // If no specific conditions, search all
-      if (!orQuery) {
-        orQuery = `receipt_number.ilike.%${query}%,receipt_code.ilike.%${query}%,payment_id.ilike.%${query}%,transaction_reference.ilike.%${query}%`;
-      }
-
-      // Execute search
-      const { data, error: fetchError } = await supabase
-        .from('payments')
-        .select(`
-          *,
-          student:student_id (
-            id,
-            first_name,
-            last_name,
-            admission_number,
-            class_id,
-            class:class_id (
+      const { data, error: fetchError } =
+        await supabase
+          .from('payments')
+          .select(`
+            *,
+            student:student_id (
               id,
-              name
+              first_name,
+              last_name,
+              admission_number,
+              class_id,
+              class:class_id (
+                id,
+                name
+              )
+            ),
+            branch:branch_id (
+              id,
+              school_name,
+              branch_code,
+              address,
+              email
             )
-          ),
-          branch:branch_id (
-            id,
-            school_name,
-            branch_code,
-            address,
-        
-            email
-          )
-        `)
-        .or(orQuery)
-        .maybeSingle();
+          `)
+          .or(orQuery)
+          .order('created_at', {
+            ascending: false,
+          })
+          .limit(1)
+          .maybeSingle();
 
       if (fetchError) {
-        console.error('Error fetching payment:', fetchError);
-        setError('Database error: ' + fetchError.message);
+        console.error(
+          'Error fetching payment:',
+          fetchError
+        );
+
+        setError(
+          'Database error: ' +
+            fetchError.message
+        );
+
         setLoading(false);
         return;
       }
 
-      if (data) {
-        const payment = data;
-        const branchName = payment.branch?.school_name || 'Ebenezer International School';
-        const student = payment.student as any;
-        const studentName = student 
-          ? `${student.first_name || ''} ${student.last_name || ''}`.trim()
-          : payment.metadata?.student_name || 'Unknown Student';
-        const className = student?.class?.name || payment.metadata?.class_name || 'N/A';
-        const admission = student?.admission_number || payment.metadata?.student_id || 'N/A';
+      if (!data) {
+        setResult(null);
 
-        // Build fee breakdown
-        const feeBreakdown = [
-          { item: payment.fee_name || 'Tuition Fee', amount: payment.amount || 0 }
-        ];
+        setError(
+          'No receipt found matching your search criteria.'
+        );
 
-        if (payment.metadata?.fee_breakdown) {
-          const metadataBreakdown = payment.metadata.fee_breakdown;
-          if (Array.isArray(metadataBreakdown)) {
-            feeBreakdown.length = 0;
-            metadataBreakdown.forEach((item: any) => {
-              feeBreakdown.push({ 
-                item: item.item || item.name || 'Fee', 
-                amount: item.amount || 0 
-              });
+        toast.error(
+          '❌ Receipt not found'
+        );
+
+        setLoading(false);
+        return;
+      }
+
+      const payment = data;
+      const student =
+        payment.student as any;
+
+      const branchName =
+        payment.branch?.school_name ||
+        'Ebenezer International School';
+
+      const studentName = student
+        ? `${student.first_name || ''} ${
+            student.last_name || ''
+          }`.trim()
+        : payment.metadata?.student_name ||
+          'Unknown Student';
+
+      const className =
+        student?.class?.name ||
+        payment.metadata?.class_name ||
+        'N/A';
+
+      const admission =
+        student?.admission_number ||
+        payment.metadata?.student_id ||
+        'N/A';
+
+      // ----------------------------------------------------------
+      // FEE BREAKDOWN
+      // ----------------------------------------------------------
+
+      const feeBreakdown = [
+        {
+          item:
+            payment.fee_name ||
+            'School Fee',
+          amount:
+            Number(
+              payment.amount_paid ??
+                payment.amount ??
+                0
+            ),
+        },
+      ];
+
+      if (
+        payment.metadata?.fee_breakdown &&
+        Array.isArray(
+          payment.metadata.fee_breakdown
+        )
+      ) {
+        feeBreakdown.length = 0;
+
+        payment.metadata.fee_breakdown.forEach(
+          (item: any) => {
+            feeBreakdown.push({
+              item:
+                item.item ||
+                item.name ||
+                'Fee',
+              amount:
+                Number(item.amount || 0),
             });
           }
-        }
-
-        // Determine status
-        let displayStatus: 'valid' | 'invalid' | 'flagged' | 'revoked' | 'pending' = 'pending';
-        if (payment.status === 'completed' || payment.status === 'paid' || payment.status === 'approved') {
-          displayStatus = payment.receipt_security_status === 'REVOKED' ? 'revoked' : 'valid';
-        } else if (payment.status === 'pending' || payment.status === 'processing') {
-          displayStatus = 'pending';
-        } else if (payment.status === 'failed' || payment.status === 'rejected') {
-          displayStatus = 'invalid';
-        } else if (payment.receipt_security_status === 'REVOKED') {
-          displayStatus = 'revoked';
-        }
-
-        if (payment.receipt_revoked_at || payment.receipt_security_status === 'REVOKED') {
-          displayStatus = 'revoked';
-        }
-
-        const resultData: VerificationResult = {
-          receipt_number: payment.receipt_number || query,
-          receipt_code: payment.receipt_code || '',
-          transaction_ref: payment.transaction_reference || payment.payment_id || 'N/A',
-          student_name: studentName,
-          admission_number: admission,
-          class_name: className,
-          branch_name: branchName,
-          amount_paid: payment.amount_paid || 0,
-          amount_in_words: numberToWords(payment.amount_paid || 0),
-          payment_method: payment.payment_method || 'N/A',
-          payment_date: payment.payment_date || new Date().toISOString(),
-          verified_at: new Date().toISOString(),
-          term_session: `${payment.academic_term || ''} ${payment.academic_session || ''}`.trim() || 'Current Session',
-          bursar_signature: payment.approved_by ? `Approved by: ${payment.approved_by}` : 'System Verified',
-          digital_fingerprint: payment.receipt_signature || 'N/A',
-          fee_breakdown: feeBreakdown,
-          status: displayStatus,
-          security_status: payment.receipt_security_status || 'PENDING',
-          verification_token: payment.verification_token || 'N/A',
-          branch_code: payment.branch_code || 'EISO',
-          academic_session: payment.academic_session || '',
-          academic_term: payment.academic_term || '',
-          rejection_reason: payment.rejection_reason || undefined,
-          approved_at: payment.approved_at || undefined,
-        };
-
-        setResult(resultData);
-
-        if (displayStatus === 'valid') {
-          toast.success('✅ Official cryptographic seal validated: Authenticated');
-        } else if (displayStatus === 'revoked') {
-          toast.error('❌ This receipt has been revoked!');
-        } else if (displayStatus === 'pending') {
-          toast.info('⏳ This payment is pending verification');
-        } else {
-          toast.error('❌ Receipt verification failed');
-        }
-      } else {
-        // No receipt found - show a more helpful message
-        setResult(null);
-        setError('No receipt found matching your search criteria. Please check the receipt number, code, or token and try again.');
-        toast.error('❌ Receipt not found');
+        );
       }
-    } catch (error: any) {
-      console.error('Error verifying receipt:', error);
-      setError(error.message || 'Failed to verify receipt');
-      toast.error('Failed to verify receipt');
+
+      // ----------------------------------------------------------
+      // STATUS
+      // ----------------------------------------------------------
+
+      let displayStatus:
+        | 'valid'
+        | 'invalid'
+        | 'flagged'
+        | 'revoked'
+        | 'pending' =
+        'pending';
+
+      if (
+        payment.receipt_revoked_at ||
+        payment.receipt_security_status ===
+          'REVOKED'
+      ) {
+        displayStatus = 'revoked';
+      } else if (
+        payment.status === 'completed' ||
+        payment.status === 'paid' ||
+        payment.status === 'approved'
+      ) {
+        displayStatus = 'valid';
+      } else if (
+        payment.status === 'pending' ||
+        payment.status === 'processing'
+      ) {
+        displayStatus = 'pending';
+      } else if (
+        payment.status === 'failed' ||
+        payment.status === 'rejected'
+      ) {
+        displayStatus = 'invalid';
+      }
+
+      // ----------------------------------------------------------
+      // APPROVER
+      // ----------------------------------------------------------
+
+      const approverName =
+        getDisplayApproverName(
+          payment
+        );
+
+      const approvedAt =
+        payment.approved_at ||
+        payment.metadata?.approved_at ||
+        undefined;
+
+      const digitalFingerprint =
+        payment.receipt_signature ||
+        payment.digital_fingerprint ||
+        'N/A';
+
+      // ----------------------------------------------------------
+      // RESULT
+      // ----------------------------------------------------------
+
+      const resultData: VerificationResult = {
+        receipt_number:
+          payment.receipt_number ||
+          query,
+
+        receipt_code:
+          payment.receipt_code || '',
+
+        transaction_ref:
+          payment.transaction_reference ||
+          payment.payment_id ||
+          'N/A',
+
+        student_name:
+          studentName,
+
+        admission_number:
+          admission,
+
+        class_name:
+          className,
+
+        branch_name:
+          branchName,
+
+        branch_code:
+          payment.branch_code ||
+          payment.branch?.branch_code ||
+          'EISO',
+
+        amount_paid:
+          Number(
+            payment.amount_paid ??
+              payment.amount ??
+              0
+          ),
+
+        amount_in_words:
+          numberToWords(
+            Number(
+              payment.amount_paid ??
+                payment.amount ??
+                0
+            )
+          ),
+
+        payment_method:
+          payment.payment_method ||
+          'N/A',
+
+        payment_date:
+          payment.payment_date ||
+          payment.created_at ||
+          new Date().toISOString(),
+
+        verified_at:
+          new Date().toISOString(),
+
+        term_session:
+          `${payment.academic_term || ''} ${
+            payment.academic_session || ''
+          }`.trim() ||
+          'Current Session',
+
+        bursar_signature:
+          approverName,
+
+        digital_fingerprint:
+          digitalFingerprint,
+
+        fee_breakdown:
+          feeBreakdown,
+
+        status:
+          displayStatus,
+
+        security_status:
+          payment.receipt_security_status ||
+          'PENDING',
+
+        verification_token:
+          payment.verification_token ||
+          'N/A',
+
+        academic_session:
+          payment.academic_session || '',
+
+        academic_term:
+          payment.academic_term || '',
+
+        rejection_reason:
+          payment.rejection_reason ||
+          undefined,
+
+        approved_at:
+          approvedAt,
+
+        approved_by:
+          payment.approved_by ||
+          undefined,
+
+        approved_by_name:
+          approverName,
+
+        approval_time:
+          approvedAt
+            ? dayjs(approvedAt).format(
+                'MMMM D, YYYY h:mm:ss A'
+              )
+            : undefined,
+      };
+
+      const codes =
+        await generateSecurityCodes(
+          resultData
+        );
+
+      resultData.barcode_data =
+        codes.barcodeData;
+
+      resultData.qr_data =
+        codes.qrPayload;
+
+      setResult(resultData);
+
+      if (
+        displayStatus === 'valid'
+      ) {
+        toast.success(
+          '✅ Official cryptographic seal validated'
+        );
+      } else if (
+        displayStatus === 'revoked'
+      ) {
+        toast.error(
+          '❌ This receipt has been revoked'
+        );
+      } else if (
+        displayStatus === 'pending'
+      ) {
+        toast(
+          '⏳ This payment is pending verification'
+        );
+      } else {
+        toast.error(
+          '❌ Receipt verification failed'
+        );
+      }
+    } catch (err: any) {
+      console.error(
+        'Error verifying receipt:',
+        err
+      );
+
+      setError(
+        err.message ||
+          'Failed to verify receipt'
+      );
+
+      toast.error(
+        'Failed to verify receipt'
+      );
     } finally {
       setLoading(false);
     }
   };
 
+  // ============================================================
+  // PRINT
+  // ============================================================
+
   const handlePrint = () => {
+    if (!result) return;
+
     window.print();
   };
 
-  const handleDownload = () => {
+  // ============================================================
+  // DOWNLOAD PDF
+  // ============================================================
+
+  const handleDownloadPDF = async () => {
     if (!result) return;
-    
-    const receiptText = `
-========================================
-        EBENEZER INTERNATIONAL SCHOOL
-      OFFICIAL RECEIPT VERIFICATION
-========================================
 
-Receipt Number: ${result.receipt_number}
-Receipt Code: ${result.receipt_code}
-Transaction Ref: ${result.transaction_ref}
-Verification Token: ${result.verification_token}
+    const element =
+      document.getElementById(
+        'receipt-print-area'
+      );
 
-Student: ${result.student_name}
-Admission: ${result.admission_number}
-Class: ${result.class_name}
-Branch: ${result.branch_name}
+    if (!element) {
+      toast.error(
+        'Receipt document not found'
+      );
+      return;
+    }
 
-----------------------------------------
-AMOUNT: ${formatCurrency(result.amount_paid)}
-${result.amount_in_words}
-Payment Method: ${result.payment_method}
-Payment Date: ${dayjs(result.payment_date).format('MMMM D, YYYY h:mm A')}
-Term/Session: ${result.term_session}
+    setPdfLoading(true);
 
-----------------------------------------
-FEE BREAKDOWN:
-${result.fee_breakdown.map(f => `  ${f.item}: ${formatCurrency(f.amount)}`).join('\n')}
+    try {
+      /*
+       * Clone the receipt so the PDF is independent
+       * from the application's dark/light mode.
+       */
+      const clone =
+        element.cloneNode(
+          true
+        ) as HTMLElement;
 
-----------------------------------------
-STATUS: ${result.status.toUpperCase()}
-Security Status: ${result.security_status}
-Cryptographic Seal: ${result.digital_fingerprint}
-Verified At: ${dayjs(result.verified_at).format('MMMM D, YYYY h:mm A')}
+      clone.style.background =
+        '#ffffff';
 
-========================================
-This is a computer-generated verification.
-© ${new Date().getFullYear()} Ebenezer International School
-    `;
+      clone.style.color =
+        '#111827';
 
-    const blob = new Blob([receiptText], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `receipt-verification-${result.receipt_number}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast.success('Verification report downloaded');
+      clone.style.width =
+        '794px';
+
+      clone.style.maxWidth =
+        '794px';
+
+      clone.style.position =
+        'absolute';
+
+      clone.style.left =
+        '-100000px';
+
+      clone.style.top =
+        '0';
+
+      clone.style.boxShadow =
+        'none';
+
+      clone.style.borderRadius =
+        '0';
+
+      clone.classList.remove(
+        'dark:bg-gray-900'
+      );
+
+      document.body.appendChild(
+        clone
+      );
+
+      const canvas =
+        await html2canvas(
+          clone,
+          {
+            scale: 2,
+            useCORS: true,
+            backgroundColor:
+              '#ffffff',
+            logging: false,
+          }
+        );
+
+      document.body.removeChild(
+        clone
+      );
+
+      const imgData =
+        canvas.toDataURL(
+          'image/png'
+        );
+
+      const pdf =
+        new jsPDF({
+          orientation: 'portrait',
+          unit: 'mm',
+          format: 'a4',
+        });
+
+      const pageWidth =
+        pdf.internal.pageSize.getWidth();
+
+      const pageHeight =
+        pdf.internal.pageSize.getHeight();
+
+      const margin = 8;
+
+      const usableWidth =
+        pageWidth -
+        margin * 2;
+
+      const imageHeight =
+        (canvas.height *
+          usableWidth) /
+        canvas.width;
+
+      let heightLeft =
+        imageHeight;
+
+      let position =
+        margin;
+
+      pdf.addImage(
+        imgData,
+        'PNG',
+        margin,
+        position,
+        usableWidth,
+        imageHeight
+      );
+
+      heightLeft -=
+        pageHeight -
+        margin * 2;
+
+      while (
+        heightLeft > 0
+      ) {
+        position =
+          heightLeft -
+          imageHeight +
+          margin;
+
+        pdf.addPage();
+
+        pdf.addImage(
+          imgData,
+          'PNG',
+          margin,
+          position,
+          usableWidth,
+          imageHeight
+        );
+
+        heightLeft -=
+          pageHeight -
+          margin * 2;
+      }
+
+      pdf.save(
+        `Receipt-${result.receipt_number}.pdf`
+      );
+
+      toast.success(
+        'Receipt PDF downloaded'
+      );
+    } catch (err) {
+      console.error(
+        'PDF generation error:',
+        err
+      );
+
+      toast.error(
+        'Could not generate PDF'
+      );
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
-  // Try a sample receipt
-  const trySample = (sample: string) => {
-    setReceiptQuery(sample);
-    handleVerify();
-  };
+  // ============================================================
+  // CLEAR
+  // ============================================================
 
   const clearResults = () => {
     setResult(null);
@@ -393,363 +1031,1145 @@ This is a computer-generated verification.
     setReceiptQuery('');
   };
 
+  // ============================================================
+  // SAMPLE
+  // ============================================================
+
+  const trySample = (
+    sample: string
+  ) => {
+    setReceiptQuery(sample);
+
+    setTimeout(() => {
+      handleVerify();
+    }, 50);
+  };
+
+  // ============================================================
+  // PRINT CSS
+  // ============================================================
+
+  const printStyles = `
+    @page {
+      size: A4;
+      margin: 10mm;
+    }
+
+    @media print {
+
+      html,
+      body {
+        background: #ffffff !important;
+        color: #111827 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+      }
+
+      body * {
+        visibility: hidden;
+      }
+
+      #receipt-print-area,
+      #receipt-print-area * {
+        visibility: visible !important;
+      }
+
+      #receipt-print-area {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+
+        width: 100% !important;
+        max-width: none !important;
+
+        margin: 0 !important;
+        padding: 0 !important;
+
+        background: #ffffff !important;
+        color: #111827 !important;
+
+        border: none !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+      }
+
+      #receipt-print-area
+      .print-hidden {
+        display: none !important;
+      }
+
+      #receipt-print-area
+      .dark\\\\:bg-gray-900,
+      #receipt-print-area
+      .dark\\\\:bg-gray-800,
+      #receipt-print-area
+      .dark\\\\:bg-gray-800\\\\/40,
+      #receipt-print-area
+      .dark\\\\:bg-gray-800\\\\/60,
+      #receipt-print-area
+      .dark\\\\:bg-emerald-950\\\\/40,
+      #receipt-print-area
+      .dark\\\\:bg-red-950\\\\/40,
+      #receipt-print-area
+      .dark\\\\:bg-yellow-950\\\\/40 {
+        background: #ffffff !important;
+      }
+
+      #receipt-print-area
+      .dark\\\\:text-white,
+      #receipt-print-area
+      .dark\\\\:text-gray-200,
+      #receipt-print-area
+      .dark\\\\:text-gray-300 {
+        color: #111827 !important;
+      }
+
+      #receipt-print-area
+      .dark\\\\:border-gray-800,
+      #receipt-print-area
+      .dark\\\\:border-gray-700 {
+        border-color: #d1d5db !important;
+      }
+
+      #receipt-print-area
+      table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+      }
+
+      #receipt-print-area
+      th,
+      #receipt-print-area
+      td {
+        border-color: #d1d5db !important;
+      }
+
+      #receipt-print-area
+      .print-page-break {
+        page-break-before: always;
+      }
+
+      #receipt-barcode {
+        max-width: 100% !important;
+      }
+
+      button {
+        display: none !important;
+      }
+    }
+  `;
+
+  // ============================================================
+  // RENDER
+  // ============================================================
+
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-12">
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-emerald-700 via-teal-700 to-blue-800 rounded-3xl p-6 sm:p-8 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md text-xs font-semibold mb-2">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />
-            <span>Anti-Fraud Cryptographic Verification</span>
+    <>
+      <style>
+        {printStyles}
+      </style>
+
+      <div className="max-w-5xl mx-auto space-y-6 pb-12">
+
+        {/* ======================================================
+            HEADER
+        ====================================================== */}
+
+        <div className="bg-gradient-to-r from-emerald-700 via-teal-700 to-blue-800 rounded-3xl p-6 sm:p-8 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-6">
+
+          <div>
+
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md text-xs font-semibold mb-2">
+
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-300" />
+
+              <span>
+                Anti-Fraud Cryptographic Verification
+              </span>
+
+            </div>
+
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+              Official Receipt & Payment Verification
+            </h1>
+
+            <p className="text-emerald-100 text-sm max-w-xl mt-1">
+              Validate school fee receipts, digital signatures,
+              barcodes and QR verification data.
+            </p>
+
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
-            Official Receipt & Payment Verification
-          </h1>
-          <p className="text-emerald-100 text-sm max-w-xl">
-            Validate school fee receipts, check official bursary digital signatures, and prevent altered bank slips.
-          </p>
-        </div>
 
-        <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/20 text-center flex flex-col items-center justify-center">
-          <QrCode className="w-8 h-8 text-white mb-1" />
-          <span className="text-[11px] font-medium text-emerald-100">Live QR Authenticator</span>
-        </div>
-      </div>
+          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/20 text-center flex flex-col items-center justify-center">
 
-      {/* Verification Query Input */}
-      <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200/80 dark:border-gray-800 p-6 shadow-sm">
-        <form onSubmit={handleVerify} className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Hash className="w-5 h-5 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Enter Receipt Number, Receipt Code, Token, or Transaction Ref..."
-              value={receiptQuery}
-              onChange={e => setReceiptQuery(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-gray-900 dark:text-white font-semibold"
-            />
+            <QrCode className="w-8 h-8 text-white mb-1" />
+
+            <span className="text-[11px] font-medium text-emerald-100">
+              Live QR Authenticator
+            </span>
+
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 whitespace-nowrap"
-          >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-            <span>{loading ? 'Verifying...' : 'Verify Authenticity'}</span>
-          </button>
-        </form>
-
-        <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-gray-500 dark:text-gray-400">
-          <span>Try a sample receipt:</span>
-          <button
-            onClick={() => trySample('RCP/EBE/2026/00000001')}
-            className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold hover:underline px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/30 rounded"
-          >
-            RCP/EBE/2026/00000001
-          </button>
-          <button
-            onClick={() => trySample('RCP/EBE/2026/00000003')}
-            className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold hover:underline px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/30 rounded"
-          >
-            RCP/EBE/2026/00000003
-          </button>
         </div>
+
+        {/* ======================================================
+            SEARCH
+        ====================================================== */}
+
+        <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200/80 dark:border-gray-800 p-6 shadow-sm">
+
+          <form
+            onSubmit={handleVerify}
+            className="flex flex-col sm:flex-row gap-3"
+          >
+
+            <div className="relative flex-1">
+
+              <Hash className="w-5 h-5 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+
+              <input
+                type="text"
+                placeholder="Receipt Number, Receipt Code, Token or Transaction Ref..."
+                value={receiptQuery}
+                onChange={e =>
+                  setReceiptQuery(
+                    e.target.value
+                  )
+                }
+                className="w-full pl-11 pr-4 py-3 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-gray-900 dark:text-white font-semibold"
+              />
+
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-6 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 whitespace-nowrap"
+            >
+
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ShieldCheck className="w-4 h-4" />
+              )}
+
+              {loading
+                ? 'Verifying...'
+                : 'Verify Authenticity'}
+
+            </button>
+
+          </form>
+
+          <div className="flex flex-wrap items-center gap-3 mt-3 text-xs text-gray-500 dark:text-gray-400">
+
+            <span>
+              Try a sample receipt:
+            </span>
+
+            <button
+              type="button"
+              onClick={() =>
+                trySample(
+                  'RCP/EBE/2026/00000001'
+                )
+              }
+              className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold hover:underline px-2 py-0.5 bg-emerald-50 dark:bg-emerald-950/30 rounded"
+            >
+              RCP/EBE/2026/00000001
+            </button>
+
+          </div>
+
+          {result && (
+            <button
+              type="button"
+              onClick={clearResults}
+              className="mt-3 print-hidden text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+            >
+              <X className="w-3 h-3" />
+              Clear results
+            </button>
+          )}
+
+        </div>
+
+        {/* ======================================================
+            RECEIPT
+        ====================================================== */}
 
         {result && (
-          <button
-            onClick={clearResults}
-            className="mt-2 text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+
+          <motion.div
+            initial={{
+              opacity: 0,
+              y: 12,
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+            }}
+            id="receipt-print-area"
+            className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200/80 dark:border-gray-800 shadow-xl overflow-hidden print:border-none print:shadow-none"
           >
-            <X className="w-3 h-3" />
-            Clear results
-          </button>
-        )}
-      </div>
 
-      {/* Verification Result Card */}
-      {result && (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200/80 dark:border-gray-800 shadow-xl overflow-hidden print:border-none print:shadow-none"
-        >
-          {/* Top Verification Seal Header */}
-          <div className={`p-6 border-b flex flex-col sm:flex-row items-center justify-between gap-4 ${
-            result.status === 'valid' 
-              ? 'bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 dark:from-emerald-950/40 dark:via-teal-950/20 dark:to-emerald-950/40 border-emerald-100 dark:border-emerald-900/60'
-              : result.status === 'revoked'
-              ? 'bg-gradient-to-r from-red-50 via-rose-50 to-red-50 dark:from-red-950/40 dark:via-rose-950/20 dark:to-red-950/40 border-red-100 dark:border-red-900/60'
-              : result.status === 'pending'
-              ? 'bg-gradient-to-r from-yellow-50 via-amber-50 to-yellow-50 dark:from-yellow-950/40 dark:via-amber-950/20 dark:to-yellow-950/40 border-yellow-100 dark:border-yellow-900/60'
-              : 'bg-gradient-to-r from-gray-50 to-gray-50 dark:from-gray-800 dark:to-gray-800 border-gray-200 dark:border-gray-700'
-          }`}>
-            <div className="flex items-center gap-3 text-center sm:text-left">
-              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0 ${
-                result.status === 'valid' 
-                  ? 'bg-emerald-600 shadow-emerald-600/30'
+            {/* ==================================================
+                VERIFICATION HEADER
+            ================================================== */}
+
+            <div
+              className={`p-6 border-b flex flex-col sm:flex-row items-center justify-between gap-4 ${
+                result.status === 'valid'
+                  ? 'bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 dark:from-emerald-950/40 dark:via-teal-950/20 dark:to-emerald-950/40 border-emerald-100 dark:border-emerald-900/60'
                   : result.status === 'revoked'
-                  ? 'bg-red-600 shadow-red-600/30'
-                  : result.status === 'pending'
-                  ? 'bg-yellow-600 shadow-yellow-600/30'
-                  : 'bg-gray-600 shadow-gray-600/30'
-              } text-white`}>
-                {result.status === 'valid' ? <CheckCircle2 className="w-7 h-7" /> :
-                 result.status === 'revoked' ? <AlertCircle className="w-7 h-7" /> :
-                 result.status === 'pending' ? <Clock className="w-7 h-7" /> :
-                 <AlertCircle className="w-7 h-7" />}
-              </div>
-              <div>
-                <div className="flex items-center gap-2 justify-center sm:justify-start flex-wrap">
-                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                    result.status === 'valid' 
-                      ? 'bg-emerald-600 text-white'
+                  ? 'bg-gradient-to-r from-red-50 via-rose-50 to-red-50 dark:from-red-950/40 dark:via-rose-950/20 dark:to-red-950/40 border-red-100 dark:border-red-900/60'
+                  : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+              }`}
+            >
+
+              <div className="flex items-center gap-3">
+
+                <div
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg text-white ${
+                    result.status === 'valid'
+                      ? 'bg-emerald-600'
                       : result.status === 'revoked'
-                      ? 'bg-red-600 text-white'
-                      : result.status === 'pending'
-                      ? 'bg-yellow-600 text-white'
-                      : 'bg-gray-600 text-white'
-                  }`}>
-                    {result.status === 'valid' ? 'AUTHENTICATED & RECORDED' :
-                     result.status === 'revoked' ? 'REVOKED' :
-                     result.status === 'pending' ? 'PENDING VERIFICATION' :
-                     'INVALID'}
-                  </span>
-                  <span className="text-xs font-mono text-gray-600 dark:text-gray-300 font-semibold">
-                    {result.receipt_number}
-                  </span>
-                  {result.receipt_code && (
-                    <span className="text-xs font-mono text-gray-400">
-                      #{result.receipt_code}
-                    </span>
-                  )}
-                </div>
-                <h2 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white mt-0.5">
-                  {result.status === 'valid' ? 'Valid School Fee Settlement Certificate' :
-                   result.status === 'revoked' ? 'This Receipt Has Been Revoked' :
-                   result.status === 'pending' ? 'Payment Pending Verification' :
-                   'Receipt Not Found or Invalid'}
-                </h2>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 print:hidden">
-              <button
-                onClick={handlePrint}
-                className="px-4 py-2 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-bold text-xs hover:bg-gray-50 flex items-center gap-1.5 shadow-sm"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                Print
-              </button>
-              <button
-                onClick={handleDownload}
-                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Download PDF
-              </button>
-            </div>
-          </div>
-
-          {/* Official Document Body */}
-          <div className="p-6 sm:p-8 space-y-6">
-            {/* Verification Token Display */}
-            {result.verification_token && result.verification_token !== 'N/A' && (
-              <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                  <Key className="w-4 h-4 text-blue-600" />
-                  <span className="text-xs text-gray-600 dark:text-gray-300">Verification Token:</span>
-                  <span className="text-xs font-mono font-bold text-blue-600 dark:text-blue-400">{result.verification_token}</span>
-                </div>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(result.verification_token);
-                    toast.success('Token copied to clipboard');
-                  }}
-                  className="p-1 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded-lg transition-all"
+                      ? 'bg-red-600'
+                      : 'bg-yellow-600'
+                  }`}
                 >
-                  <Copy className="w-3.5 h-3.5 text-blue-500" />
+
+                  {result.status === 'valid' ? (
+                    <CheckCircle2 className="w-7 h-7" />
+                  ) : result.status === 'revoked' ? (
+                    <AlertCircle className="w-7 h-7" />
+                  ) : (
+                    <Clock className="w-7 h-7" />
+                  )}
+
+                </div>
+
+                <div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                        result.status === 'valid'
+                          ? 'bg-emerald-600 text-white'
+                          : result.status === 'revoked'
+                          ? 'bg-red-600 text-white'
+                          : 'bg-yellow-600 text-white'
+                      }`}
+                    >
+                      {result.status === 'valid'
+                        ? 'AUTHENTICATED & RECORDED'
+                        : result.status === 'revoked'
+                        ? 'REVOKED'
+                        : 'PENDING VERIFICATION'}
+                    </span>
+
+                    <span className="text-xs font-mono text-gray-600 dark:text-gray-300 font-semibold">
+                      {result.receipt_number}
+                    </span>
+
+                  </div>
+
+                  <h2 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white mt-1">
+                    {result.status === 'valid'
+                      ? 'Valid School Fee Settlement Certificate'
+                      : result.status === 'revoked'
+                      ? 'This Receipt Has Been Revoked'
+                      : 'Payment Pending Verification'}
+                  </h2>
+
+                </div>
+
+              </div>
+
+              {/* PRINT ACTIONS */}
+
+              <div className="flex items-center gap-2 print-hidden">
+
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  className="px-4 py-2 rounded-xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-bold text-xs hover:bg-gray-50 flex items-center gap-1.5 shadow-sm"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Print
                 </button>
-              </div>
-            )}
 
-            {/* School Info Header */}
-            <div className="flex flex-col sm:flex-row items-start justify-between border-b border-gray-100 dark:border-gray-800 pb-4">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                  EBENEZER INTERNATIONAL SCHOOL
-                </h3>
-                <p className="text-xs text-gray-500">Official Directorate of Bursary & Financial Affairs</p>
-                <p className="text-xs text-gray-400 mt-0.5">{result.term_session}</p>
-                <p className="text-xs text-gray-400">Branch: {result.branch_code || 'EISO'}</p>
+                <button
+                  type="button"
+                  onClick={handleDownloadPDF}
+                  disabled={pdfLoading}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm disabled:opacity-60"
+                >
+
+                  {pdfLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+
+                  {pdfLoading
+                    ? 'Creating PDF...'
+                    : 'Download PDF'}
+
+                </button>
+
               </div>
 
-              <div className="text-right mt-2 sm:mt-0">
-                <span className="text-xs text-gray-400 block">Verification Timestamp</span>
-                <span className="text-xs font-mono font-semibold text-gray-800 dark:text-gray-200">
-                  {dayjs(result.verified_at).format('MMM D, YYYY h:mm A')}
-                </span>
-                <span className={`inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                  result.status === 'valid' 
-                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                    : result.status === 'revoked'
-                    ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                    : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                }`}>
-                  {result.status === 'valid' ? <ShieldCheck className="w-3 h-3" /> :
-                   result.status === 'revoked' ? <AlertCircle className="w-3 h-3" /> :
-                   <Clock className="w-3 h-3" />}
-                  {result.status === 'valid' ? 'Verified' :
-                   result.status === 'revoked' ? 'Revoked' :
-                   'Pending'}
-                </span>
-              </div>
             </div>
 
-            {/* Student & Payment Summary Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-              <div className="p-3 bg-gray-50 dark:bg-gray-800/60 rounded-2xl">
-                <span className="text-gray-400 block text-[11px]">Student Name</span>
-                <span className="font-bold text-gray-900 dark:text-white text-sm mt-0.5 block truncate">
-                  {result.student_name}
-                </span>
-              </div>
+            {/* ==================================================
+                DOCUMENT BODY
+            ================================================== */}
 
-              <div className="p-3 bg-gray-50 dark:bg-gray-800/60 rounded-2xl">
-                <span className="text-gray-400 block text-[11px]">Admission Number</span>
-                <span className="font-mono font-bold text-gray-900 dark:text-white text-sm mt-0.5 block">
-                  {result.admission_number}
-                </span>
-              </div>
+            <div className="p-6 sm:p-8 space-y-6">
 
-              <div className="p-3 bg-gray-50 dark:bg-gray-800/60 rounded-2xl">
-                <span className="text-gray-400 block text-[11px]">Class & Stream</span>
-                <span className="font-bold text-gray-900 dark:text-white text-sm mt-0.5 block truncate">
-                  {result.class_name}
-                </span>
-              </div>
+              {/* SCHOOL HEADER */}
 
-              <div className={`p-3 rounded-2xl border ${
-                result.status === 'valid' 
-                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200/60 dark:border-emerald-800'
-                  : result.status === 'revoked'
-                  ? 'bg-red-50 dark:bg-red-950/40 border-red-200/60 dark:border-red-800'
-                  : 'bg-gray-50 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700'
-              }`}>
-                <span className={`block text-[11px] font-semibold ${
-                  result.status === 'valid' 
-                    ? 'text-emerald-700 dark:text-emerald-300'
-                    : result.status === 'revoked'
-                    ? 'text-red-700 dark:text-red-300'
-                    : 'text-gray-500 dark:text-gray-400'
-                }`}>
-                  Amount Cleared
-                </span>
-                <span className={`font-mono font-bold text-base mt-0.5 block ${
-                  result.status === 'valid' 
-                    ? 'text-emerald-800 dark:text-emerald-200'
-                    : result.status === 'revoked'
-                    ? 'text-red-800 dark:text-red-200'
-                    : 'text-gray-800 dark:text-gray-200'
-                }`}>
-                  {formatCurrency(result.amount_paid)}
-                </span>
-              </div>
-            </div>
+              <div className="text-center border-b border-gray-200 dark:border-gray-800 pb-5">
 
-            {/* Itemized Fee Table */}
-            <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
-                Itemized Fee Allocation
-              </h4>
-              <div className="border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-gray-50 dark:bg-gray-800/60 text-gray-500 font-semibold border-b border-gray-200 dark:border-gray-800">
-                    <tr>
-                      <th className="p-3">Fee Description</th>
-                      <th className="p-3 text-right">Amount (NGN)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                    {result.fee_breakdown.map((fee, idx) => (
-                      <tr key={idx} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/30">
-                        <td className="p-3 font-medium text-gray-900 dark:text-white">{fee.item}</td>
-                        <td className="p-3 text-right font-mono font-bold text-gray-800 dark:text-gray-200">
-                          {formatCurrency(fee.amount)}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr className="bg-gray-50/70 dark:bg-gray-800/40 font-bold">
-                      <td className="p-3 text-gray-900 dark:text-white">Total Cleared</td>
-                      <td className="p-3 text-right font-mono text-emerald-600 dark:text-emerald-400 text-sm">
-                        {formatCurrency(result.amount_paid)}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 italic mt-2">
-                Amount in Words: {result.amount_in_words}
-              </p>
-            </div>
+                <div className="flex justify-center mb-3">
 
-            {/* Security Signatures & Hash */}
-            <div className="p-4 bg-gray-50 dark:bg-gray-800/40 rounded-2xl border border-gray-200/80 dark:border-gray-800 space-y-2 text-xs">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <span className="text-gray-400 block text-[10px]">Payment Method:</span>
-                  <span className="font-semibold text-gray-900 dark:text-white capitalize">{result.payment_method}</span>
+                  <div className="w-16 h-16 rounded-2xl bg-emerald-600 flex items-center justify-center shadow-lg">
+
+                    <Building2 className="w-8 h-8 text-white" />
+
+                  </div>
+
                 </div>
-                <div>
-                  <span className="text-gray-400 block text-[10px]">Transaction Ref:</span>
-                  <span className="font-mono text-gray-700 dark:text-gray-300 text-[10px]">{result.transaction_ref}</span>
-                </div>
-                <div>
-                  <span className="text-gray-400 block text-[10px]">Security Status:</span>
-                  <span className={`font-semibold ${
-                    result.security_status === 'AUTHENTIC' ? 'text-green-600 dark:text-green-400' :
-                    result.security_status === 'REVOKED' ? 'text-red-600 dark:text-red-400' :
-                    'text-yellow-600 dark:text-yellow-400'
-                  }`}>
-                    {result.security_status || 'PENDING'}
+
+                <h2 className="text-xl sm:text-2xl font-black tracking-tight text-gray-900 dark:text-white">
+
+                  {result.branch_name ||
+                    'EBENEZER INTERNATIONAL SCHOOL'}
+
+                </h2>
+
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400 mt-1">
+                  Official Directorate of Bursary & Financial Affairs
+                </p>
+
+                <p className="text-xs text-gray-400 mt-1">
+                  {result.term_session}
+                </p>
+
+                <p className="text-xs text-gray-400">
+                  Branch Code: {result.branch_code}
+                </p>
+
+              </div>
+
+              {/* AUTHENTICATION STATUS */}
+
+              <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30 p-4">
+
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+
+                  <div className="flex items-center gap-3">
+
+                    <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center">
+
+                      <BadgeCheck className="w-6 h-6 text-white" />
+
+                    </div>
+
+                    <div>
+
+                      <p className="text-sm font-bold text-emerald-800 dark:text-emerald-200">
+                        Cryptographically Verified Receipt
+                      </p>
+
+                      <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                        Official payment record authenticated by the school system
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                  <span className="text-[10px] font-bold px-3 py-1.5 rounded-full bg-emerald-600 text-white">
+                    {result.security_status}
                   </span>
+
                 </div>
+
               </div>
 
-              {result.digital_fingerprint && result.digital_fingerprint !== 'N/A' && (
-                <div className="pt-2 border-t border-gray-200/60 dark:border-gray-700 font-mono text-[10px] text-gray-500 truncate">
-                  <span className="text-gray-400">Cryptographic Seal: </span>
-                  <span className="text-gray-600 dark:text-gray-300">{result.digital_fingerprint}</span>
-                </div>
-              )}
+              {/* RECEIPT IDENTIFICATION */}
 
-              {result.bursar_signature && result.bursar_signature !== 'System Verified' && (
-                <div className="pt-1 text-[10px] text-gray-500">
-                  <span className="text-gray-400">Approved by: </span>
-                  <span className="font-semibold text-gray-700 dark:text-gray-300">{result.bursar_signature}</span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+                <div className="p-4 bg-gray-50 dark:bg-gray-800/60 rounded-2xl">
+
+                  <span className="text-[10px] uppercase tracking-wider text-gray-400">
+                    Receipt Number
+                  </span>
+
+                  <p className="font-mono font-bold text-sm text-gray-900 dark:text-white mt-1 break-all">
+                    {result.receipt_number}
+                  </p>
+
                 </div>
-              )}
+
+                <div className="p-4 bg-gray-50 dark:bg-gray-800/60 rounded-2xl">
+
+                  <span className="text-[10px] uppercase tracking-wider text-gray-400">
+                    Receipt Code
+                  </span>
+
+                  <p className="font-mono font-bold text-sm text-gray-900 dark:text-white mt-1">
+                    {result.receipt_code || 'N/A'}
+                  </p>
+
+                </div>
+
+                <div className="p-4 bg-gray-50 dark:bg-gray-800/60 rounded-2xl">
+
+                  <span className="text-[10px] uppercase tracking-wider text-gray-400">
+                    Transaction Reference
+                  </span>
+
+                  <p className="font-mono font-bold text-xs text-gray-900 dark:text-white mt-1 break-all">
+                    {result.transaction_ref}
+                  </p>
+
+                </div>
+
+              </div>
+
+              {/* STUDENT */}
+
+              <div>
+
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
+                  Student Information
+                </h3>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800/60 rounded-2xl">
+
+                    <User className="w-4 h-4 text-emerald-600 mb-2" />
+
+                    <span className="text-[10px] text-gray-400 block">
+                      Student
+                    </span>
+
+                    <span className="font-bold text-sm text-gray-900 dark:text-white">
+                      {result.student_name}
+                    </span>
+
+                  </div>
+
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800/60 rounded-2xl">
+
+                    <FileText className="w-4 h-4 text-blue-600 mb-2" />
+
+                    <span className="text-[10px] text-gray-400 block">
+                      Admission Number
+                    </span>
+
+                    <span className="font-mono font-bold text-xs text-gray-900 dark:text-white">
+                      {result.admission_number}
+                    </span>
+
+                  </div>
+
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800/60 rounded-2xl">
+
+                    <Building2 className="w-4 h-4 text-purple-600 mb-2" />
+
+                    <span className="text-[10px] text-gray-400 block">
+                      Class
+                    </span>
+
+                    <span className="font-bold text-sm text-gray-900 dark:text-white">
+                      {result.class_name}
+                    </span>
+
+                  </div>
+
+                  <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 rounded-2xl border border-emerald-200 dark:border-emerald-900">
+
+                    <CreditCard className="w-4 h-4 text-emerald-600 mb-2" />
+
+                    <span className="text-[10px] text-emerald-700 dark:text-emerald-300 block">
+                      Amount Paid
+                    </span>
+
+                    <span className="font-mono font-black text-lg text-emerald-700 dark:text-emerald-300">
+                      {formatCurrency(
+                        result.amount_paid
+                      )}
+                    </span>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* PAYMENT INFORMATION */}
+
+              <div className="border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden">
+
+                <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-800">
+
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                    Payment Information
+                  </h3>
+
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-gray-200 dark:divide-gray-800">
+
+                  <div className="p-4">
+
+                    <span className="text-[10px] text-gray-400 block">
+                      Payment Date
+                    </span>
+
+                    <span className="font-semibold text-sm text-gray-900 dark:text-white">
+                      {dayjs(
+                        result.payment_date
+                      ).format(
+                        'MMM D, YYYY'
+                      )}
+                    </span>
+
+                  </div>
+
+                  <div className="p-4">
+
+                    <span className="text-[10px] text-gray-400 block">
+                      Payment Time
+                    </span>
+
+                    <span className="font-semibold text-sm text-gray-900 dark:text-white">
+                      {dayjs(
+                        result.payment_date
+                      ).format(
+                        'h:mm:ss A'
+                      )}
+                    </span>
+
+                  </div>
+
+                  <div className="p-4">
+
+                    <span className="text-[10px] text-gray-400 block">
+                      Payment Method
+                    </span>
+
+                    <span className="font-semibold text-sm text-gray-900 dark:text-white capitalize">
+                      {result.payment_method}
+                    </span>
+
+                  </div>
+
+                  <div className="p-4">
+
+                    <span className="text-[10px] text-gray-400 block">
+                      Status
+                    </span>
+
+                    <span className="font-bold text-sm text-emerald-600">
+                      {result.status === 'valid'
+                        ? 'Completed'
+                        : result.status.toUpperCase()}
+                    </span>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* APPROVAL INFORMATION */}
+
+              <div className="rounded-2xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 p-5">
+
+                <div className="flex items-center gap-2 mb-4">
+
+                  <ShieldCheck className="w-5 h-5 text-blue-600" />
+
+                  <h3 className="text-sm font-bold text-blue-900 dark:text-blue-200">
+                    Payment Approval Record
+                  </h3>
+
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+
+                  <div>
+
+                    <span className="text-[10px] uppercase tracking-wider text-blue-500 dark:text-blue-400 block">
+                      Approved By
+                    </span>
+
+                    <div className="flex items-center gap-2 mt-1">
+
+                      <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
+
+                        <User className="w-4 h-4 text-white" />
+
+                      </div>
+
+                      <span className="font-bold text-sm text-gray-900 dark:text-white">
+                        {result.approved_by_name ||
+                          result.bursar_signature ||
+                          'Authorized School Finance Officer'}
+                      </span>
+
+                    </div>
+
+                  </div>
+
+                  <div>
+
+                    <span className="text-[10px] uppercase tracking-wider text-blue-500 dark:text-blue-400 block">
+                      Approval Date
+                    </span>
+
+                    <div className="flex items-center gap-2 mt-2">
+
+                      <Calendar className="w-4 h-4 text-blue-600" />
+
+                      <span className="font-semibold text-sm text-gray-900 dark:text-white">
+                        {result.approved_at
+                          ? dayjs(
+                              result.approved_at
+                            ).format(
+                              'MMMM D, YYYY'
+                            )
+                          : 'Not recorded'}
+                      </span>
+
+                    </div>
+
+                  </div>
+
+                  <div>
+
+                    <span className="text-[10px] uppercase tracking-wider text-blue-500 dark:text-blue-400 block">
+                      Approval Time
+                    </span>
+
+                    <div className="flex items-center gap-2 mt-2">
+
+                      <Clock className="w-4 h-4 text-blue-600" />
+
+                      <span className="font-semibold text-sm text-gray-900 dark:text-white">
+                        {result.approved_at
+                          ? dayjs(
+                              result.approved_at
+                            ).format(
+                              'h:mm:ss A'
+                            )
+                          : 'Not recorded'}
+                      </span>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* FEE TABLE */}
+
+              <div>
+
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3">
+                  Itemized Fee Allocation
+                </h3>
+
+                <div className="border border-gray-200 dark:border-gray-800 rounded-2xl overflow-hidden">
+
+                  <table className="w-full text-sm">
+
+                    <thead className="bg-gray-50 dark:bg-gray-800/60">
+
+                      <tr>
+
+                        <th className="p-3 text-left text-xs font-bold text-gray-500">
+                          Fee Description
+                        </th>
+
+                        <th className="p-3 text-right text-xs font-bold text-gray-500">
+                          Amount
+                        </th>
+
+                      </tr>
+
+                    </thead>
+
+                    <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+
+                      {result.fee_breakdown.map(
+                        (fee, index) => (
+                          <tr key={index}>
+
+                            <td className="p-3 font-medium text-gray-900 dark:text-white">
+                              {fee.item}
+                            </td>
+
+                            <td className="p-3 text-right font-mono font-bold text-gray-900 dark:text-white">
+                              {formatCurrency(
+                                fee.amount
+                              )}
+                            </td>
+
+                          </tr>
+                        )
+                      )}
+
+                      <tr className="bg-emerald-50 dark:bg-emerald-950/20">
+
+                        <td className="p-3 font-black text-gray-900 dark:text-white">
+                          TOTAL PAID
+                        </td>
+
+                        <td className="p-3 text-right font-mono font-black text-emerald-600 dark:text-emerald-400 text-lg">
+                          {formatCurrency(
+                            result.amount_paid
+                          )}
+                        </td>
+
+                      </tr>
+
+                    </tbody>
+
+                  </table>
+
+                </div>
+
+                <p className="text-xs text-gray-500 dark:text-gray-400 italic mt-2">
+                  Amount in words:{' '}
+                  {result.amount_in_words}
+                </p>
+
+              </div>
+
+              {/* ==================================================
+                  BARCODE + QR
+              ================================================== */}
+
+              <div className="border-t border-b border-gray-200 dark:border-gray-800 py-6">
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+
+                  {/* BARCODE */}
+
+                  <div className="text-center">
+
+                    <div className="flex items-center justify-center gap-2 mb-3">
+
+                      <ScanLine className="w-4 h-4 text-emerald-600" />
+
+                      <span className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        Receipt Authentication Barcode
+                      </span>
+
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-gray-200 p-4 inline-flex flex-col items-center">
+
+                      <canvas
+                        id="receipt-barcode"
+                        className="max-w-full"
+                      />
+
+                      <p className="text-[9px] font-mono text-gray-500 mt-2 max-w-xs break-all">
+                        {result.digital_fingerprint !==
+                        'N/A'
+                          ? result.digital_fingerprint
+                          : result.receipt_number}
+                      </p>
+
+                    </div>
+
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-2">
+                      Scan with a compatible barcode scanner
+                      to identify this receipt.
+                    </p>
+
+                  </div>
+
+                  {/* QR */}
+
+                  <div className="text-center">
+
+                    <div className="flex items-center justify-center gap-2 mb-3">
+
+                      <QrCode className="w-4 h-4 text-blue-600" />
+
+                      <span className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        Scan to Verify Receipt
+                      </span>
+
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-gray-200 p-4 inline-flex flex-col items-center">
+
+                      <canvas
+                        id="receipt-qrcode"
+                        width={170}
+                        height={170}
+                      />
+
+                    </div>
+
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-2">
+                      Scan with your phone to verify
+                      receipt authenticity.
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* ==================================================
+                  VERIFICATION TOKEN
+              ================================================== */}
+
+              {result.verification_token &&
+                result.verification_token !==
+                  'N/A' && (
+
+                  <div className="p-4 bg-blue-50 dark:bg-blue-950/30 rounded-2xl border border-blue-200 dark:border-blue-900">
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+
+                      <div>
+
+                        <div className="flex items-center gap-2">
+
+                          <Key className="w-4 h-4 text-blue-600" />
+
+                          <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">
+                            Verification Token
+                          </span>
+
+                        </div>
+
+                        <p className="font-mono font-black text-sm text-blue-800 dark:text-blue-200 mt-1">
+                          {result.verification_token}
+                        </p>
+
+                        <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1">
+                          Use this token together with the receipt number
+                          to verify authenticity.
+                        </p>
+
+                      </div>
+
+                      <button
+                        type="button"
+                        className="print-hidden p-2 rounded-xl bg-white dark:bg-gray-800 border border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-gray-700"
+                        onClick={() => {
+
+                          navigator.clipboard.writeText(
+                            result.verification_token
+                          );
+
+                          toast.success(
+                            'Verification token copied'
+                          );
+
+                        }}
+                      >
+
+                        <Copy className="w-4 h-4 text-blue-600" />
+
+                      </button>
+
+                    </div>
+
+                  </div>
+                )}
+
+              {/* ==================================================
+                  CRYPTOGRAPHIC INFORMATION
+              ================================================== */}
+
+              <div className="rounded-2xl bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-800 p-5">
+
+                <div className="flex items-center gap-2 mb-4">
+
+                  <Fingerprint className="w-5 h-5 text-gray-500" />
+
+                  <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                    Payment Authentication
+                  </h3>
+
+                </div>
+
+                <div className="space-y-3">
+
+                  <div>
+
+                    <span className="text-[10px] text-gray-400 block mb-1">
+                      Cryptographic Seal
+                    </span>
+
+                    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-3">
+
+                      <code className="font-mono text-[10px] text-gray-600 dark:text-gray-300 break-all">
+                        {result.digital_fingerprint}
+                      </code>
+
+                    </div>
+
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+                    <div>
+
+                      <span className="text-[10px] text-gray-400 block">
+                        Verification Timestamp
+                      </span>
+
+                      <span className="font-semibold text-xs text-gray-900 dark:text-white">
+                        {dayjs(
+                          result.verified_at
+                        ).format(
+                          'MMMM D, YYYY h:mm:ss A'
+                        )}
+                      </span>
+
+                    </div>
+
+                    <div>
+
+                      <span className="text-[10px] text-gray-400 block">
+                        Security Status
+                      </span>
+
+                      <span className="font-bold text-xs text-emerald-600">
+                        {result.security_status}
+                      </span>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+              {/* ==================================================
+                  VERIFICATION URL
+              ================================================== */}
+
+              <div className="rounded-2xl border border-gray-200 dark:border-gray-800 p-4">
+
+                <div className="flex items-center gap-2 mb-2">
+
+                  <ExternalLink className="w-4 h-4 text-emerald-600" />
+
+                  <span className="text-xs font-bold text-gray-900 dark:text-white">
+                    Official Verification Endpoint
+                  </span>
+
+                </div>
+
+                <p className="font-mono text-[9px] text-gray-500 dark:text-gray-400 break-all">
+                  {`${window.location.origin}/receipt-verification?receipt=${encodeURIComponent(
+                    result.receipt_number
+                  )}`}
+                </p>
+
+              </div>
+
+              {/* ==================================================
+                  FOOTER
+              ================================================== */}
+
+              <div className="text-center border-t border-gray-200 dark:border-gray-800 pt-5">
+
+                <div className="flex items-center justify-center gap-2 text-emerald-600 mb-2">
+
+                  <ShieldCheck className="w-4 h-4" />
+
+                  <span className="text-xs font-bold">
+                    Cryptographically Signed
+                  </span>
+
+                </div>
+
+                <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                  This is a computer-generated official payment
+                  verification record. No physical signature is required.
+                </p>
+
+                <p className="text-[10px] text-gray-400 mt-2">
+                  © {new Date().getFullYear()}{' '}
+                  {result.branch_name ||
+                    'Ebenezer International School'}.
+                  All rights reserved.
+                </p>
+
+                <p className="text-[9px] text-gray-400 mt-1 font-mono">
+                  Receipt: {result.receipt_number}
+                  {' • '}
+                  Token: {result.verification_token}
+                </p>
+
+              </div>
+
             </div>
-          </div>
-        </motion.div>
-      )}
 
-      {/* No Results State */}
-      {hasSearched && !result && !loading && (
-        <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200/80 dark:border-gray-800 p-12 text-center">
-          <div className="w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Search className="w-10 h-10 text-gray-400" />
-          </div>
-          <h3 className="text-xl font-bold text-gray-900 dark:text-white">No Receipt Found</h3>
-          <p className="text-gray-500 dark:text-gray-400 mt-2 max-w-md mx-auto">
-            We couldn't find a receipt matching your search. Please check the receipt number, code, or token and try again.
-          </p>
-          {error && (
-            <p className="text-sm text-red-500 mt-2">{error}</p>
+          </motion.div>
+        )}
+
+        {/* ======================================================
+            NO RESULTS
+        ====================================================== */}
+
+        {hasSearched &&
+          !result &&
+          !loading && (
+
+            <div className="bg-white dark:bg-gray-900 rounded-3xl border border-gray-200/80 dark:border-gray-800 p-12 text-center">
+
+              <div className="w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
+
+                <Search className="w-10 h-10 text-gray-400" />
+
+              </div>
+
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">
+                No Receipt Found
+              </h3>
+
+              <p className="text-gray-500 dark:text-gray-400 mt-2 max-w-md mx-auto">
+                We couldn't find a receipt matching your search.
+                Please check the receipt number, code, token or
+                transaction reference.
+              </p>
+
+              {error && (
+                <p className="text-sm text-red-500 mt-3">
+                  {error}
+                </p>
+              )}
+
+            </div>
           )}
-        </div>
-      )}
-    </div>
+
+      </div>
+    </>
   );
 };
 

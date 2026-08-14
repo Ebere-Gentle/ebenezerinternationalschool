@@ -8,7 +8,6 @@ import { Eye, Package, CalendarDays, User, HandHelping, Box, ChevronRight, Schoo
 
 // Dashboard Components
 import HeroBanner from './components/HeroBanner';
-import KpiCards from './components/KpiCards';
 import RevenueChart from './components/RevenueChart';
 import LiveActivityLog from './components/LiveActivityLog';
 import AttendanceChart from './components/AttendanceChart';
@@ -21,7 +20,7 @@ import TopPerformingClasses from './components/TopPerformingClasses';
 import Tasks from './components/Tasks';
 
 // Admin Assistant Components
-import StatsGrid from '../adminAsst/components/StatsGrid';
+import StatsGrid from '../adminAsst/adminAsst/components/StatsGrid';
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth();

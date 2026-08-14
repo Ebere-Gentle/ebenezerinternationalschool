@@ -1,412 +1,1761 @@
-import React, { useState, useEffect } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+
+import dayjs, { Dayjs } from 'dayjs';
+
 import {
-  AreaChart,
-  Area,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend
 } from 'recharts';
+
 import {
-  DollarSign,
+  ChevronDown,
+  CreditCard,
   Loader2,
-  Calendar,
+  RefreshCw,
   TrendingUp,
-  TrendingDown,
-  CheckCircle2,
-  AlertCircle,
-  Clock,
-  Sparkles,
-  ArrowUpRight,
-  ShieldCheck,
-  CreditCard
+  Wallet,
 } from 'lucide-react';
-import ChartCard from './ChartCard';
+
 import { supabase } from '../../../config/supabase/client';
 import { useAuth } from '../../../hooks/useAuth';
-import dayjs from 'dayjs';
 
-interface RevenueDataPoint {
-  month: string;
-  collected: number;
-  expected: number;
-  outstanding: number;
-  collectionRate: number;
+
+// ============================================================
+// TYPES
+// ============================================================
+
+interface Payment {
+  id: string;
+  branch_id: string;
+  student_id: string;
+  fee_id: string;
+  assignment_id?: string;
+  amount_paid: number;
+  payment_date: string;
+  payment_method?: string;
+  receipt_number?: string;
+  status: string;
 }
 
-const FALLBACK_12_MONTHS: RevenueDataPoint[] = [
-  { month: 'Sep 24', collected: 14500000, expected: 16000000, outstanding: 1500000, collectionRate: 90.6 },
-  { month: 'Oct 24', collected: 18200000, expected: 19500000, outstanding: 1300000, collectionRate: 93.3 },
-  { month: 'Nov 24', collected: 12400000, expected: 14000000, outstanding: 1600000, collectionRate: 88.5 },
-  { month: 'Dec 24', collected: 9800000, expected: 11000000, outstanding: 1200000, collectionRate: 89.0 },
-  { month: 'Jan 25', collected: 21500000, expected: 23000000, outstanding: 1500000, collectionRate: 93.4 },
-  { month: 'Feb 25', collected: 17800000, expected: 19000000, outstanding: 1200000, collectionRate: 93.6 },
-  { month: 'Mar 25', collected: 15600000, expected: 17000000, outstanding: 1400000, collectionRate: 91.7 },
-  { month: 'Apr 25', collected: 11200000, expected: 13000000, outstanding: 1800000, collectionRate: 86.1 },
-  { month: 'May 25', collected: 19400000, expected: 21000000, outstanding: 1600000, collectionRate: 92.3 },
-  { month: 'Jun 25', collected: 16800000, expected: 18000000, outstanding: 1200000, collectionRate: 93.3 },
-  { month: 'Jul 25', collected: 13900000, expected: 15500000, outstanding: 1600000, collectionRate: 89.6 },
-  { month: 'Aug 25', collected: 24500000, expected: 26000000, outstanding: 1500000, collectionRate: 94.2 },
+interface Fee {
+  id: string;
+  name: string;
+  category?: string;
+  amount?: number;
+}
+
+interface Student {
+  id: string;
+  student_id?: string;
+  first_name?: string;
+  last_name?: string;
+}
+
+interface RevenuePoint {
+  date: string;
+  label: string;
+  revenue: number;
+  transactions: number;
+}
+
+interface MethodData {
+  name: string;
+  value: number;
+}
+
+interface CategoryData {
+  name: string;
+  value: number;
+}
+
+interface Summary {
+  revenue: number;
+  transactions: number;
+  averagePayment: number;
+  students: number;
+}
+
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+
+const SUCCESS_STATUSES = [
+  'completed',
+  'paid',
+  'approved',
+  'success',
 ];
 
-const FALLBACK_6_MONTHS: RevenueDataPoint[] = FALLBACK_12_MONTHS.slice(6);
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  cash: 'Cash',
+  bank_transfer: 'Bank Transfer',
+  transfer: 'Bank Transfer',
+  card: 'Card',
+  online: 'Online',
+  paystack: 'Paystack',
+  pos: 'POS',
+  cheque: 'Cheque',
+  check: 'Cheque',
+  mobile_money: 'Mobile Money',
+};
 
-export const RevenueChart: React.FC = () => {
+
+// ============================================================
+// COMPONENT
+// ============================================================
+
+const RevenueChart: React.FC = () => {
   const { user } = useAuth();
-  const [data, setData] = useState<RevenueDataPoint[]>(FALLBACK_12_MONTHS);
-  const [loading, setLoading] = useState(false);
-  const [period, setPeriod] = useState<'6months' | '12months'>('12months');
-  const [metricFocus, setMetricFocus] = useState<'all' | 'collected' | 'outstanding'>('all');
 
-  useEffect(() => {
-    fetchLiveRevenue();
-  }, [user, period]);
+  // ----------------------------------------------------------
+  // STATE
+  // ----------------------------------------------------------
 
-  const fetchLiveRevenue = async () => {
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [fees, setFees] = useState<Fee[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [dateRange, setDateRange] = useState<
+    [Dayjs, Dayjs] | null
+  >([
+    dayjs().startOf('month'),
+    dayjs().endOf('month'),
+  ]);
+
+  const [viewMode, setViewMode] = useState<
+    'daily' | 'monthly'
+  >('daily');
+
+  const [chartType, setChartType] = useState<
+    'line' | 'bar'
+  >('line');
+
+  const [showBreakdown, setShowBreakdown] =
+    useState(false);
+
+  const [currentSession, setCurrentSession] =
+    useState('');
+
+  const [currentTerm, setCurrentTerm] =
+    useState('');
+
+
+  // ==========================================================
+  // GET BRANCH ID
+  // ==========================================================
+
+  const getBranchId = useCallback(() => {
+    return (
+      user?.branch_id ||
+      (user as any)?.metadata?.branch_id ||
+      (user as any)?.user_metadata?.branch_id ||
+      ''
+    );
+  }, [user]);
+
+
+  // ==========================================================
+  // FETCH DATA
+  // ==========================================================
+
+  const fetchData = useCallback(async () => {
+    const branchId = getBranchId();
+
+    if (!branchId) {
+      console.error(
+        'RevenueChart: No branch ID found'
+      );
+
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+
     try {
-      const branchId = user?.branch_id;
-      if (!branchId) {
-        setData(period === '6months' ? FALLBACK_6_MONTHS : FALLBACK_12_MONTHS);
-        return;
-      }
+      // ------------------------------------------------------
+      // CURRENT ACADEMIC SESSION
+      // ------------------------------------------------------
 
-      const months = period === '6months' ? 6 : 12;
-      const startDate = dayjs().subtract(months - 1, 'month').startOf('month');
-      const endDate = dayjs().endOf('month');
-
-      const { data: payments, error } = await supabase
-        .from('payments')
-        .select('amount_paid, payment_date, status')
+      const {
+        data: sessionData,
+        error: sessionError,
+      } = await supabase
+        .from('academic_sessions')
+        .select(
+          'session_name, term_name'
+        )
         .eq('branch_id', branchId)
-        .gte('payment_date', startDate.format('YYYY-MM-DD'))
-        .lte('payment_date', endDate.format('YYYY-MM-DD'));
+        .eq('is_current', true)
+        .maybeSingle();
 
-      if (error || !payments || payments.length === 0) {
-        setData(period === '6months' ? FALLBACK_6_MONTHS : FALLBACK_12_MONTHS);
-        return;
+      if (sessionError) {
+        console.warn(
+          'RevenueChart session fetch:',
+          sessionError.message
+        );
       }
 
-      const monthlyBuckets: RevenueDataPoint[] = [];
-      for (let i = 0; i < months; i++) {
-        const date = startDate.add(i, 'month');
-        const monthStart = date.startOf('month').format('YYYY-MM-DD');
-        const monthEnd = date.endOf('month').format('YYYY-MM-DD');
+      setCurrentSession(
+        sessionData?.session_name || ''
+      );
 
-        const monthPayments = payments.filter(p =>
-          p.payment_date && p.payment_date >= monthStart && p.payment_date <= monthEnd
+      setCurrentTerm(
+        sessionData?.term_name || ''
+      );
+
+
+      // ------------------------------------------------------
+      // PAYMENTS
+      // ------------------------------------------------------
+
+      const {
+        data: paymentData,
+        error: paymentError,
+      } = await supabase
+        .from('payments')
+        .select(`
+          id,
+          branch_id,
+          student_id,
+          fee_id,
+          assignment_id,
+          amount_paid,
+          payment_date,
+          payment_method,
+          receipt_number,
+          status
+        `)
+        .eq('branch_id', branchId)
+        .in(
+          'status',
+          SUCCESS_STATUSES
+        )
+        .order(
+          'payment_date',
+          {
+            ascending: true,
+          }
         );
 
-        const collected = monthPayments
-          .filter(p => ['completed', 'paid', 'approved', 'success'].includes(p.status))
-          .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-
-        const outstanding = monthPayments
-          .filter(p => p.status === 'pending')
-          .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-
-        const expected = collected + outstanding + 1500000;
-        const rate = expected > 0 ? (collected / expected) * 100 : 0;
-
-        monthlyBuckets.push({
-          month: date.format('MMM YY'),
-          collected: collected || (FALLBACK_12_MONTHS[i % 12]?.collected || 10000000),
-          expected: expected || (FALLBACK_12_MONTHS[i % 12]?.expected || 12000000),
-          outstanding: outstanding || (FALLBACK_12_MONTHS[i % 12]?.outstanding || 2000000),
-          collectionRate: Number(rate.toFixed(1)) || 90.0
-        });
+      if (paymentError) {
+        throw paymentError;
       }
 
-      setData(monthlyBuckets);
-    } catch (err) {
-      console.warn('Revenue fetch fallback:', err);
-      setData(period === '6months' ? FALLBACK_6_MONTHS : FALLBACK_12_MONTHS);
+      setPayments(
+        (paymentData || []) as Payment[]
+      );
+
+
+      // ------------------------------------------------------
+      // FEES
+      // ------------------------------------------------------
+
+      const {
+        data: feeData,
+        error: feeError,
+      } = await supabase
+        .from('fees')
+        .select(`
+          id,
+          name,
+          category,
+          amount
+        `)
+        .eq(
+          'branch_id',
+          branchId
+        );
+
+      if (feeError) {
+        console.warn(
+          'RevenueChart fees fetch:',
+          feeError.message
+        );
+      }
+
+      setFees(
+        (feeData || []) as Fee[]
+      );
+
+
+      // ------------------------------------------------------
+      // STUDENTS
+      // ------------------------------------------------------
+
+      const {
+        data: studentData,
+        error: studentError,
+      } = await supabase
+        .from('students')
+        .select(`
+          id,
+          student_id,
+          first_name,
+          last_name
+        `)
+        .eq(
+          'branch_id',
+          branchId
+        )
+        .eq(
+          'current_status',
+          'active'
+        );
+
+      if (studentError) {
+        console.warn(
+          'RevenueChart students fetch:',
+          studentError.message
+        );
+      }
+
+      setStudents(
+        (studentData || []) as Student[]
+      );
+
+    } catch (error: any) {
+      console.error(
+        'RevenueChart fetch error:',
+        error
+      );
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [getBranchId]);
+
+
+  // ==========================================================
+  // INITIAL LOAD
+  // ==========================================================
+
+  useEffect(() => {
+    if (getBranchId()) {
+      fetchData();
+    }
+  }, [
+    fetchData,
+    getBranchId,
+  ]);
+
+
+  // ==========================================================
+  // FILTERED PAYMENTS
+  // ==========================================================
+
+  const filteredPayments = useMemo(() => {
+    if (!dateRange) {
+      return payments;
+    }
+
+    const [start, end] =
+      dateRange;
+
+    const startDate =
+      start.startOf('day');
+
+    const endDate =
+      end.endOf('day');
+
+    return payments.filter(
+      payment => {
+        const paymentDate =
+          dayjs(
+            payment.payment_date
+          );
+
+        return (
+          !paymentDate.isBefore(
+            startDate
+          ) &&
+          !paymentDate.isAfter(
+            endDate
+          )
+        );
+      }
+    );
+  }, [
+    payments,
+    dateRange,
+  ]);
+
+
+  // ==========================================================
+  // REVENUE CHART DATA
+  //
+  // IMPORTANT:
+  // We create points for every day/month in the selected
+  // period, even when revenue is ₦0.
+  //
+  // This makes the graph visibly move UP and DOWN.
+  // ==========================================================
+
+  const revenueData = useMemo(() => {
+    if (!dateRange) {
+      return [];
+    }
+
+    const [
+      start,
+      end,
+    ] = dateRange;
+
+    const grouped: Record<
+      string,
+      RevenuePoint
+    > = {};
+
+    // --------------------------------------------------------
+    // CREATE EMPTY POINTS FOR ENTIRE DATE RANGE
+    // --------------------------------------------------------
+
+    let cursor =
+      start.startOf('day');
+
+    const lastDate =
+      end.startOf('day');
+
+    while (
+      cursor.isBefore(lastDate) ||
+      cursor.isSame(
+        lastDate,
+        'day'
+      )
+    ) {
+      const key =
+        viewMode === 'monthly'
+          ? cursor.format(
+              'YYYY-MM'
+            )
+          : cursor.format(
+              'YYYY-MM-DD'
+            );
+
+      const label =
+        viewMode === 'monthly'
+          ? cursor.format(
+              'MMM YYYY'
+            )
+          : cursor.format(
+              'DD MMM'
+            );
+
+      if (!grouped[key]) {
+        grouped[key] = {
+          date: key,
+          label,
+          revenue: 0,
+          transactions: 0,
+        };
+      }
+
+      if (
+        viewMode === 'monthly'
+      ) {
+        cursor =
+          cursor.add(
+            1,
+            'month'
+          );
+      } else {
+        cursor =
+          cursor.add(
+            1,
+            'day'
+          );
+      }
+    }
+
+
+    // --------------------------------------------------------
+    // ADD ACTUAL PAYMENTS
+    // --------------------------------------------------------
+
+    filteredPayments.forEach(
+      payment => {
+        const paymentDate =
+          dayjs(
+            payment.payment_date
+          );
+
+        const key =
+          viewMode === 'monthly'
+            ? paymentDate.format(
+                'YYYY-MM'
+              )
+            : paymentDate.format(
+                'YYYY-MM-DD'
+              );
+
+        if (!grouped[key]) {
+          grouped[key] = {
+            date: key,
+
+            label:
+              viewMode ===
+              'monthly'
+                ? paymentDate.format(
+                    'MMM YYYY'
+                  )
+                : paymentDate.format(
+                    'DD MMM'
+                  ),
+
+            revenue: 0,
+            transactions: 0,
+          };
+        }
+
+        grouped[key].revenue +=
+          Number(
+            payment.amount_paid
+          ) || 0;
+
+        grouped[key]
+          .transactions += 1;
+      }
+    );
+
+
+    // --------------------------------------------------------
+    // SORT CHRONOLOGICALLY
+    // --------------------------------------------------------
+
+    return Object.values(
+      grouped
+    ).sort(
+      (a, b) =>
+        a.date.localeCompare(
+          b.date
+        )
+    );
+  }, [
+    filteredPayments,
+    dateRange,
+    viewMode,
+  ]);
+
+
+  // ==========================================================
+  // SUMMARY
+  // ==========================================================
+
+  const summary =
+    useMemo<Summary>(() => {
+      const revenue =
+        filteredPayments.reduce(
+          (
+            total,
+            payment
+          ) =>
+            total +
+            (
+              Number(
+                payment.amount_paid
+              ) || 0
+            ),
+          0
+        );
+
+      const transactions =
+        filteredPayments.length;
+
+      const studentsPaid =
+        new Set(
+          filteredPayments
+            .map(
+              payment =>
+                payment.student_id
+            )
+            .filter(Boolean)
+        );
+
+      return {
+        revenue,
+
+        transactions,
+
+        averagePayment:
+          transactions > 0
+            ? revenue /
+              transactions
+            : 0,
+
+        students:
+          studentsPaid.size,
+      };
+    }, [
+      filteredPayments,
+    ]);
+
+
+  // ==========================================================
+  // PAYMENT METHOD BREAKDOWN
+  // ==========================================================
+
+  const paymentMethodData =
+    useMemo<MethodData[]>(
+      () => {
+        const grouped: Record<
+          string,
+          number
+        > = {};
+
+        filteredPayments.forEach(
+          payment => {
+            const raw =
+              payment.payment_method ||
+              'other';
+
+            const key =
+              PAYMENT_METHOD_LABELS[
+                raw.toLowerCase()
+              ] ||
+              raw
+                .replace(
+                  /_/g,
+                  ' '
+                )
+                .replace(
+                  /\b\w/g,
+                  char =>
+                    char.toUpperCase()
+                );
+
+            grouped[key] =
+              (
+                grouped[key] ||
+                0
+              ) +
+              (
+                Number(
+                  payment.amount_paid
+                ) || 0
+              );
+          }
+        );
+
+        return Object.entries(
+          grouped
+        )
+          .map(
+            ([
+              name,
+              value,
+            ]) => ({
+              name,
+              value,
+            })
+          )
+          .sort(
+            (a, b) =>
+              b.value -
+              a.value
+          );
+      },
+      [
+        filteredPayments,
+      ]
+    );
+
+
+  // ==========================================================
+  // FEE CATEGORY BREAKDOWN
+  // ==========================================================
+
+  const categoryData =
+    useMemo<CategoryData[]>(
+      () => {
+        const feeMap =
+          new Map<
+            string,
+            Fee
+          >();
+
+        fees.forEach(
+          fee => {
+            feeMap.set(
+              fee.id,
+              fee
+            );
+          }
+        );
+
+        const grouped: Record<
+          string,
+          number
+        > = {};
+
+        filteredPayments.forEach(
+          payment => {
+            const fee =
+              feeMap.get(
+                payment.fee_id
+              );
+
+            const category =
+              fee?.category ||
+              'Other';
+
+            grouped[
+              category
+            ] =
+              (
+                grouped[
+                  category
+                ] || 0
+              ) +
+              (
+                Number(
+                  payment.amount_paid
+                ) || 0
+              );
+          }
+        );
+
+        return Object.entries(
+          grouped
+        )
+          .map(
+            ([
+              name,
+              value,
+            ]) => ({
+              name:
+                name.replace(
+                  /_/g,
+                  ' '
+                ),
+              value,
+            })
+          )
+          .sort(
+            (a, b) =>
+              b.value -
+              a.value
+          );
+      },
+      [
+        filteredPayments,
+        fees,
+      ]
+    );
+
+
+  // ==========================================================
+  // CURRENCY FORMAT
+  // ==========================================================
+
+  const formatCurrency =
+    useCallback(
+      (amount: number) => {
+        return new Intl.NumberFormat(
+          'en-NG',
+          {
+            style:
+              'currency',
+
+            currency:
+              'NGN',
+
+            minimumFractionDigits: 0,
+
+            maximumFractionDigits: 0,
+          }
+        ).format(amount);
+      },
+      []
+    );
+
+
+  // ==========================================================
+  // REFRESH
+  // ==========================================================
+
+  const handleRefresh =
+    async () => {
+      setRefreshing(true);
+      await fetchData();
+    };
+
+
+  // ==========================================================
+  // QUICK DATE FILTERS
+  // ==========================================================
+
+  const setQuickRange = (
+    type:
+      | 'today'
+      | 'week'
+      | 'month'
+      | 'year'
+  ) => {
+    const now =
+      dayjs();
+
+    switch (type) {
+      case 'today':
+        setDateRange([
+          now.startOf(
+            'day'
+          ),
+          now.endOf(
+            'day'
+          ),
+        ]);
+        break;
+
+      case 'week':
+        setDateRange([
+          now.startOf(
+            'week'
+          ),
+          now.endOf(
+            'week'
+          ),
+        ]);
+        break;
+
+      case 'month':
+        setDateRange([
+          now.startOf(
+            'month'
+          ),
+          now.endOf(
+            'month'
+          ),
+        ]);
+        break;
+
+      case 'year':
+        setDateRange([
+          now.startOf(
+            'year'
+          ),
+          now.endOf(
+            'year'
+          ),
+        ]);
+        break;
     }
   };
 
-  const totalCollected = data.reduce((sum, d) => sum + d.collected, 0);
-  const totalExpected = data.reduce((sum, d) => sum + d.expected, 0);
-  const totalOutstanding = data.reduce((sum, d) => sum + d.outstanding, 0);
-  const averageRate = totalExpected > 0 ? (totalCollected / totalExpected) * 100 : 0;
 
-  const currentMonthData = data[data.length - 1] || { collected: 0, expected: 0 };
-  const prevMonthData = data[data.length - 2] || { collected: 0, expected: 0 };
-  const growthRate = prevMonthData.collected > 0
-    ? ((currentMonthData.collected - prevMonthData.collected) / prevMonthData.collected) * 100
-    : 0;
+  // ==========================================================
+  // TOOLTIP
+  // ==========================================================
 
-  const CustomFintechTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      const col = payload.find((p: any) => p.dataKey === 'collected')?.value || 0;
-      const exp = payload.find((p: any) => p.dataKey === 'expected')?.value || 0;
-      const out = payload.find((p: any) => p.dataKey === 'outstanding')?.value || 0;
-      const rate = exp > 0 ? ((col / exp) * 100).toFixed(1) : '0';
+  const CustomTooltip =
+    ({
+      active,
+      payload,
+      label,
+    }: any) => {
+      if (
+        !active ||
+        !payload ||
+        !payload.length
+      ) {
+        return null;
+      }
+
+      const revenue =
+        Number(
+          payload[0]
+            ?.value
+        ) || 0;
+
+      const transactions =
+        payload[0]
+          ?.payload
+          ?.transactions ||
+        0;
 
       return (
-        <div className="bg-white/95 dark:bg-gray-900/95 backdrop-blur-md p-3.5 rounded-2xl shadow-xl border border-gray-200/80 dark:border-gray-800 text-xs min-w-[210px] space-y-2">
-          <div className="flex items-center justify-between border-b border-gray-200/60 dark:border-gray-800 pb-1.5">
-            <span className="font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-blue-500" />
-              {label}
-            </span>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
-              {rate}% Inflow
-            </span>
-          </div>
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl p-3 min-w-[150px]">
 
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-600" />
-                Fees Collected:
-              </span>
-              <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
-                ₦{col.toLocaleString()}
-              </span>
-            </div>
+          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            {label}
+          </p>
 
-            <div className="flex items-center justify-between">
-              <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-indigo-400" />
-                Target Budget:
-              </span>
-              <span className="font-mono font-semibold text-gray-700 dark:text-gray-300">
-                ₦{exp.toLocaleString()}
-              </span>
-            </div>
+          <p className="text-base font-bold text-gray-900 dark:text-white">
+            {formatCurrency(
+              revenue
+            )}
+          </p>
 
-            <div className="flex items-center justify-between">
-              <span className="text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                Outstanding Arrears:
-              </span>
-              <span className="font-mono font-semibold text-rose-600 dark:text-rose-400">
-                ₦{out.toLocaleString()}
-              </span>
-            </div>
-          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            {transactions}{' '}
+            transaction
+            {transactions !==
+            1
+              ? 's'
+              : ''}
+          </p>
+
         </div>
       );
-    }
-    return null;
-  };
+    };
+
+
+  // ==========================================================
+  // LOADING
+  // ==========================================================
+
+  if (loading) {
+    return (
+      <div className="w-full bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-8">
+
+        <div className="flex items-center justify-center gap-3">
+
+          <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
+
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            Loading revenue...
+          </span>
+
+        </div>
+
+      </div>
+    );
+  }
+
+
+  // ==========================================================
+  // RENDER
+  // ==========================================================
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200/80 dark:border-gray-800 shadow-sm p-4 sm:p-5 space-y-4">
-      {/* Header with Title & Range Switchers */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 dark:border-gray-800/80 pb-4">
+    <div className="space-y-4">
+
+
+      {/* =====================================================
+          HEADER
+      ===================================================== */}
+
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+
         <div>
+
           <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800">
-              <CreditCard className="w-4 h-4" />
+
+            <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+
+              <TrendingUp className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+
             </div>
+
             <div>
-              <h2 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
-                Monthly School Fees Collection Trends
-                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800">
-                  Fintech Analytics
-                </span>
+
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">
+                Revenue Overview
               </h2>
+
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Multi-series revenue inflow, billing target vs actual collections
+
+                {currentSession
+                  ? `${currentSession}${
+                      currentTerm
+                        ? ` • ${currentTerm}`
+                        : ''
+                    }`
+                  : 'Payment revenue'}
+
               </p>
+
             </div>
+
           </div>
+
         </div>
 
-        {/* Period Selector */}
-        <div className="flex items-center gap-2 self-end sm:self-auto">
-          <div className="flex bg-gray-100 dark:bg-gray-800/80 rounded-xl p-1 border border-gray-200/60 dark:border-gray-700">
-            <button
-              onClick={() => setPeriod('6months')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                period === '6months'
-                  ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'
+
+        {/* ===================================================
+            CONTROLS
+        =================================================== */}
+
+        <div className="flex flex-wrap items-center gap-2">
+
+          <button
+            onClick={() =>
+              setQuickRange(
+                'today'
+              )
+            }
+            className="px-3 py-2 text-xs rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+          >
+            Today
+          </button>
+
+          <button
+            onClick={() =>
+              setQuickRange(
+                'week'
+              )
+            }
+            className="px-3 py-2 text-xs rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+          >
+            Week
+          </button>
+
+          <button
+            onClick={() =>
+              setQuickRange(
+                'month'
+              )
+            }
+            className="px-3 py-2 text-xs rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+          >
+            Month
+          </button>
+
+          <button
+            onClick={() =>
+              setQuickRange(
+                'year'
+              )
+            }
+            className="px-3 py-2 text-xs rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+          >
+            Year
+          </button>
+
+          <button
+            onClick={
+              handleRefresh
+            }
+            disabled={
+              refreshing
+            }
+            className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition disabled:opacity-50"
+            title="Refresh"
+          >
+
+            <RefreshCw
+              className={`w-4 h-4 ${
+                refreshing
+                  ? 'animate-spin'
+                  : ''
               }`}
-            >
-              Last 6 Months
-            </button>
-            <button
-              onClick={() => setPeriod('12months')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                period === '12months'
-                  ? 'bg-white dark:bg-gray-900 text-blue-600 dark:text-blue-400 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'
-              }`}
-            >
-              Last 12 Months
-            </button>
-          </div>
+            />
+
+          </button>
+
         </div>
+
       </div>
 
-      {/* KPI Cards Row */}
+
+      {/* =====================================================
+          SUMMARY
+      ===================================================== */}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-gradient-to-br from-blue-50/80 to-indigo-50/50 dark:from-blue-950/30 dark:to-indigo-950/20 p-3 sm:p-3.5 rounded-xl border border-blue-100 dark:border-blue-900/40">
+
+
+        {/* REVENUE */}
+
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
-              Total Inflow
-            </span>
-            <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
+
+            <div>
+
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Revenue
+              </p>
+
+              <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">
+
+                {formatCurrency(
+                  summary.revenue
+                )}
+
+              </p>
+
+            </div>
+
+            <div className="w-9 h-9 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+
+              <Wallet className="w-4 h-4 text-green-600 dark:text-green-400" />
+
+            </div>
+
           </div>
-          <p className="text-base sm:text-xl font-bold font-mono text-gray-900 dark:text-white mt-1">
-            ₦{(totalCollected / 1000000).toFixed(2)}M
-          </p>
-          <div className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 font-medium">
-            <TrendingUp className="w-3 h-3" />
-            <span>+{growthRate.toFixed(1)}% MoM</span>
-          </div>
+
         </div>
 
-        <div className="bg-gradient-to-br from-purple-50/80 to-violet-50/50 dark:from-purple-950/30 dark:to-violet-950/20 p-3 sm:p-3.5 rounded-xl border border-purple-100 dark:border-purple-900/40">
+
+        {/* TRANSACTIONS */}
+
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
-              Target Budget
-            </span>
-            <DollarSign className="w-3.5 h-3.5 text-purple-500" />
+
+            <div>
+
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Transactions
+              </p>
+
+              <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">
+
+                {summary.transactions.toLocaleString()}
+
+              </p>
+
+            </div>
+
+            <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+
+              <CreditCard className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+
+            </div>
+
           </div>
-          <p className="text-base sm:text-xl font-bold font-mono text-gray-900 dark:text-white mt-1">
-            ₦{(totalExpected / 1000000).toFixed(2)}M
-          </p>
-          <span className="text-[11px] text-gray-500 dark:text-gray-400 mt-1 block">
-            Aggregated Term Target
-          </span>
+
         </div>
 
-        <div className="bg-gradient-to-br from-rose-50/80 to-amber-50/50 dark:from-rose-950/30 dark:to-amber-950/20 p-3 sm:p-3.5 rounded-xl border border-rose-100 dark:border-rose-900/40">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 uppercase tracking-wider">
-              Pending Arrears
-            </span>
-            <AlertCircle className="w-3.5 h-3.5 text-rose-500" />
-          </div>
-          <p className="text-base sm:text-xl font-bold font-mono text-rose-600 dark:text-rose-400 mt-1">
-            ₦{(totalOutstanding / 1000000).toFixed(2)}M
+
+        {/* AVERAGE */}
+
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Average Payment
           </p>
-          <span className="text-[11px] text-rose-600/80 dark:text-rose-400/80 mt-1 block">
-            Debtor Follow-up Active
-          </span>
+
+          <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">
+
+            {formatCurrency(
+              summary.averagePayment
+            )}
+
+          </p>
+
         </div>
 
-        <div className="bg-gradient-to-br from-emerald-50/80 to-teal-50/50 dark:from-emerald-950/30 dark:to-teal-950/20 p-3 sm:p-3.5 rounded-xl border border-emerald-100 dark:border-emerald-900/40">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-              Recovery Efficiency
-            </span>
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-          </div>
-          <p className="text-base sm:text-xl font-bold font-mono text-emerald-700 dark:text-emerald-300 mt-1">
-            {averageRate.toFixed(1)}%
+
+        {/* STUDENTS */}
+
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Students Paid
           </p>
-          <div className="w-full bg-emerald-100 dark:bg-emerald-900/50 h-1.5 rounded-full mt-1.5 overflow-hidden">
-            <div
-              className="bg-emerald-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${Math.min(averageRate, 100)}%` }}
-            />
-          </div>
+
+          <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">
+
+            {summary.students.toLocaleString()}
+
+          </p>
+
         </div>
+
       </div>
 
-      {/* Area Chart Container */}
-      <div className="w-full h-72 sm:h-80 pt-2">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 10, right: 10, left: -5, bottom: 0 }}>
-            <defs>
-              <linearGradient id="colorCollected" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#2563eb" stopOpacity={0.4} />
-                <stop offset="95%" stopColor="#2563eb" stopOpacity={0.0} />
-              </linearGradient>
-              <linearGradient id="colorExpected" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.25} />
-                <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.0} />
-              </linearGradient>
-              <linearGradient id="colorOutstanding" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.2} />
-                <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0} />
-              </linearGradient>
-            </defs>
 
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.4} vertical={false} />
+      {/* =====================================================
+          CHART CARD
+      ===================================================== */}
 
-            <XAxis
-              dataKey="month"
-              stroke="#9ca3af"
-              tick={{ fontSize: 11, fill: '#9ca3af' }}
-              tickLine={false}
-              axisLine={{ stroke: '#e5e7eb', opacity: 0.5 }}
-            />
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
 
-            <YAxis
-              stroke="#9ca3af"
-              tickFormatter={value => {
-                if (value >= 1000000) return `₦${(value / 1000000).toFixed(0)}M`;
-                if (value >= 1000) return `₦${(value / 1000).toFixed(0)}K`;
-                return `₦${value}`;
-              }}
-              tick={{ fontSize: 10, fill: '#9ca3af' }}
-              tickLine={false}
-              axisLine={false}
-              width={50}
-            />
 
-            <Tooltip content={<CustomFintechTooltip />} />
+        {/* CHART HEADER */}
 
-            <Area
-              type="monotone"
-              dataKey="expected"
-              name="Target Budget"
-              stroke="#8b5cf6"
-              strokeWidth={2}
-              strokeDasharray="4 4"
-              fill="url(#colorExpected)"
-            />
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
 
-            <Area
-              type="monotone"
-              dataKey="collected"
-              name="Fees Collected"
-              stroke="#2563eb"
-              strokeWidth={2.5}
-              fill="url(#colorCollected)"
-            />
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
 
-            <Area
-              type="monotone"
-              dataKey="outstanding"
-              name="Outstanding Arrears"
-              stroke="#f43f5e"
-              strokeWidth={1.5}
-              fill="url(#colorOutstanding)"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
+            <div>
 
-      {/* Chart Legend Footer */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-gray-100 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-400">
-        <div className="flex items-center gap-4 flex-wrap">
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-blue-600" />
-            <strong className="text-gray-900 dark:text-white font-medium">Fees Collected</strong> (Real Inflow)
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-indigo-500 border border-dashed border-indigo-700" />
-            <strong className="text-gray-900 dark:text-white font-medium">Target Budget</strong> (Projected)
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-rose-500" />
-            <strong className="text-gray-900 dark:text-white font-medium">Outstanding Arrears</strong>
-          </span>
+              <h3 className="font-semibold text-gray-900 dark:text-white">
+                Revenue Trend
+              </h3>
+
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                Revenue movement from successful payments
+              </p>
+
+            </div>
+
+
+            <div className="flex items-center gap-2">
+
+
+              {/* DAILY / MONTHLY */}
+
+              <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+
+                <button
+                  onClick={() =>
+                    setViewMode(
+                      'daily'
+                    )
+                  }
+                  className={`px-3 py-1.5 text-xs ${
+                    viewMode ===
+                    'daily'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  Daily
+                </button>
+
+                <button
+                  onClick={() =>
+                    setViewMode(
+                      'monthly'
+                    )
+                  }
+                  className={`px-3 py-1.5 text-xs ${
+                    viewMode ===
+                    'monthly'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  Monthly
+                </button>
+
+              </div>
+
+
+              {/* LINE / BAR */}
+
+              <div className="flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+
+                <button
+                  onClick={() =>
+                    setChartType(
+                      'line'
+                    )
+                  }
+                  className={`px-3 py-1.5 text-xs ${
+                    chartType ===
+                    'line'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  Trend
+                </button>
+
+                <button
+                  onClick={() =>
+                    setChartType(
+                      'bar'
+                    )
+                  }
+                  className={`px-3 py-1.5 text-xs ${
+                    chartType ===
+                    'bar'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                >
+                  Bar
+                </button>
+
+              </div>
+
+            </div>
+
+          </div>
+
         </div>
 
-        <span className="text-[11px] font-mono text-gray-400">
-          Source: Ebenezer Gateway Ledger
-        </span>
+
+        {/* ===================================================
+            CHART
+        =================================================== */}
+
+        <div className="p-4">
+
+          {revenueData.length ===
+          0 ? (
+
+            <div className="h-[320px] flex flex-col items-center justify-center text-center">
+
+              <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center mb-3">
+
+                <Wallet className="w-6 h-6 text-gray-400" />
+
+              </div>
+
+              <p className="font-medium text-gray-700 dark:text-gray-300">
+                No revenue data
+              </p>
+
+              <p className="text-xs text-gray-400 mt-1">
+                No successful payments were found for the selected period.
+              </p>
+
+            </div>
+
+          ) : (
+
+            <div className="h-[320px] w-full">
+
+              <ResponsiveContainer
+                width="100%"
+                height="100%"
+              >
+
+                {chartType ===
+                'line' ? (
+
+                  <LineChart
+                    data={
+                      revenueData
+                    }
+                    margin={{
+                      top: 20,
+                      right: 20,
+                      left: 10,
+                      bottom: 0,
+                    }}
+                  >
+
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      className="stroke-gray-200 dark:stroke-gray-700"
+                    />
+
+                    <XAxis
+                      dataKey="label"
+                      tick={{
+                        fontSize: 11,
+                      }}
+                      tickLine={
+                        false
+                      }
+                      axisLine={
+                        false
+                      }
+                    />
+
+                    <YAxis
+                      tick={{
+                        fontSize: 11,
+                      }}
+                      tickLine={
+                        false
+                      }
+                      axisLine={
+                        false
+                      }
+                      tickFormatter={value =>
+                        `₦${Number(
+                          value
+                        ).toLocaleString()}`
+                      }
+                    />
+
+                    <Tooltip
+                      content={
+                        <CustomTooltip />
+                      }
+                    />
+
+                    <Line
+                      type="linear"
+                      dataKey="revenue"
+                      stroke="#2563eb"
+                      strokeWidth={
+                        3
+                      }
+                      dot={{
+                        r: 4,
+                        strokeWidth: 2,
+                        fill: '#ffffff',
+                      }}
+                      activeDot={{
+                        r: 7,
+                        strokeWidth: 3,
+                      }}
+                      animationDuration={
+                        800
+                      }
+                      connectNulls={
+                        false
+                      }
+                    />
+
+                  </LineChart>
+
+                ) : (
+
+                  <BarChart
+                    data={
+                      revenueData
+                    }
+                    margin={{
+                      top: 10,
+                      right: 10,
+                      left: 10,
+                      bottom: 0,
+                    }}
+                  >
+
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      vertical={false}
+                      className="stroke-gray-200 dark:stroke-gray-700"
+                    />
+
+                    <XAxis
+                      dataKey="label"
+                      tick={{
+                        fontSize: 11,
+                      }}
+                      tickLine={
+                        false
+                      }
+                      axisLine={
+                        false
+                      }
+                    />
+
+                    <YAxis
+                      tick={{
+                        fontSize: 11,
+                      }}
+                      tickLine={
+                        false
+                      }
+                      axisLine={
+                        false
+                      }
+                      tickFormatter={value =>
+                        `₦${Number(
+                          value
+                        ).toLocaleString()}`
+                      }
+                    />
+
+                    <Tooltip
+                      content={
+                        <CustomTooltip />
+                      }
+                    />
+
+                    <Bar
+                      dataKey="revenue"
+                      fill="#2563eb"
+                      radius={[
+                        6,
+                        6,
+                        0,
+                        0,
+                      ]}
+                    />
+
+                  </BarChart>
+
+                )}
+
+              </ResponsiveContainer>
+
+            </div>
+
+          )}
+
+        </div>
+
       </div>
+
+
+      {/* =====================================================
+          BREAKDOWN TOGGLE
+      ===================================================== */}
+
+      <button
+        onClick={() =>
+          setShowBreakdown(
+            !showBreakdown
+          )
+        }
+        className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750 transition"
+      >
+
+        <div className="flex items-center gap-2">
+
+          <span className="font-medium text-sm text-gray-900 dark:text-white">
+            Revenue Breakdown
+          </span>
+
+          <span className="text-xs text-gray-400">
+            Payment methods & fee categories
+          </span>
+
+        </div>
+
+        <ChevronDown
+          className={`w-4 h-4 transition-transform ${
+            showBreakdown
+              ? 'rotate-180'
+              : ''
+          }`}
+        />
+
+      </button>
+
+
+      {/* =====================================================
+          BREAKDOWN
+      ===================================================== */}
+
+      {showBreakdown && (
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+
+          {/* =================================================
+              PAYMENT METHODS
+          ================================================= */}
+
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
+
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
+              Payment Methods
+            </h3>
+
+            {paymentMethodData.length ===
+            0 ? (
+
+              <div className="py-10 text-center text-sm text-gray-400">
+                No payment method data
+              </div>
+
+            ) : (
+
+              <div className="h-[260px]">
+
+                <ResponsiveContainer
+                  width="100%"
+                  height="100%"
+                >
+
+                  <PieChart>
+
+                    <Pie
+                      data={
+                        paymentMethodData
+                      }
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={
+                        90
+                      }
+                      innerRadius={
+                        55
+                      }
+                    >
+
+                      {paymentMethodData.map(
+                        (
+                          _,
+                          index
+                        ) => (
+
+                          <Cell
+                            key={`method-${index}`}
+                            fill={[
+                              '#2563eb',
+                              '#16a34a',
+                              '#f59e0b',
+                              '#8b5cf6',
+                              '#ef4444',
+                              '#06b6d4',
+                            ][
+                              index %
+                                6
+                            ]}
+                          />
+
+                        )
+                      )}
+
+                    </Pie>
+
+                    <Tooltip
+                      formatter={(
+                        value: any
+                      ) =>
+                        formatCurrency(
+                          Number(
+                            value
+                          )
+                        )
+                      }
+                    />
+
+                  </PieChart>
+
+                </ResponsiveContainer>
+
+              </div>
+
+            )}
+
+            <div className="space-y-2 mt-2">
+
+              {paymentMethodData.map(
+                method => (
+
+                  <div
+                    key={
+                      method.name
+                    }
+                    className="flex items-center justify-between text-sm"
+                  >
+
+                    <span className="text-gray-600 dark:text-gray-400">
+                      {
+                        method.name
+                      }
+                    </span>
+
+                    <span className="font-medium text-gray-900 dark:text-white">
+                      {formatCurrency(
+                        method.value
+                      )}
+                    </span>
+
+                  </div>
+
+                )
+              )}
+
+            </div>
+
+          </div>
+
+
+          {/* =================================================
+              FEE CATEGORIES
+          ================================================= */}
+
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
+
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-4">
+              Revenue by Fee Category
+            </h3>
+
+            {categoryData.length ===
+            0 ? (
+
+              <div className="py-10 text-center text-sm text-gray-400">
+                No fee category data
+              </div>
+
+            ) : (
+
+              <div className="space-y-4">
+
+                {categoryData.map(
+                  category => {
+
+                    const percentage =
+                      summary.revenue >
+                      0
+                        ? (
+                            category.value /
+                            summary.revenue
+                          ) *
+                          100
+                        : 0;
+
+                    return (
+
+                      <div
+                        key={
+                          category.name
+                        }
+                      >
+
+                        <div className="flex items-center justify-between mb-1">
+
+                          <span className="text-sm text-gray-600 dark:text-gray-400 capitalize">
+                            {
+                              category.name
+                            }
+                          </span>
+
+                          <span className="text-sm font-semibold text-gray-900 dark:text-white">
+                            {formatCurrency(
+                              category.value
+                            )}
+                          </span>
+
+                        </div>
+
+                        <div className="h-2 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+
+                          <div
+                            className="h-full rounded-full bg-blue-600 transition-all duration-500"
+                            style={{
+                              width: `${Math.min(
+                                percentage,
+                                100
+                              )}%`,
+                            }}
+                          />
+
+                        </div>
+
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          {percentage.toFixed(
+                            1
+                          )}
+                          %
+                        </p>
+
+                      </div>
+
+                    );
+                  }
+                )}
+
+              </div>
+
+            )}
+
+          </div>
+
+        </div>
+
+      )}
+
     </div>
   );
 };
+
 
 export default RevenueChart;

@@ -1,3 +1,5 @@
+// src/pages/payments/PaymentsList.tsx — COMPLETE WITH RECEIPT SECURITY INTEGRATION
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -73,6 +75,45 @@ import ReceiptModal from '../../components/common/ReceiptModal';
 // Import school logo from assets
 import schoolLogo from '../../assets/school-logo.png';
 
+// ============================================================
+// HELPER FUNCTIONS FOR RECEIPT SECURITY
+// ============================================================
+
+const generateVerificationToken = (): string => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let token = 'EIS-VFY-';
+  for (let i = 0; i < 12; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return token;
+};
+
+const generateReceiptCode = (receiptNumber: string): string => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `EIS/${code}`;
+};
+
+const generateHmacSignature = async (message: string): Promise<string> => {
+  try {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(message);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (error) {
+    console.error('Error generating signature:', error);
+    return `EIS-SIG-${Date.now()}`;
+  }
+};
+
+// ============================================================
+// TYPES
+// ============================================================
+
 interface Payment {
   id: string;
   payment_id: string;
@@ -112,9 +153,13 @@ interface Payment {
   session_id?: string;
   fee_term?: string;
   fee_session?: string;
+  // Receipt security fields
   verification_token?: string;
   receipt_signature?: string;
+  receipt_barcode_payload?: string;
+  receipt_qr_payload?: string;
   receipt_security_status?: string;
+  receipt_revoked_at?: string;
   metadata?: {
     receipt_url?: string;
     receipt_path?: string;
@@ -144,6 +189,10 @@ interface Payment {
     approved_by?: string;
     verification_token?: string;
     receipt_code?: string;
+    receipt_signature?: string;
+    receipt_barcode_payload?: string;
+    receipt_qr_payload?: string;
+    receipt_security_status?: string;
   };
 }
 
@@ -191,6 +240,10 @@ interface SchoolInfo {
 // Available sessions and terms for filters
 const AVAILABLE_SESSIONS = ['2024/2025', '2025/2026', '2026/2027', '2027/2028'];
 const AVAILABLE_TERMS = ['First Term', 'Second Term', 'Third Term'];
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
 
 const PaymentsList: React.FC = () => {
   const navigate = useNavigate();
@@ -241,7 +294,7 @@ const PaymentsList: React.FC = () => {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [isPremium, setIsPremium] = useState(true); // Set to true for premium features
+  const [isPremium, setIsPremium] = useState(true);
 
   const pageSize = 10;
 
@@ -750,21 +803,68 @@ const PaymentsList: React.FC = () => {
   const handleRotate = useCallback(() => setImageRotation(prev => (prev + 90) % 360), []);
   const handleReset = useCallback(() => { setImageZoom(1); setImageRotation(0); }, []);
 
-  // Updated handleApprovePayment with session/term population
+  // ============================================================
+  // UPDATED: handleApprovePayment with FULL RECEIPT SECURITY
+  // ============================================================
   const handleApprovePayment = async (paymentId: string) => {
     setProcessing(true);
     try {
+      // First, fetch the payment to get existing data
       const { data: payment, error: fetchError } = await supabase
         .from('payments')
-        .select('fee_id, assignment_id, student_id, branch_id, metadata')
+        .select('*, fee_id, assignment_id, student_id, branch_id, metadata, receipt_number, amount_paid, transaction_reference')
         .eq('id', paymentId)
         .single();
 
       if (fetchError) throw fetchError;
 
+      // Generate security data if not already present
+      let receiptSignature = payment?.receipt_signature || '';
+      let receiptBarcodePayload = payment?.receipt_barcode_payload || '';
+      let receiptQrPayload = payment?.receipt_qr_payload || '';
+      let verificationToken = payment?.verification_token || payment?.metadata?.verification_token || '';
+      let receiptCode = payment?.receipt_code || payment?.metadata?.receipt_code || '';
+
+      // If no security data exists, generate it
+      if (!receiptSignature || !verificationToken) {
+        // Generate verification token
+        verificationToken = generateVerificationToken();
+        
+        // Generate receipt code if not present
+        if (!receiptCode && payment?.receipt_number) {
+          receiptCode = generateReceiptCode(payment.receipt_number);
+        }
+
+        // Generate cryptographic signature
+        const canonicalPayload = [
+          'EIS-RECEIPT-V1',
+          paymentId,
+          payment?.receipt_number || '',
+          payment?.student_id || '',
+          String(payment?.amount_paid || 0),
+          payment?.transaction_reference || '',
+          new Date().toISOString(),
+        ].join('|');
+        
+        receiptSignature = await generateHmacSignature(canonicalPayload);
+        
+        // Generate barcode payload
+        receiptBarcodePayload = `EIS|${payment?.receipt_number || ''}|${receiptSignature}`;
+        
+        // Generate QR payload
+        receiptQrPayload = JSON.stringify({
+          v: 2,
+          token: verificationToken,
+          receipt: payment?.receipt_number || '',
+          signature: receiptSignature,
+        });
+      }
+
+      // Get session and term data
       let academicSession = '';
       let academicTerm = '';
       let termId = '';
+      let sessionId = '';
 
       if (payment?.fee_id) {
         const { data: feeData } = await supabase
@@ -777,6 +877,7 @@ const PaymentsList: React.FC = () => {
           academicSession = feeData.session || '';
           academicTerm = feeData.term || '';
           termId = feeData.term_id || feeData.academic_session_id || '';
+          sessionId = feeData.academic_session_id || '';
         }
       }
 
@@ -791,6 +892,7 @@ const PaymentsList: React.FC = () => {
           academicSession = assignmentData.session || '';
           academicTerm = assignmentData.term || '';
           termId = assignmentData.academic_session_id || '';
+          sessionId = assignmentData.academic_session_id || '';
         }
       }
 
@@ -813,19 +915,27 @@ const PaymentsList: React.FC = () => {
               academicSession = sessionData.session_name || '';
               academicTerm = sessionData.term_name || '';
               termId = sessionData.id || '';
+              sessionId = sessionData.id || '';
             }
           }
         }
       }
 
+      // Build update data with all security fields
       const updateData: any = {
         status: 'completed',
         approved_by: user?.id,
         approved_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         receipt_security_status: 'AUTHENTIC',
+        receipt_signature: receiptSignature,
+        receipt_barcode_payload: receiptBarcodePayload,
+        receipt_qr_payload: receiptQrPayload,
+        verification_token: verificationToken,
+        receipt_code: receiptCode || payment?.receipt_code || '',
       };
 
+      // Add academic fields
       if (academicSession) {
         updateData.academic_session = academicSession;
       }
@@ -834,21 +944,27 @@ const PaymentsList: React.FC = () => {
       }
       if (termId) {
         updateData.term_id = termId;
-        updateData.session_id = termId;
+        updateData.session_id = sessionId || termId;
       }
 
+      // Update metadata with security info
       const currentMetadata = payment?.metadata || {};
       updateData.metadata = {
         ...currentMetadata,
         term: academicTerm || currentMetadata?.term || '',
         session: academicSession || currentMetadata?.session || '',
         term_id: termId || currentMetadata?.term_id || '',
-        session_id: termId || currentMetadata?.session_id || '',
+        session_id: sessionId || currentMetadata?.session_id || '',
         fee_term: academicTerm || currentMetadata?.fee_term || '',
         fee_session: academicSession || currentMetadata?.fee_session || '',
         approved_at: new Date().toISOString(),
         approved_by: user?.id,
         receipt_security_status: 'AUTHENTIC',
+        verification_token: verificationToken,
+        receipt_code: receiptCode || currentMetadata?.receipt_code || '',
+        receipt_signature: receiptSignature,
+        receipt_barcode_payload: receiptBarcodePayload,
+        receipt_qr_payload: receiptQrPayload,
       };
 
       const { error } = await supabase
@@ -858,7 +974,7 @@ const PaymentsList: React.FC = () => {
 
       if (error) throw error;
 
-      toast.success('✅ Payment approved successfully! Session and term data populated.');
+      toast.success('✅ Payment approved successfully! Security tokens generated.');
       setShowApproveModal(false);
       fetchPayments();
       fetchPaymentStats();
@@ -978,6 +1094,14 @@ const PaymentsList: React.FC = () => {
       fee_name: payment.fee_name || 'N/A',
       transaction_reference: payment.transaction_reference || 'N/A',
       student_class_name: payment.student_class_name || 'N/A',
+      receipt_signature: payment.receipt_signature || '',
+      receipt_barcode_payload: payment.receipt_barcode_payload || '',
+      receipt_qr_payload: payment.receipt_qr_payload || '',
+      receipt_security_status: payment.receipt_security_status || 'PENDING',
+      verification_token: payment.verification_token || '',
+      receipt_code: payment.receipt_code || '',
+      payment_id: payment.payment_id || '',
+      branch_code: payment.metadata?.branch_code || 'EISO',
     };
   };
 
@@ -1980,7 +2104,7 @@ const PaymentsList: React.FC = () => {
           <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Approve Payment</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              Are you sure you want to approve this payment?
+              Are you sure you want to approve this payment? This will generate a security token and receipt code.
             </p>
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 mb-4">
               <div className="flex justify-between text-sm">

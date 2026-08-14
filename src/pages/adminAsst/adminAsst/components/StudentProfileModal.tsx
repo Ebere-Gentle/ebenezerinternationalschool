@@ -22,8 +22,8 @@ import dayjs from 'dayjs';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
-import { supabase } from '../../../config/supabase/client';
-import schoolLogo from '../../../assets/school-logo.png';
+import { supabase } from '../../../../config/supabase/client';
+import schoolLogo from '../../../../assets/school-logo.png';
 
 interface StudentProfileModalProps {
   open: boolean;

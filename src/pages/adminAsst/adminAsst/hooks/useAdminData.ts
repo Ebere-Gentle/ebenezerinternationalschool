@@ -1,7 +1,7 @@
 // src/pages/adminAsst/hooks/useAdminData.ts
 
 import { useState, useCallback, useEffect } from 'react';
-import { supabase } from '../../../config/supabase/client';
+import { supabase } from '../../../../config/supabase/client';
 
 export interface Student {
   id: string;

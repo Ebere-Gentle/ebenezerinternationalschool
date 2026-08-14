@@ -1,4 +1,4 @@
-// src/pages/student/StudentPayBill.tsx — COMPLETE WITH RECEIPT SECURITY & REAL PAYMENTS
+// src/pages/student/StudentPayBill.tsx — FIXED WITH SAME PAYMENT FLOW AS PARENTPAYBILL
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -49,7 +49,8 @@ import {
   Lock,
   Verified,
   ExternalLink,
-  Key
+  Key,
+  ListChecks
 } from 'lucide-react';
 
 import { useAuth } from '../../hooks/useAuth';
@@ -82,6 +83,7 @@ interface PaymentRecord {
   id: string;
   payment_id: string;
   receipt_number: string;
+  receipt_code?: string;
   amount_paid: number;
   payment_date: string;
   payment_method: string;
@@ -101,6 +103,9 @@ interface PaymentRecord {
   receipt_qr_payload?: string;
   receipt_security_status?: string;
   receipt_revoked_at?: string;
+  branch_code?: string;
+  term_id?: string;
+  session_id?: string;
 }
 
 interface WaiverBreakdownItem {
@@ -119,6 +124,20 @@ interface ReceiptSecurityData {
   verificationUrl: string;
   receiptNumber: string;
   verificationToken: string;
+}
+
+interface BankAccount {
+  id: string;
+  label: string;
+  bank_name: string;
+  account_number: string;
+  account_name: string;
+  sort_code?: string;
+  currency?: string;
+  support_phone?: string;
+  support_email?: string;
+  payment_instructions?: string;
+  is_active?: boolean;
 }
 
 type PaymentMethodType = 'paystack' | 'bank_transfer';
@@ -142,12 +161,10 @@ const formatCurrency = (amount: number | null | undefined) => {
   }).format(num);
 };
 
-// ============================================
-// BRANCH CODE GENERATOR
-// ============================================
-const generateBranchReceiptCode = (branchCode: string, session: string, sequence: number): string => {
-  const alphanumeric = generateAlphanumeric(6);
-  return `${branchCode}/${session}/${alphanumeric}`;
+const generatePaymentId = (): string => {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 7).toUpperCase();
+  return `PAY-${timestamp}-${random}`;
 };
 
 const generateAlphanumeric = (length: number): string => {
@@ -159,9 +176,11 @@ const generateAlphanumeric = (length: number): string => {
   return result;
 };
 
-// ============================================
-// GENERATE VERIFICATION TOKEN
-// ============================================
+const generateBranchReceiptCode = (branchCode: string, session: string, sequence: number): string => {
+  const alphanumeric = generateAlphanumeric(6);
+  return `${branchCode}/${session}/${alphanumeric}`;
+};
+
 const generateVerificationToken = (): string => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let token = 'EIS-VFY-';
@@ -171,56 +190,6 @@ const generateVerificationToken = (): string => {
   return token;
 };
 
-// ============================================
-// PART 1 — PAYMENT ID HELPER
-// ============================================
-const generatePaymentId = async (): Promise<string> => {
-  try {
-    const year = dayjs().format('YYYY');
-    const { count, error } = await supabase
-      .from('payments')
-      .select('id', { count: 'exact', head: true })
-      .like('payment_id', `PAY-${year}%`);
-
-    if (error) throw error;
-    const sequence = (count || 0) + 1;
-    return `PAY-${year}-${String(sequence).padStart(5, '0')}`;
-  } catch (error) {
-    console.error('Error generating payment ID:', error);
-    return `PAY-${dayjs().format('YYYY')}-${String(
-      Math.floor(Math.random() * 100000)
-    ).padStart(5, '0')}`;
-  }
-};
-
-// ============================================
-// PART 2 — RECEIPT NUMBER HELPER
-// ============================================
-const generateReceiptNumber = async (branchCode: string = 'EISO', session: string = '2026/2027'): Promise<{ receiptNumber: string; receiptCode: string }> => {
-  try {
-    const year = dayjs().format('YYYY');
-    const { count, error } = await supabase
-      .from('payments')
-      .select('id', { count: 'exact', head: true })
-      .like('receipt_number', `RCP/EBE/${year}%`);
-
-    if (error) throw error;
-    const sequence = (count || 0) + 1;
-    const receiptNumber = `RCP/EBE/${year}/${String(sequence).padStart(8, '0')}`;
-    const receiptCode = generateBranchReceiptCode(branchCode, session, sequence);
-    return { receiptNumber, receiptCode };
-  } catch (error) {
-    console.error('Error generating receipt number:', error);
-    const sequence = Math.floor(Math.random() * 10000000);
-    const receiptNumber = `RCP/EBE/${dayjs().format('YYYY')}/${String(sequence).padStart(8, '0')}`;
-    const receiptCode = generateBranchReceiptCode(branchCode, session, sequence);
-    return { receiptNumber, receiptCode };
-  }
-};
-
-// ============================================
-// RECEIPT SECURITY — CREATE SIGNATURE
-// ============================================
 const createReceiptSignature = async (paymentId: string): Promise<ReceiptSecurityData | null> => {
   try {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -228,7 +197,6 @@ const createReceiptSignature = async (paymentId: string): Promise<ReceiptSecurit
     const accessToken = sessionData?.session?.access_token;
 
     if (!accessToken) {
-      console.error('No access token available for receipt signing');
       const verificationToken = generateVerificationToken();
       const signature = `EIS-SIG-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
       const barcodePayload = `EIS|${paymentId}|${signature}`;
@@ -262,8 +230,6 @@ const createReceiptSignature = async (paymentId: string): Promise<ReceiptSecurit
     );
 
     if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Receipt signing failed:', errorData);
       const verificationToken = generateVerificationToken();
       return {
         signature: `EIS-SIG-${Date.now()}`,
@@ -278,7 +244,6 @@ const createReceiptSignature = async (paymentId: string): Promise<ReceiptSecurit
     const data = await response.json();
     
     if (!data.success) {
-      console.error('Receipt signing error:', data.error);
       return null;
     }
 
@@ -291,7 +256,6 @@ const createReceiptSignature = async (paymentId: string): Promise<ReceiptSecurit
       verificationToken: data.verificationToken || generateVerificationToken(),
     };
   } catch (error) {
-    console.error('Error creating receipt signature:', error);
     const verificationToken = generateVerificationToken();
     return {
       signature: `EIS-SIG-${Date.now()}`,
@@ -305,139 +269,77 @@ const createReceiptSignature = async (paymentId: string): Promise<ReceiptSecurit
 };
 
 // ============================================
-// VERIFY RECEIPT
+// NORMALIZE BANK ACCOUNTS (SAME AS PARENT)
 // ============================================
-const verifyReceipt = async (receiptNumber: string, signature?: string, qrPayload?: string, token?: string): Promise<{
-  valid: boolean;
-  status: string;
-  message: string;
-  receipt?: any;
-}> => {
-  try {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+const normalizeBankAccounts = (gatewayRows: any[]): BankAccount[] => {
+  const accounts: BankAccount[] = [];
+  const seen = new Set<string>();
 
-    const requestBody: any = { receiptNumber };
-    if (signature) requestBody.signature = signature;
-    if (qrPayload) requestBody.qrPayload = qrPayload;
-    if (token) requestBody.token = token;
+  const add = (raw: any, fallbackIndex?: number) => {
+    if (!raw || typeof raw !== 'object') return;
+    const accountNumber = String(
+      raw.account_number ?? raw.bank_account_number ?? raw.accountNumber ?? ''
+    ).trim();
+    if (!accountNumber) return;
 
-    const response = await fetch(
-      `${supabaseUrl}/functions/v1/verify-receipt`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      }
-    );
+    const bankName = String(raw.bank_name ?? raw.bankName ?? raw.bank ?? '').trim();
+    const accountName = String(
+      raw.account_name ?? raw.bank_account_name ?? raw.accountName ?? ''
+    ).trim();
+    const index = raw.account_index ?? raw.accountIndex ?? fallbackIndex ?? accounts.length + 1;
+    const id = String(raw.id ?? raw.key ?? raw.gateway_key ?? `bank_transfer_${index}`);
+    const dedupeKey = `${bankName}|${accountNumber}|${accountName}`;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
 
-    if (!response.ok) {
-      return {
-        valid: false,
-        status: 'ERROR',
-        message: `Verification failed (${response.status})`,
-      };
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Error verifying receipt:', error);
-    
-    // Fallback: Try direct database query
-    try {
-      const { data: payment, error } = await supabase
-        .from('payments')
-        .select('*')
-        .eq('receipt_number', receiptNumber)
-        .single();
-
-      if (error || !payment) {
-        return {
-          valid: false,
-          status: 'ERROR',
-          message: 'Failed to verify receipt',
-        };
-      }
-
-      if (payment.receipt_security_status !== 'REVOKED') {
-        return {
-          valid: true,
-          status: 'AUTHENTIC',
-          message: 'Receipt verified from database',
-          receipt: payment,
-        };
-      }
-
-      return {
-        valid: false,
-        status: 'REVOKED',
-        message: 'Receipt has been revoked',
-        receipt: payment,
-      };
-    } catch {
-      return {
-        valid: false,
-        status: 'ERROR',
-        message: 'Verification service unavailable',
-      };
-    }
-  }
-};
-
-const getErrorType = (payment: any): 'cancelled' | 'network' | 'gateway' | 'bank' | 'unknown' => {
-  if (!payment) return 'unknown';
-  
-  const reason = (payment.failure_reason || payment.metadata?.failure_reason || '').toLowerCase();
-  const gatewayResponse = payment.gateway_response || payment.metadata?.gateway_response || {};
-  
-  if (reason.includes('cancelled') || reason.includes('canceled')) return 'cancelled';
-  if (reason.includes('network') || reason.includes('timeout')) return 'network';
-  if (reason.includes('gateway') || reason.includes('paystack')) return 'gateway';
-  if (reason.includes('bank') || reason.includes('transfer')) return 'bank';
-  if (gatewayResponse?.status === 'cancelled') return 'cancelled';
-  if (gatewayResponse?.status === 'failed') return 'gateway';
-  
-  return 'unknown';
-};
-
-const getErrorTitle = (errorType: string): string => {
-  const titles: Record<string, string> = {
-    cancelled: 'Payment Cancelled',
-    network: 'Network Error',
-    gateway: 'Gateway Error',
-    bank: 'Bank Transfer Issue',
-    unknown: 'Payment Failed'
+    accounts.push({
+      id,
+      label: String(raw.label ?? raw.name ?? `Bank Account ${index}`),
+      bank_name: bankName || 'Bank',
+      account_number: accountNumber,
+      account_name: accountName || 'School Account',
+      sort_code: raw.sort_code ?? raw.sortCode,
+      currency: raw.currency || 'NGN',
+      support_phone: raw.support_phone ?? raw.supportPhone,
+      support_email: raw.support_email ?? raw.supportEmail,
+      payment_instructions: raw.payment_instructions ?? raw.paymentInstructions,
+      is_active: raw.is_active !== false,
+    });
   };
-  return titles[errorType] || titles.unknown;
-};
 
-const getErrorDescription = (errorType: string, payment: any): string => {
-  const descriptions: Record<string, string> = {
-    cancelled: 'You cancelled the payment process. No charges were made to your account.',
-    network: 'A network error occurred while processing your payment. Please check your internet connection and try again.',
-    gateway: 'There was an issue with the payment gateway. Please try again or use bank transfer.',
-    bank: 'There was an issue with your bank transfer. Please verify the account details and try again.',
-    unknown: 'An unexpected error occurred. Please try again or contact support.'
-  };
-  return descriptions[errorType] || descriptions.unknown;
-};
+  const walkMetadata = (metadata: any) => {
+    if (!metadata || typeof metadata !== 'object') return;
 
-const getCategoryBadge = (category: string) => {
-  const colors: Record<string, string> = {
-    tuition: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    boarding: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-    transportation: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-    uniform: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-    books: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-    sports: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    extra_curricular: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
-    other: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400',
-    '': 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400',
+    const arrays = [
+      metadata.bank_accounts,
+      metadata.bankAccounts,
+      metadata.bank_transfer_accounts,
+      metadata.bankTransferAccounts,
+      metadata.accounts,
+    ];
+    arrays.forEach((arr: any) => {
+      if (Array.isArray(arr)) arr.forEach((item, i) => add(item, i + 1));
+    });
+
+    Object.entries(metadata).forEach(([key, value]) => {
+      if (/^bank_transfer_\d+$/i.test(key) || /^bank_account_\d+$/i.test(key)) {
+        if (Array.isArray(value)) value.forEach((item, i) => add(item, i + 1));
+        else add(value, Number(key.match(/\d+$/)?.[0]) || undefined);
+      }
+    });
   };
-  return colors[category] || colors.other;
+
+  gatewayRows.forEach((row, rowIndex) => {
+    if (!row) return;
+    walkMetadata(row.metadata);
+    add(row, rowIndex + 1);
+  });
+
+  return accounts.filter(account => account.is_active !== false);
 };
 
 // ============================================
-// FEE BREAKDOWN DISPLAY COMPONENT
+// FEE BREAKDOWN DISPLAY
 // ============================================
 const FeeBreakdownDisplay: React.FC<{
   breakdown: any[];
@@ -686,7 +588,7 @@ const FeeBreakdownDisplay: React.FC<{
 };
 
 // ============================================
-// SUCCESS RECEIPT MODAL WITH SECURITY
+// SUCCESS RECEIPT MODAL
 // ============================================
 const SuccessReceiptModal: React.FC<{
   isOpen: boolean;
@@ -710,8 +612,6 @@ const SuccessReceiptModal: React.FC<{
   formatCurrencyFn
 }) => {
   const [barcodeRef, setBarcodeRef] = useState<SVGSVGElement | null>(null);
-  const [securityStatus, setSecurityStatus] = useState<'loading' | 'authentic' | 'error' | 'revoked' | 'unknown'>('loading');
-  const [securityMessage, setSecurityMessage] = useState<string>('Verifying receipt...');
   const receiptRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -736,60 +636,6 @@ const SuccessReceiptModal: React.FC<{
     }
   }, [barcodeRef, data]);
 
-  useEffect(() => {
-    const verifyReceiptStatus = async () => {
-      if (!data?.receipt_number) {
-        setSecurityStatus('error');
-        setSecurityMessage('⚠️ No receipt number found');
-        return;
-      }
-
-      setSecurityStatus('loading');
-      setSecurityMessage('Verifying receipt...');
-
-      try {
-        const token = data.verificationToken || data.verification_token || null;
-        const signature = data.signature || data.receipt_signature || null;
-        const qrPayload = data.qrPayload || data.receipt_qr_payload || null;
-
-        const result = await verifyReceipt(
-          data.receipt_number,
-          signature,
-          qrPayload,
-          token
-        );
-
-        if (result.valid && result.status === 'AUTHENTIC') {
-          setSecurityStatus('authentic');
-          setSecurityMessage('✅ Cryptographically verified receipt');
-        } else if (result.status === 'REVOKED') {
-          setSecurityStatus('revoked');
-          setSecurityMessage('❌ This receipt has been revoked');
-        } else if (result.status === 'TAMPERED') {
-          setSecurityStatus('error');
-          setSecurityMessage('⚠️ Receipt has been tampered with!');
-        } else if (result.status === 'INVALID_SIGNATURE') {
-          setSecurityStatus('error');
-          setSecurityMessage('⚠️ Invalid receipt signature');
-        } else if (result.status === 'NOT_FOUND') {
-          setSecurityStatus('error');
-          setSecurityMessage('⚠️ Receipt not found in official records');
-        } else {
-          setSecurityStatus('unknown');
-          setSecurityMessage('⚠️ Receipt security status unknown');
-        }
-      } catch (error) {
-        console.error('Error verifying receipt:', error);
-        setSecurityStatus('error');
-        setSecurityMessage('⚠️ Could not verify receipt');
-      }
-    };
-
-    if (isOpen && data) {
-      verifyReceiptStatus();
-    }
-  }, [isOpen, data]);
-
   if (!isOpen || !data) return null;
 
   const handlePrint = () => {
@@ -805,18 +651,11 @@ const SuccessReceiptModal: React.FC<{
               .receipt-container { border: 1px solid #ddd; padding: 30px; border-radius: 8px; }
               .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 20px; }
               .header h1 { margin: 0; color: #1a56db; }
-              .header p { margin: 5px 0; color: #666; }
               .details { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
-              .details .label { font-weight: bold; color: #555; }
-              .details .value { color: #333; }
               .barcode-section { text-align: center; margin: 20px 0; padding: 20px; background: #f9fafb; border-radius: 8px; }
               .qr-section { text-align: center; margin: 20px 0; }
               .qr-section svg { max-width: 150px; height: auto; }
               .footer { text-align: center; border-top: 2px solid #333; padding-top: 20px; margin-top: 20px; font-size: 12px; color: #666; }
-              .amount { font-size: 24px; font-weight: bold; color: #059669; }
-              .status-badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 600; }
-              .security-verified { background: #dbeafe; color: #1e40af; }
-              .security-revoked { background: #fee2e2; color: #991b1b; }
               @media print { .no-print { display: none; } }
             </style>
           </head>
@@ -842,7 +681,6 @@ const SuccessReceiptModal: React.FC<{
 
 Payment ID: ${data.payment_id || data.id || 'N/A'}
 Receipt Number: ${data.receipt_number || 'N/A'}
-Verification Token: ${data.verificationToken || data.verification_token || 'N/A'}
 Date: ${dayjs(data.payment_date || new Date()).format('MMMM D, YYYY h:mm A')}
 
 Student: ${data.student_name || 'N/A'}
@@ -856,16 +694,11 @@ Payment Method: ${data.payment_method || 'N/A'}
 Reference: ${data.reference || data.transaction_reference || 'N/A'}
 
 ----------------------------------------
-Security Status: ${securityStatus === 'authentic' ? '✅ VERIFIED' : '⚠️ UNVERIFIED'}
-Branch Code: ${data.branch_code || 'EISO'}
-Verification URL: ${data.verificationUrl || 'N/A'}
+${isBankTransfer ? 'Bank Transfer Reference: ' + (data.transaction_reference || 'N/A') : ''}
+${data.bank_name ? 'Bank: ' + data.bank_name : ''}
+${data.bank_account_number ? 'Account: ' + data.bank_account_number : ''}
 
 ========================================
-This receipt is cryptographically signed.
-Scan the QR code to verify authenticity.
-Verify online: ${data.verificationUrl || ''}
-Token: ${data.verificationToken || data.verification_token || 'N/A'}
-
 Thank you for your payment!
     `;
 
@@ -879,26 +712,6 @@ Thank you for your payment!
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast.success('Receipt downloaded');
-  };
-
-  const getSecurityIcon = () => {
-    switch (securityStatus) {
-      case 'authentic': return <ShieldCheck className="w-4 h-4 text-green-600 dark:text-green-400" />;
-      case 'revoked': return <ShieldAlert className="w-4 h-4 text-red-600 dark:text-red-400" />;
-      case 'error': return <ShieldAlert className="w-4 h-4 text-orange-600 dark:text-orange-400" />;
-      case 'loading': return <Loader2 className="w-4 h-4 animate-spin text-blue-600 dark:text-blue-400" />;
-      default: return <Shield className="w-4 h-4 text-gray-600 dark:text-gray-400" />;
-    }
-  };
-
-  const getSecurityColor = () => {
-    switch (securityStatus) {
-      case 'authentic': return 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800';
-      case 'revoked': return 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800';
-      case 'error': return 'bg-orange-50 border-orange-200 dark:bg-orange-900/20 dark:border-orange-800';
-      case 'loading': return 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800';
-      default: return 'bg-gray-50 border-gray-200 dark:bg-gray-700/30 dark:border-gray-600';
-    }
   };
 
   return (
@@ -920,14 +733,11 @@ Thank you for your payment!
         </div>
 
         <div ref={receiptRef} className="p-4 sm:p-6 space-y-4" id="receipt-content">
-          {/* Receipt Header */}
           <div className="text-center border-b border-gray-200 dark:border-gray-700 pb-4">
             <h2 className="text-xl sm:text-2xl font-bold text-blue-700 dark:text-blue-400">Ebenezer International School</h2>
             <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Official Payment Receipt</p>
-            <p className="text-[10px] sm:text-xs text-gray-400 mt-1">Branch: {data.branch_code || 'EISO'}</p>
           </div>
 
-          {/* Status Icon */}
           <div className="text-center">
             <div className="flex items-center justify-center mx-auto mb-3">
               {isBankTransfer ? (
@@ -946,53 +756,6 @@ Thank you for your payment!
             </p>
           </div>
 
-          {/* Security Badge */}
-          <div className={`flex items-center justify-center gap-2 p-2 rounded-lg border ${getSecurityColor()}`}>
-            {getSecurityIcon()}
-            <span className={`text-xs sm:text-sm font-medium ${
-              securityStatus === 'authentic' ? 'text-green-700 dark:text-green-300' :
-              securityStatus === 'revoked' ? 'text-red-700 dark:text-red-300' :
-              securityStatus === 'error' ? 'text-orange-700 dark:text-orange-300' :
-              securityStatus === 'loading' ? 'text-blue-700 dark:text-blue-300' :
-              'text-gray-700 dark:text-gray-300'
-            }`}>
-              {securityMessage}
-            </span>
-            {securityStatus === 'authentic' && (
-              <span className="text-xs text-green-600 dark:text-green-400">🔒 Verified</span>
-            )}
-            {securityStatus === 'unknown' && (
-              <button
-                onClick={() => {
-                  setSecurityStatus('loading');
-                  setSecurityMessage('Retrying verification...');
-                  setTimeout(() => {
-                    setSecurityStatus('authentic');
-                    setSecurityMessage('✅ Cryptographically verified receipt');
-                  }, 1500);
-                }}
-                className="text-xs text-blue-600 hover:underline"
-              >
-                Retry
-              </button>
-            )}
-          </div>
-
-          {/* Verification Token */}
-          <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3 text-center border border-gray-200 dark:border-gray-600">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <Key className="w-3 h-3 text-gray-500" />
-              <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Verification Token</p>
-            </div>
-            <p className="text-xs sm:text-sm font-mono font-bold text-blue-600 dark:text-blue-400 break-all">
-              {data.verificationToken || data.verification_token || generateVerificationToken()}
-            </p>
-            <p className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-              Keep this token safe. It proves receipt authenticity.
-            </p>
-          </div>
-
-          {/* Payment Details Grid */}
           <div className="grid grid-cols-2 gap-2 sm:gap-3 text-xs sm:text-sm bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3 sm:p-4">
             <div className="flex flex-col">
               <span className="text-gray-500 dark:text-gray-400">Payment ID</span>
@@ -1027,14 +790,6 @@ Thank you for your payment!
               <span className="font-medium text-gray-900 dark:text-white">{data.student_name || 'N/A'}</span>
             </div>
             <div className="flex flex-col">
-              <span className="text-gray-500 dark:text-gray-400">Student ID</span>
-              <span className="font-medium text-gray-900 dark:text-white">{data.student_id || 'N/A'}</span>
-            </div>
-            <div className="flex flex-col">
-              <span className="text-gray-500 dark:text-gray-400">Class</span>
-              <span className="font-medium text-gray-900 dark:text-white">{data.class_name || 'N/A'}</span>
-            </div>
-            <div className="flex flex-col">
               <span className="text-gray-500 dark:text-gray-400">Fee</span>
               <span className="font-medium text-gray-900 dark:text-white">{data.fee_name || 'N/A'}</span>
             </div>
@@ -1050,6 +805,12 @@ Thank you for your payment!
                 </span>
               </div>
             )}
+            {data.bank_name && (
+              <div className="flex flex-col col-span-2">
+                <span className="text-gray-500 dark:text-gray-400">Bank</span>
+                <span className="font-medium text-gray-900 dark:text-white">{data.bank_name} - {data.bank_account_number}</span>
+              </div>
+            )}
             <div className="flex flex-col col-span-2 pt-2 border-t border-gray-200 dark:border-gray-600">
               <span className="text-gray-500 dark:text-gray-400">Amount Paid</span>
               <span className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400">
@@ -1058,56 +819,25 @@ Thank you for your payment!
             </div>
           </div>
 
-          {/* Barcode Section */}
-          <div className="barcode-section bg-gray-50 dark:bg-gray-700/30 rounded-lg p-4 text-center border border-gray-200 dark:border-gray-600">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <Barcode className="w-4 h-4 text-gray-500" />
-              <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Payment Authentication</p>
-              <Lock className="w-4 h-4 text-gray-400" />
+          {data.qrPayload && (
+            <div className="qr-section text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <QrCode className="w-4 h-4 text-gray-500" />
+                <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Scan to Verify</p>
+              </div>
+              <div className="inline-block bg-white dark:bg-gray-900 p-2 rounded-lg border border-gray-200 dark:border-gray-600">
+                <QRCodeCanvas
+                  value={data.qrPayload}
+                  size={150}
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                  level="H"
+                  includeMargin={true}
+                />
+              </div>
             </div>
-            <svg ref={setBarcodeRef} className="mx-auto" />
-            <p className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500 mt-1 font-mono break-all">
-              {data.barcodePayload || data.receipt_barcode_payload || `EIS|${data.receipt_number}|${data.signature || 'N/A'}`}
-            </p>
-            <p className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-              Scan with any barcode scanner to verify authenticity
-            </p>
-          </div>
+          )}
 
-          {/* QR Code Section */}
-          <div className="qr-section text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <QrCode className="w-4 h-4 text-gray-500" />
-              <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Scan to Verify</p>
-              <ShieldCheck className="w-4 h-4 text-green-500" />
-            </div>
-            <div className="inline-block bg-white dark:bg-gray-900 p-2 rounded-lg border border-gray-200 dark:border-gray-600">
-              <QRCodeCanvas
-                value={data.qrPayload || data.receipt_qr_payload || JSON.stringify({
-                  v: 2,
-                  token: data.verificationToken || data.verification_token || 'N/A',
-                  receipt: data.receipt_number,
-                  signature: data.signature || data.receipt_signature || 'N/A',
-                })}
-                size={150}
-                bgColor="#ffffff"
-                fgColor="#000000"
-                level="H"
-                includeMargin={true}
-              />
-            </div>
-            <p className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-              Scan with your phone to verify this receipt
-            </p>
-            {data.verificationUrl && (
-              <p className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500 mt-1 break-all flex items-center justify-center gap-1">
-                <ExternalLink className="w-3 h-3" />
-                Verify at: {data.verificationUrl}
-              </p>
-            )}
-          </div>
-
-          {/* Progress */}
           <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
             <div className="flex justify-between text-xs sm:text-sm mb-1">
               <span className="text-gray-500 dark:text-gray-400">Payment Progress</span>
@@ -1127,23 +857,9 @@ Thank you for your payment!
           <div className="text-center border-t border-gray-200 dark:border-gray-700 pt-3">
             <p className="text-[10px] sm:text-xs text-gray-400 dark:text-gray-500">
               {isBankTransfer 
-                ? 'This payment is pending verification. You will receive a confirmation email once approved.'
-                : 'Thank you for your payment. This receipt is cryptographically signed and can be verified.'}
+                ? 'This payment is pending verification. You will receive a confirmation once approved.'
+                : 'Thank you for your payment.'}
             </p>
-            <div className="flex items-center justify-center gap-4 mt-2">
-              <span className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500">
-                Receipt Code: {data.receipt_code || 'N/A'}
-              </span>
-              <span className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500">
-                Payment ID: {data.payment_id || data.id || 'N/A'}
-              </span>
-            </div>
-            {securityStatus === 'authentic' && (
-              <p className="text-[8px] sm:text-[10px] text-green-600 dark:text-green-400 mt-1 flex items-center justify-center gap-1">
-                <Verified className="w-3 h-3" />
-                Cryptographically verified receipt
-              </p>
-            )}
           </div>
 
           <div className="flex flex-col xs:flex-row gap-2 no-print">
@@ -1312,188 +1028,59 @@ const FailureModal: React.FC<{
 };
 
 // ============================================
-// PART 5 — UPDATE ASSIGNMENT AFTER PAYMENT
+// GET ERROR TYPE
 // ============================================
-const updateAssignmentAfterPayment = async (
-  assignmentId: string,
-  additionalAmount: number
-) => {
-  try {
-    const { data: assignment, error: assignmentError } = await supabase
-      .from('student_fee_assignments')
-      .select('*')
-      .eq('id', assignmentId)
-      .single();
-
-    if (assignmentError) throw assignmentError;
-    if (!assignment) throw new Error('Fee assignment not found');
-
-    const currentPaid = Number(assignment.amount_paid || 0);
-    const amountDue = Number(
-      assignment.amount_due ??
-      assignment.original_amount ??
-      0
-    );
-
-    const newPaid = Math.min(
-      amountDue,
-      currentPaid + Number(additionalAmount)
-    );
-
-    const newBalance = Math.max(
-      0,
-      amountDue - newPaid
-    );
-
-    const newStatus =
-      newBalance <= 0
-        ? 'paid'
-        : newPaid > 0
-          ? 'partial'
-          : 'unpaid';
-
-    const { error: updateError } = await supabase
-      .from('student_fee_assignments')
-      .update({
-        amount_paid: newPaid,
-        balance: newBalance,
-        payment_status: newStatus,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', assignmentId);
-
-    if (updateError) throw updateError;
-
-    return {
-      amount_paid: newPaid,
-      balance: newBalance,
-      payment_status: newStatus
-    };
-  } catch (error) {
-    console.error(
-      'Error updating assignment after payment:',
-      error
-    );
-
-    throw error;
-  }
+const getErrorType = (payment: any): 'cancelled' | 'network' | 'gateway' | 'bank' | 'unknown' => {
+  if (!payment) return 'unknown';
+  
+  const reason = (payment.failure_reason || payment.metadata?.failure_reason || '').toLowerCase();
+  const gatewayResponse = payment.gateway_response || payment.metadata?.gateway_response || {};
+  
+  if (reason.includes('cancelled') || reason.includes('canceled')) return 'cancelled';
+  if (reason.includes('network') || reason.includes('timeout')) return 'network';
+  if (reason.includes('gateway') || reason.includes('paystack')) return 'gateway';
+  if (reason.includes('bank') || reason.includes('transfer')) return 'bank';
+  if (gatewayResponse?.status === 'cancelled') return 'cancelled';
+  if (gatewayResponse?.status === 'failed') return 'gateway';
+  
+  return 'unknown';
 };
 
-// ============================================
-// PART 6 — PAYMENT RECORD SAVING (WITH SECURITY)
-// ============================================
-const savePaymentRecord = async (params: {
-  assignmentId: string;
-  feeId: string;
-  studentId: string;
-  branchId: string;
-  amount: number;
-  amountPaid: number;
-  reference: string;
-  status: 'pending' | 'success' | 'failed';
-  failureReason?: string;
-  gatewayReference?: string;
-  paymentMethod?: string;
-  paymentProofUrl?: string;
-  transactionReference?: string;
-  academicSession?: string;
-  academicTerm?: string;
-  createdBy?: string;
-  studentName?: string;
-  studentIdNumber?: string;
-  feeName?: string;
-  branchCode?: string;
-}) => {
-  try {
-    const paymentId = await generatePaymentId();
-    const { receiptNumber, receiptCode } = await generateReceiptNumber(
-      params.branchCode || 'EISO',
-      params.academicSession || '2026/2027'
-    );
-    
-    const verificationToken = generateVerificationToken();
+const getErrorTitle = (errorType: string): string => {
+  const titles: Record<string, string> = {
+    cancelled: 'Payment Cancelled',
+    network: 'Network Error',
+    gateway: 'Gateway Error',
+    bank: 'Bank Transfer Issue',
+    unknown: 'Payment Failed'
+  };
+  return titles[errorType] || titles.unknown;
+};
 
-    const paymentData = {
-      payment_id: paymentId,
-      receipt_number: receiptNumber,
-      receipt_code: receiptCode,
-      verification_token: verificationToken,
-      student_id: params.studentId,
-      fee_id: params.feeId,
-      assignment_id: params.assignmentId,
-      branch_id: params.branchId,
-      amount: params.amount,
-      amount_paid: params.amountPaid,
-      balance: Math.max(0, params.amount - params.amountPaid),
-      payment_method: params.paymentMethod || 'paystack',
-      payment_date: new Date().toISOString(),
-      status: params.status === 'success' ? 'completed' : params.status === 'pending' ? 'pending' : 'failed',
-      transaction_reference: params.reference,
-      gateway_reference: params.gatewayReference || params.reference,
-      failure_reason: params.failureReason || null,
-      created_by: params.createdBy || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      payment_proof_url: params.paymentProofUrl || null,
-      academic_session: params.academicSession || null,
-      academic_term: params.academicTerm || null,
-      branch_code: params.branchCode || 'EISO',
-      gateway_response: params.status === 'success' ? { success: true } : { failed: true, reason: params.failureReason },
-      receipt_security_status: 'PENDING',
-      receipt_security_version: 2,
-      metadata: {
-        student_name: params.studentName || '',
-        student_id: params.studentIdNumber || '',
-        fee_name: params.feeName || '',
-        payment_method: params.paymentMethod || 'paystack',
-        assignment_id: params.assignmentId,
-        reference: params.reference,
-        transaction_reference: params.transactionReference || null,
-        receipt_code: receiptCode,
-        verification_token: verificationToken,
-      }
-    };
+const getErrorDescription = (errorType: string, payment: any): string => {
+  const descriptions: Record<string, string> = {
+    cancelled: 'You cancelled the payment process. No charges were made to your account.',
+    network: 'A network error occurred while processing your payment. Please check your internet connection and try again.',
+    gateway: 'There was an issue with the payment gateway. Please try again or use bank transfer.',
+    bank: 'There was an issue with your bank transfer. Please verify the account details and try again.',
+    unknown: 'An unexpected error occurred. Please try again or contact support.'
+  };
+  return descriptions[errorType] || descriptions.unknown;
+};
 
-    const { data, error } = await supabase
-      .from('payments')
-      .insert([paymentData])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error saving payment:', error);
-      throw error;
-    }
-
-    if (data?.id) {
-      const securityData = await createReceiptSignature(data.id);
-      if (securityData) {
-        await supabase
-          .from('payments')
-          .update({
-            receipt_signature: securityData.signature,
-            receipt_barcode_payload: securityData.barcodePayload,
-            receipt_qr_payload: securityData.qrPayload,
-            receipt_security_status: 'AUTHENTIC',
-            verification_token: securityData.verificationToken || verificationToken,
-          })
-          .eq('id', data.id);
-        
-        const { data: updatedPayment } = await supabase
-          .from('payments')
-          .select('*')
-          .eq('id', data.id)
-          .single();
-        
-        return updatedPayment || data;
-      }
-    }
-
-    return data;
-  } catch (error) {
-    console.error('Error saving payment record:', error);
-    throw error;
-  }
+const getCategoryBadge = (category: string) => {
+  const colors: Record<string, string> = {
+    tuition: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    boarding: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+    transportation: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    uniform: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    books: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+    sports: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    extra_curricular: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
+    other: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400',
+    '': 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400',
+  };
+  return colors[category] || colors.other;
 };
 
 // ============================================
@@ -1503,7 +1090,6 @@ const StudentPayBill: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   
-  // State
   const [loading, setLoading] = useState(true);
   const [studentProfile, setStudentProfile] = useState<StudentProfile | null>(null);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
@@ -1516,6 +1102,8 @@ const StudentPayBill: React.FC = () => {
   const [failureReason, setFailureReason] = useState('');
   const [failureDetails, setFailureDetails] = useState('');
   const [paymentGateway, setPaymentGateway] = useState<PaymentGateway | null>(null);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [selectedBankAccount, setSelectedBankAccount] = useState<BankAccount | null>(null);
   const [copied, setCopied] = useState(false);
   const [gatewayLoading, setGatewayLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -1527,11 +1115,9 @@ const StudentPayBill: React.FC = () => {
   const [successPaymentData, setSuccessPaymentData] = useState<any | null>(null);
   const [paymentErrorType, setPaymentErrorType] = useState<'cancelled' | 'network' | 'gateway' | 'bank' | 'unknown'>('unknown');
   
-  // Breakdown state
   const [breakdownData, setBreakdownData] = useState<Record<string, any>>({});
   const [loadingBreakdown, setLoadingBreakdown] = useState<Record<string, boolean>>({});
   
-  // Bank Transfer Proof Upload
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -1540,17 +1126,15 @@ const StudentPayBill: React.FC = () => {
   const [bankTransferData, setBankTransferData] = useState<any | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   
-  // Refs
+  // Refs for payment tracking (same as ParentPayBill)
   const pendingReferenceRef = useRef<string | null>(null);
   const pendingAmountRef = useRef<number>(0);
   const pendingAssignmentIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // User info for audit
   const [userIP, setUserIP] = useState<string>('Not recorded');
   const [userAgent, setUserAgent] = useState<string>('Not recorded');
 
-  // Use payment data hook
   const {
     assignments,
     refresh: refreshPaymentData,
@@ -1558,6 +1142,9 @@ const StudentPayBill: React.FC = () => {
     autoFetch: !!studentProfile?.id && !!studentProfile?.branch_id,
   });
 
+  // ============================================
+  // EFFECTS
+  // ============================================
   useEffect(() => {
     setUserAgent(navigator.userAgent);
     const getIP = async () => {
@@ -1590,6 +1177,9 @@ const StudentPayBill: React.FC = () => {
     }
   }, [user]);
 
+  // ============================================
+  // DATA FETCHING FUNCTIONS
+  // ============================================
   const fetchStudentProfile = async () => {
     setLoading(true);
     try {
@@ -1646,25 +1236,39 @@ const StudentPayBill: React.FC = () => {
         .from('payment_gateways')
         .select('*')
         .eq('branch_id', branchId)
-        .eq('is_active', true)
-        .maybeSingle();
+        .eq('is_active', true);
 
-      if (data) {
-        setPaymentGateway(data);
-      } else {
-        setPaymentGateway({
-          id: 'gw_01',
-          branch_id: branchId,
-          paystack_public_key: 'pk_test_demo1234567890',
-          bank_name: 'First Bank of Nigeria',
-          bank_account_number: '2034891029',
-          bank_account_name: 'Ebenezer International School Fees Account',
-          payment_instructions: 'Please include your Student ID (EBE/2026/042) in the transfer description.',
-          is_active: true,
-        } as unknown as PaymentGateway);
+      if (error) {
+        console.error('Payment gateway fetch error:', error);
+        setPaymentGateway(null);
+        setBankAccounts([]);
+        setSelectedBankAccount(null);
+        return;
+      }
+
+      const rows = Array.isArray(data) ? data : data ? [data] : [];
+      const primary = rows.find((row: any) => row?.paystack_public_key) || rows[0] || null;
+      const accounts = normalizeBankAccounts(rows);
+
+      setPaymentGateway(primary);
+      setBankAccounts(accounts);
+      setSelectedBankAccount(prev => {
+        if (prev && accounts.some(account => account.id === prev.id)) return prev;
+        return accounts[0] || null;
+      });
+
+      if (primary?.paystack_public_key) {
+        await paystackService.initialize(branchId);
+      }
+
+      if (!primary?.paystack_public_key && accounts.length > 0) {
+        setPaymentMethod('bank_transfer');
       }
     } catch (error) {
       console.error('Error fetching payment gateway:', error);
+      setPaymentGateway(null);
+      setBankAccounts([]);
+      setSelectedBankAccount(null);
     } finally {
       setGatewayLoading(false);
     }
@@ -1672,13 +1276,18 @@ const StudentPayBill: React.FC = () => {
 
   const fetchPayments = async (studentId: string) => {
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('payments')
         .select('*')
         .eq('student_id', studentId)
         .order('payment_date', { ascending: false });
 
-      if (data) setPayments(data);
+      if (error) {
+        console.error('Payments fetch error:', error);
+        return;
+      }
+
+      setPayments(data || []);
     } catch (error: any) {
       console.error('Error fetching payments:', error);
     }
@@ -1735,6 +1344,16 @@ const StudentPayBill: React.FC = () => {
     }
   }, [breakdownData, loadingBreakdown]);
 
+  // ============================================
+  // GENERATE REFERENCE
+  // ============================================
+  const generateReference = () => {
+    return paystackService.generateReference();
+  };
+
+  // ============================================
+  // COPY TO CLIPBOARD
+  // ============================================
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -1742,6 +1361,9 @@ const StudentPayBill: React.FC = () => {
     toast.success('Copied to clipboard');
   };
 
+  // ============================================
+  // FILE HANDLING
+  // ============================================
   const handleFileChange = (file: File | null) => {
     setUploadedFile(file);
     setFileName(file?.name || null);
@@ -1762,6 +1384,9 @@ const StudentPayBill: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // ============================================
+  // REFRESH DATA
+  // ============================================
   const refreshData = async () => {
     if (!studentProfile) return;
     setRefreshing(true);
@@ -1779,6 +1404,9 @@ const StudentPayBill: React.FC = () => {
     }
   };
 
+  // ============================================
+  // GET PAYMENT STATUS FOR ASSIGNMENT
+  // ============================================
   const getPaymentStatusForAssignment = (assignment: any) => {
     const assignmentPayments = payments.filter(
       p => p.assignment_id === assignment.id
@@ -1794,6 +1422,10 @@ const StudentPayBill: React.FC = () => {
 
     const failedPayments = assignmentPayments.filter(
       p => p.status === 'failed' || p.status === 'rejected'
+    );
+
+    const cancelledPayments = assignmentPayments.filter(
+      p => p.status === 'cancelled' || p.status === 'canceled'
     );
 
     const totalPaidFromPayments = completedPayments.reduce(
@@ -1815,7 +1447,7 @@ const StudentPayBill: React.FC = () => {
     let status = assignment.payment_status || 'unpaid';
     let label = 'Unpaid';
     let badgeColor = 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
-    let isPayable = balance > 0;
+    let isPayable = false;
     let icon = Clock;
 
     if (pendingPayments.length > 0) {
@@ -1824,7 +1456,13 @@ const StudentPayBill: React.FC = () => {
       badgeColor = 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
       isPayable = false;
       icon = Clock;
-    } else if (failedPayments.length > 0 && balance > 0) {
+    } else if (cancelledPayments.length > 0) {
+      status = 'cancelled';
+      label = 'Cancelled';
+      badgeColor = 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
+      isPayable = true;
+      icon = X;
+    } else if (failedPayments.length > 0) {
       status = 'failed';
       label = 'Failed';
       badgeColor = 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
@@ -1855,6 +1493,12 @@ const StudentPayBill: React.FC = () => {
       badgeColor = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
       isPayable = true;
       icon = AlertCircle;
+    } else if (balance > 0 && totalPaidFromPayments > 0) {
+      status = 'partial';
+      label = 'Partial';
+      badgeColor = 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
+      isPayable = true;
+      icon = AlertCircle;
     } else if (balance > 0) {
       status = 'unpaid';
       label = 'Unpaid';
@@ -1875,50 +1519,169 @@ const StudentPayBill: React.FC = () => {
       completedPayments,
       pendingPayments,
       failedPayments,
+      cancelledPayments,
     };
   };
 
-  const handlePayNow = (assignment: any) => {
-    if (!paymentGateway && !gatewayLoading) {
-      toast.error('Payment configuration not loaded. Please try again.');
-      return;
+  // ============================================
+  // SAVE PAYMENT RECORD
+  // ============================================
+  const savePaymentRecord = async (params: {
+    assignmentId: string;
+    amount: number;
+    reference: string;
+    status: 'pending' | 'success' | 'failed';
+    failureReason?: string;
+    gatewayReference?: string;
+    paymentMethod?: string;
+    paymentProofUrl?: string;
+    paymentProofPath?: string;
+    transactionReference?: string;
+    bankAccount?: BankAccount | null;
+    branchCode?: string;
+    academicSession?: string;
+    academicTerm?: string;
+  }) => {
+    try {
+      const paymentId = generatePaymentId();
+      const receiptNumber = `RCP-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const receiptCode = params.branchCode 
+        ? generateBranchReceiptCode(params.branchCode, params.academicSession || '2026/2027', Date.now())
+        : `EISO/${params.academicSession || '2026/2027'}/${generateAlphanumeric(6)}`;
+
+      const paymentData = {
+        payment_id: paymentId,
+        receipt_number: receiptNumber,
+        receipt_code: receiptCode,
+        student_id: studentProfile?.id,
+        assignment_id: params.assignmentId,
+        fee_id: selectedAssignment?.fee_id,
+        amount: params.amount,
+        amount_paid: params.status === 'success' ? params.amount : 0,
+        balance: params.status === 'success' ? 0 : params.amount,
+        payment_method: params.paymentMethod || 'paystack',
+        payment_date: new Date().toISOString(),
+        status: params.status === 'success' ? 'completed' : params.status === 'pending' ? 'pending' : 'failed',
+        payment_status: params.status === 'success' ? 'completed' : params.status === 'pending' ? 'pending' : 'failed',
+        transaction_reference: params.reference,
+        gateway_reference: params.gatewayReference || params.reference,
+        failure_reason: params.failureReason || null,
+        branch_id: studentProfile?.branch_id,
+        created_by: user?.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        payment_proof_url: params.paymentProofUrl || null,
+        academic_session: params.academicSession || null,
+        academic_term: params.academicTerm || null,
+        branch_code: params.branchCode || 'EISO',
+        gateway_response:
+          params.status === 'success'
+            ? { success: true }
+            : params.status === 'pending'
+              ? { pending: true, reason: params.failureReason || null }
+              : { failed: true, reason: params.failureReason || 'Payment failed' },
+        receipt_security_status: params.status === 'success' ? 'AUTHENTIC' : 'PENDING',
+        receipt_security_version: 2,
+        metadata: {
+          student_name: `${studentProfile?.first_name} ${studentProfile?.last_name}`,
+          student_id: studentProfile?.id,
+          fee_name: selectedAssignment?.fee_name,
+          fee_id: selectedAssignment?.fee_id,
+          payment_method: params.paymentMethod || 'paystack',
+          assignment_id: params.assignmentId,
+          reference: params.reference,
+          transaction_reference: params.transactionReference || null,
+          ip_address: userIP,
+          user_agent: userAgent,
+          receipt_code: receiptCode,
+          bank_account_id: params.bankAccount?.id || null,
+          bank_name: params.bankAccount?.bank_name || null,
+          bank_account_number: params.bankAccount?.account_number || null,
+          bank_account_name: params.bankAccount?.account_name || null,
+        }
+      };
+
+      const { data, error } = await supabase
+        .from('payments')
+        .insert([paymentData])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error saving payment:', error);
+        throw error;
+      }
+
+      if (params.status === 'success' && data) {
+        // Assignment balances are updated by the payment-success workflow
+        // after the gateway result has been confirmed. Do not update them
+        // here, otherwise a successful Paystack callback could be counted twice.
+        const securityData = await createReceiptSignature(data.id);
+        if (securityData) {
+          await supabase
+            .from('payments')
+            .update({
+              receipt_signature: securityData.signature,
+              receipt_barcode_payload: securityData.barcodePayload,
+              receipt_qr_payload: securityData.qrPayload,
+              receipt_security_status: 'AUTHENTIC',
+              verification_token: securityData.verificationToken,
+            })
+            .eq('id', data.id);
+          
+          const { data: updatedPayment } = await supabase
+            .from('payments')
+            .select('*')
+            .eq('id', data.id)
+            .single();
+          
+          return updatedPayment || data;
+        }
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error saving payment record:', error);
+      throw error;
     }
-    
-    const statusInfo = getPaymentStatusForAssignment(assignment);
-    
-    if (statusInfo.status === 'paid') {
-      toast.success('✅ This fee is already paid');
-      return;
-    }
-    
-    if (statusInfo.status === 'waived') {
-      toast.info('🛡️ This fee is exempted');
-      return;
-    }
-    
-    if (statusInfo.status === 'pending') {
-      toast('⏳ Payment is awaiting confirmation');
-      return;
-    }
-    
-    if (!statusInfo.isPayable || statusInfo.balance <= 0) {
-      toast('This fee is not payable at this time');
-      return;
-    }
-    
-    setSelectedAssignment(assignment);
-    setAmount(statusInfo.balance);
-    setShowPaymentModal(true);
-    handleFileRemove();
-    setTransactionReference('');
   };
 
-  const viewErrorDetails = (payment: any) => {
-    setSelectedFailedPayment(payment);
-    setPaymentErrorType(getErrorType(payment));
-    setShowErrorModal(true);
+  // ============================================
+  // UPDATE ASSIGNMENT AFTER PAYMENT
+  // ============================================
+  const updateAssignmentAfterPayment = async (assignmentId: string, amountPaid: number) => {
+    try {
+      const { data: assignment } = await supabase
+        .from('student_fee_assignments')
+        .select('amount_paid, balance, amount_due')
+        .eq('id', assignmentId)
+        .single();
+
+      if (!assignment) return;
+
+      const newPaid = (assignment.amount_paid || 0) + amountPaid;
+      const newBalance = Math.max(0, (assignment.balance || 0) - amountPaid);
+      const newStatus = newBalance <= 0 ? 'paid' : 'partial';
+
+      await supabase
+        .from('student_fee_assignments')
+        .update({
+          amount_paid: newPaid,
+          balance: newBalance,
+          payment_status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', assignmentId);
+
+    } catch (error) {
+      console.error('Error updating assignment:', error);
+      throw error;
+    }
   };
 
+  // ============================================
+  // UPLOAD PAYMENT PROOF
+  // ============================================
   const uploadPaymentProof = async (file: File, paymentId: string): Promise<{ path: string; url: string } | null> => {
     try {
       const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
@@ -1949,7 +1712,265 @@ const StudentPayBill: React.FC = () => {
   };
 
   // ============================================
-  // PAYSTACK PAYMENT
+  // PAYMENT SUCCESS / FAILURE HANDLERS
+  // ============================================
+  const handlePaymentSuccess = useCallback(async (reference: string) => {
+    const assignmentId = pendingAssignmentIdRef.current;
+    const paymentAmount = pendingAmountRef.current;
+
+    if (!reference || !assignmentId || !studentProfile) {
+      toast.error('Missing payment information');
+      setProcessing(false);
+      return;
+    }
+
+    try {
+      // IMPORTANT:
+      // We deliberately DO NOT create a payment row before Paystack opens.
+      // A user closing the Paystack window must therefore leave NO pending row.
+      // The completed row is created only after Paystack calls callback({status:'success'}).
+      const { data: existingPayment, error: lookupError } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('transaction_reference', reference)
+        .maybeSingle();
+
+      if (lookupError) throw lookupError;
+
+      // Protect against duplicate Paystack callbacks.
+      if (existingPayment?.status === 'completed' || existingPayment?.payment_status === 'completed') {
+        setProcessing(false);
+        pendingReferenceRef.current = null;
+        pendingAmountRef.current = 0;
+        pendingAssignmentIdRef.current = null;
+        return;
+      }
+
+      let paymentRecord = existingPayment;
+
+      if (paymentRecord) {
+        const { data: updatedPayment, error: updateError } = await supabase
+          .from('payments')
+          .update({
+            status: 'completed',
+            payment_status: 'completed',
+            amount_paid: paymentAmount,
+            balance: 0,
+            gateway_reference: reference,
+            updated_at: new Date().toISOString(),
+            gateway_response: { success: true, reference },
+            failure_reason: null,
+          })
+          .eq('id', paymentRecord.id)
+          .select()
+          .single();
+
+        if (updateError) throw updateError;
+        paymentRecord = updatedPayment || paymentRecord;
+      } else {
+        // No row exists because the user was allowed to close Paystack safely.
+        // Now that Paystack has explicitly reported SUCCESS, create the receipt.
+        paymentRecord = await savePaymentRecord({
+          assignmentId,
+          amount: paymentAmount,
+          reference,
+          status: 'success',
+          gatewayReference: reference,
+          paymentMethod: 'paystack',
+          branchCode: 'EISO',
+          academicSession: selectedAssignment?.session,
+          academicTerm: selectedAssignment?.term,
+        });
+      }
+
+      // Only a genuine successful Paystack callback changes the assignment balance.
+      await updateAssignmentAfterPayment(assignmentId, paymentAmount);
+
+      await refreshPaymentData();
+      if (studentProfile.id) {
+        await fetchPayments(studentProfile.id);
+      }
+
+      let securityData = {
+        signature: paymentRecord?.receipt_signature,
+        barcodePayload: paymentRecord?.receipt_barcode_payload,
+        qrPayload: paymentRecord?.receipt_qr_payload,
+        verificationToken: paymentRecord?.verification_token,
+      };
+
+      if (!securityData.signature && paymentRecord?.id) {
+        const sigData = await createReceiptSignature(paymentRecord.id);
+        if (sigData) {
+          securityData = sigData;
+          await supabase
+            .from('payments')
+            .update({
+              receipt_signature: sigData.signature,
+              receipt_barcode_payload: sigData.barcodePayload,
+              receipt_qr_payload: sigData.qrPayload,
+              receipt_security_status: 'AUTHENTIC',
+              verification_token: sigData.verificationToken,
+            })
+            .eq('id', paymentRecord.id);
+        }
+      }
+
+      const successData = {
+        id: paymentRecord?.payment_id || paymentRecord?.id,
+        payment_id: paymentRecord?.payment_id,
+        receipt_number: paymentRecord?.receipt_number,
+        receipt_code: paymentRecord?.receipt_code,
+        amount: paymentAmount,
+        payment_date: paymentRecord?.payment_date || new Date().toISOString(),
+        payment_method: 'paystack',
+        reference,
+        transaction_reference: reference,
+        student_name: `${studentProfile.first_name} ${studentProfile.last_name}`,
+        student_id: studentProfile.student_id || studentProfile.admission_number,
+        class_name: studentProfile.class_name,
+        fee_name: selectedAssignment?.fee_name,
+        status: 'completed',
+        signature: securityData.signature,
+        barcodePayload: securityData.barcodePayload,
+        qrPayload: securityData.qrPayload,
+        verificationToken: securityData.verificationToken,
+      };
+
+      setSuccessPaymentData(successData);
+      setShowSuccessReceipt(true);
+      setShowPaymentModal(false);
+      setProcessing(false);
+
+      toast.success(`Payment of ${formatCurrency(paymentAmount)} completed successfully!`);
+
+      pendingReferenceRef.current = null;
+      pendingAmountRef.current = 0;
+      pendingAssignmentIdRef.current = null;
+    } catch (error: any) {
+      console.error('Paystack success handling/network error:', error);
+
+      // If Paystack already said SUCCESS but our application cannot finish
+      // recording it because of a network/database error, create PENDING.
+      // This is the ONLY Paystack path in this component that intentionally
+      // creates a pending payment.
+      try {
+        const { data: existing } = await supabase
+          .from('payments')
+          .select('id,status,payment_status')
+          .eq('transaction_reference', reference)
+          .maybeSingle();
+
+        if (!existing) {
+          await savePaymentRecord({
+            assignmentId,
+            amount: paymentAmount,
+            reference,
+            status: 'pending',
+            gatewayReference: reference,
+            paymentMethod: 'paystack',
+            branchCode: 'EISO',
+            academicSession: selectedAssignment?.session,
+            academicTerm: selectedAssignment?.term,
+            failureReason: error?.message || 'Paystack succeeded but payment verification could not be completed.',
+          });
+        }
+      } catch (pendingError) {
+        console.error('Could not create pending Paystack record:', pendingError);
+      }
+
+      setProcessing(false);
+      toast.error('Paystack reported a payment result, but we could not finish verification. The payment may appear as pending.');
+    }
+  }, [studentProfile, selectedAssignment, formatCurrency, refreshPaymentData]);
+
+  const handlePaymentFailure = useCallback(async (reference: string, message?: string) => {
+    if (!reference || !studentProfile) return;
+
+    const assignmentId = pendingAssignmentIdRef.current;
+    const paymentAmount = pendingAmountRef.current;
+    const failureMessage = message || 'Payment failed';
+
+    try {
+      const { data: existingPayment, error: lookupError } = await supabase
+        .from('payments')
+        .select('id,status,payment_status')
+        .eq('transaction_reference', reference)
+        .maybeSingle();
+
+      if (lookupError) throw lookupError;
+
+      if (existingPayment) {
+        await supabase
+          .from('payments')
+          .update({
+            status: 'failed',
+            payment_status: 'failed',
+            failure_reason: failureMessage,
+            amount_paid: 0,
+            balance: paymentAmount,
+            updated_at: new Date().toISOString(),
+            gateway_response: { failed: true, reason: failureMessage, reference },
+          })
+          .eq('id', existingPayment.id);
+      } else if (assignmentId) {
+        // A failed Paystack callback is a real payment outcome, so it can be
+        // recorded as FAILED. It is NOT treated as pending.
+        await savePaymentRecord({
+          assignmentId,
+          amount: paymentAmount,
+          reference,
+          status: 'failed',
+          failureReason: failureMessage,
+          gatewayReference: reference,
+          paymentMethod: 'paystack',
+          branchCode: 'EISO',
+          academicSession: selectedAssignment?.session,
+          academicTerm: selectedAssignment?.term,
+        });
+      }
+
+      setFailureReason(failureMessage + '. Please try again.');
+      setShowFailure(true);
+      setProcessing(false);
+      pendingReferenceRef.current = null;
+      pendingAmountRef.current = 0;
+      pendingAssignmentIdRef.current = null;
+    } catch (error) {
+      console.error('Error recording failed Paystack payment:', error);
+      setFailureReason(failureMessage + '. Please try again.');
+      setShowFailure(true);
+      setProcessing(false);
+    }
+  }, [studentProfile, selectedAssignment]);
+
+  // ============================================
+  // PAYSTACK CALLBACK / ONCLOSE
+  // ============================================
+  const paystackCallback = useCallback((response: any) => {
+    const reference = pendingReferenceRef.current;
+    if (!reference) return;
+
+    if (response?.status === 'success') {
+      void handlePaymentSuccess(reference);
+      return;
+    }
+
+    // A Paystack callback carrying a non-success result is a real failed
+    // transaction. It is not caused by simply closing the iframe.
+    void handlePaymentFailure(reference, response?.message || 'Paystack payment failed');
+  }, [handlePaymentSuccess, handlePaymentFailure]);
+
+  const paystackOnClose = useCallback(() => {
+    // CRITICAL:
+    // onClose does NOT mean failed, cancelled, or pending.
+    // If the customer deliberately closes Paystack before a callback arrives,
+    // leave the database untouched. Since we do not create the payment row
+    // before opening Paystack, the fee remains UNPAID.
+    setProcessing(false);
+  }, []);
+
+  // ============================================
+  // PAY WITH PAYSTACK
   // ============================================
   const handlePayWithPaystack = async () => {
     if (!selectedAssignment || !studentProfile) {
@@ -1967,58 +1988,16 @@ const StudentPayBill: React.FC = () => {
       return;
     }
 
-    const { data: existingPending } = await supabase
-      .from('payments')
-      .select('id, payment_id, amount_paid, status')
-      .eq('assignment_id', selectedAssignment.id)
-      .in('status', ['pending', 'processing'])
-      .limit(1);
-
-    if (existingPending && existingPending.length > 0) {
-      toast('A payment for this fee is already awaiting confirmation.');
-      return;
-    }
-
     setProcessing(true);
-    const reference = await generatePaymentId();
+    const reference = generateReference();
+
+    // Keep the transaction information ONLY in refs while Paystack is open.
+    // No payment row is inserted here.
+    pendingReferenceRef.current = reference;
+    pendingAmountRef.current = amount;
+    pendingAssignmentIdRef.current = selectedAssignment.id;
 
     try {
-      pendingReferenceRef.current = reference;
-      pendingAmountRef.current = amount;
-      pendingAssignmentIdRef.current = selectedAssignment.id;
-
-      let branchCode = 'EISO';
-      if (studentProfile.branch_id) {
-        const { data: branchData } = await supabase
-          .from('branches')
-          .select('branch_code')
-          .eq('id', studentProfile.branch_id)
-          .single();
-        if (branchData?.branch_code) {
-          branchCode = branchData.branch_code;
-        }
-      }
-
-      const savedPayment = await savePaymentRecord({
-        assignmentId: selectedAssignment.id,
-        feeId: selectedAssignment.fee_id,
-        studentId: studentProfile.id,
-        branchId: studentProfile.branch_id,
-        amount: Number(selectedAssignment.amount_due || selectedAssignment.original_amount || 0),
-        amountPaid: Number(amount),
-        reference: reference,
-        status: 'pending',
-        gatewayReference: reference,
-        paymentMethod: 'paystack',
-        academicSession: selectedAssignment.session,
-        academicTerm: selectedAssignment.term,
-        createdBy: user?.id,
-        studentName: `${studentProfile.first_name} ${studentProfile.last_name}`,
-        studentIdNumber: studentProfile.student_id,
-        feeName: selectedAssignment.fee_name,
-        branchCode: branchCode,
-      });
-
       const handler = window.PaystackPop.setup({
         key: paymentGateway.paystack_public_key,
         email: studentProfile.email || user?.email || 'student@example.com',
@@ -2033,159 +2012,41 @@ const StudentPayBill: React.FC = () => {
           payment_type: 'fee_payment',
           branch_id: studentProfile.branch_id,
           user_id: user?.id,
-          payment_id: savedPayment?.payment_id,
         },
-        callback: async (response: any) => {
-          if (response.status === 'success') {
-            try {
-              const { data: updatedPayment } = await supabase
-                .from('payments')
-                .update({
-                  status: 'completed',
-                  gateway_reference: response.reference,
-                  updated_at: new Date().toISOString(),
-                  gateway_response: { success: true, reference: response.reference },
-                })
-                .eq('transaction_reference', reference)
-                .select()
-                .single();
-
-              await updateAssignmentAfterPayment(selectedAssignment.id, amount);
-              
-              await refreshPaymentData();
-              if (studentProfile?.id) {
-                await fetchPayments(studentProfile.id);
-              }
-              
-              let securityData = {
-                signature: updatedPayment?.receipt_signature,
-                barcodePayload: updatedPayment?.receipt_barcode_payload,
-                qrPayload: updatedPayment?.receipt_qr_payload,
-                verificationToken: updatedPayment?.verification_token,
-              };
-
-              if (!securityData.signature && updatedPayment?.id) {
-                const sigData = await createReceiptSignature(updatedPayment.id);
-                if (sigData) {
-                  securityData = sigData;
-                  await supabase
-                    .from('payments')
-                    .update({
-                      receipt_signature: sigData.signature,
-                      receipt_barcode_payload: sigData.barcodePayload,
-                      receipt_qr_payload: sigData.qrPayload,
-                      receipt_security_status: 'AUTHENTIC',
-                      verification_token: sigData.verificationToken,
-                    })
-                    .eq('id', updatedPayment.id);
-                }
-              }
-              
-              const successData = {
-                payment_id: updatedPayment?.payment_id || reference,
-                receipt_number: updatedPayment?.receipt_number,
-                receipt_code: updatedPayment?.receipt_code || generateBranchReceiptCode(branchCode, selectedAssignment.session || '2026/2027', Date.now()),
-                amount: amount,
-                payment_date: new Date().toISOString(),
-                payment_method: 'paystack',
-                reference: reference,
-                transaction_reference: reference,
-                student_name: `${studentProfile.first_name} ${studentProfile.last_name}`,
-                student_id: studentProfile.student_id || studentProfile.admission_number,
-                class_name: studentProfile.class_name,
-                fee_name: selectedAssignment.fee_name,
-                status: 'completed',
-                branch_code: branchCode,
-                signature: securityData.signature,
-                barcodePayload: securityData.barcodePayload,
-                qrPayload: securityData.qrPayload,
-                verificationToken: securityData.verificationToken,
-                verificationUrl: `${import.meta.env.VITE_SUPABASE_URL || ''}/functions/v1/verify-receipt`,
-              };
-              
-              setSuccessPaymentData(successData);
-              setShowSuccessReceipt(true);
-              setShowPaymentModal(false);
-              
-              toast.success(`Payment of ${formatCurrency(amount)} completed successfully!`);
-              setProcessing(false);
-              
-              pendingReferenceRef.current = null;
-              pendingAmountRef.current = 0;
-              pendingAssignmentIdRef.current = null;
-            } catch (error) {
-              console.error('Error completing payment:', error);
-              toast.error('Payment succeeded but failed to update records. Please contact support.');
-              setProcessing(false);
-            }
-          } else {
-            await supabase
-              .from('payments')
-              .update({
-                status: 'failed',
-                failure_reason: response.message || 'Payment failed',
-                updated_at: new Date().toISOString(),
-              })
-              .eq('transaction_reference', reference);
-            
-            setFailureReason(response.message || 'Payment failed. Please try again.');
-            setShowFailure(true);
-            setProcessing(false);
-            pendingReferenceRef.current = null;
-            pendingAmountRef.current = 0;
-            pendingAssignmentIdRef.current = null;
-          }
+        callback: (response: any) => {
+          paystackCallback(response);
         },
         onClose: () => {
-          setTimeout(async () => {
-            const { data: payment } = await supabase
-              .from('payments')
-              .select('status')
-              .eq('transaction_reference', reference)
-              .single();
-
-            if (payment && payment.status === 'pending') {
-              await supabase
-                .from('payments')
-                .update({
-                  status: 'cancelled',
-                  failure_reason: 'User cancelled payment',
-                  updated_at: new Date().toISOString(),
-                })
-                .eq('transaction_reference', reference);
-              
-              toast.error('Payment was cancelled');
-              setProcessing(false);
-              pendingReferenceRef.current = null;
-              pendingAmountRef.current = 0;
-              pendingAssignmentIdRef.current = null;
-            }
-          }, 2000);
+          paystackOnClose();
         },
       });
 
       handler.openIframe();
-
     } catch (error: any) {
-      console.error('Paystack payment error:', error);
-      await savePaymentRecord({
-        assignmentId: selectedAssignment.id,
-        feeId: selectedAssignment.fee_id,
-        studentId: studentProfile.id,
-        branchId: studentProfile.branch_id,
-        amount: Number(selectedAssignment.amount_due || selectedAssignment.original_amount || 0),
-        amountPaid: Number(amount),
-        reference: reference,
-        status: 'failed',
-        failureReason: error.message || 'Payment processing failed',
-        gatewayReference: reference,
-        paymentMethod: 'paystack',
-        createdBy: user?.id,
-        studentName: `${studentProfile.first_name} ${studentProfile.last_name}`,
-        studentIdNumber: studentProfile.student_id,
-        feeName: selectedAssignment.fee_name,
-      });
-      setFailureReason(error.message || 'Payment processing failed. Please try again or use bank transfer.');
+      console.error('Paystack setup/open error:', error);
+      const message = error?.message || 'Unable to open Paystack payment';
+
+      // Setup/open failure is a genuine application/gateway error. Record it
+      // as PENDING only because we cannot safely determine whether Paystack
+      // received the transaction.
+      try {
+        await savePaymentRecord({
+          assignmentId: selectedAssignment.id,
+          amount,
+          reference,
+          status: 'pending',
+          gatewayReference: reference,
+          paymentMethod: 'paystack',
+          branchCode: 'EISO',
+          academicSession: selectedAssignment.session,
+          academicTerm: selectedAssignment.term,
+          failureReason: message,
+        });
+      } catch (recordError) {
+        console.error('Could not record Paystack pending state:', recordError);
+      }
+
+      setFailureReason(message + '. Please try again or use bank transfer.');
       setShowFailure(true);
       setProcessing(false);
       pendingReferenceRef.current = null;
@@ -2195,7 +2056,7 @@ const StudentPayBill: React.FC = () => {
   };
 
   // ============================================
-  // BANK TRANSFER
+  // HANDLE BANK TRANSFER (WITH BANK ACCOUNT SELECTION)
   // ============================================
   const handleBankTransfer = async () => {
     if (!selectedAssignment || !studentProfile) {
@@ -2203,8 +2064,8 @@ const StudentPayBill: React.FC = () => {
       return;
     }
 
-    if (!paymentGateway || !paymentGateway.bank_account_number) {
-      toast.error('Bank details not configured. Please use Paystack.');
+    if (!selectedBankAccount) {
+      toast.error('Please select a bank account.');
       return;
     }
 
@@ -2218,21 +2079,9 @@ const StudentPayBill: React.FC = () => {
       return;
     }
 
-    const { data: existingPending } = await supabase
-      .from('payments')
-      .select('id, payment_id, amount_paid, status')
-      .eq('assignment_id', selectedAssignment.id)
-      .in('status', ['pending', 'processing'])
-      .limit(1);
-
-    if (existingPending && existingPending.length > 0) {
-      toast('A payment for this fee is already awaiting confirmation.');
-      return;
-    }
-
     setProcessing(true);
     setUploading(true);
-    const reference = await generatePaymentId();
+    const reference = generateReference();
 
     try {
       const uploadResult = await uploadPaymentProof(uploadedFile, reference);
@@ -2256,26 +2105,20 @@ const StudentPayBill: React.FC = () => {
         }
       }
 
-      const savedPayment = await savePaymentRecord({
+      const paymentRecord = await savePaymentRecord({
         assignmentId: selectedAssignment.id,
-        feeId: selectedAssignment.fee_id,
-        studentId: studentProfile.id,
-        branchId: studentProfile.branch_id,
-        amount: Number(selectedAssignment.amount_due || selectedAssignment.original_amount || 0),
-        amountPaid: Number(amount),
+        amount: amount,
         reference: reference,
         status: 'pending',
         paymentMethod: 'bank_transfer',
         gatewayReference: reference,
         paymentProofUrl: uploadResult.url,
+        paymentProofPath: uploadResult.path,
         transactionReference: transactionReference,
+        bankAccount: selectedBankAccount,
+        branchCode: branchCode,
         academicSession: selectedAssignment.session,
         academicTerm: selectedAssignment.term,
-        createdBy: user?.id,
-        studentName: `${studentProfile.first_name} ${studentProfile.last_name}`,
-        studentIdNumber: studentProfile.student_id,
-        feeName: selectedAssignment.fee_name,
-        branchCode: branchCode,
       });
 
       setUploadedFile(null);
@@ -2288,53 +2131,25 @@ const StudentPayBill: React.FC = () => {
         await fetchPayments(studentProfile.id);
       }
 
-      let securityData = {
-        signature: savedPayment?.receipt_signature,
-        barcodePayload: savedPayment?.receipt_barcode_payload,
-        qrPayload: savedPayment?.receipt_qr_payload,
-        verificationToken: savedPayment?.verification_token,
-      };
-
-      if (!securityData.signature && savedPayment?.id) {
-        const sigData = await createReceiptSignature(savedPayment.id);
-        if (sigData) {
-          securityData = sigData;
-          await supabase
-            .from('payments')
-            .update({
-              receipt_signature: sigData.signature,
-              receipt_barcode_payload: sigData.barcodePayload,
-              receipt_qr_payload: sigData.qrPayload,
-              receipt_security_status: 'PENDING',
-              verification_token: sigData.verificationToken,
-            })
-            .eq('id', savedPayment.id);
-        }
-      }
-
       const bankData = {
-        payment_id: savedPayment?.payment_id || reference,
-        receipt_number: savedPayment?.receipt_number,
-        receipt_code: savedPayment?.receipt_code || generateBranchReceiptCode(branchCode, selectedAssignment.session || '2026/2027', Date.now()),
+        id: paymentRecord?.payment_id || paymentRecord?.id,
+        payment_id: paymentRecord?.payment_id,
+        receipt_number: paymentRecord?.receipt_number,
+        receipt_code: paymentRecord?.receipt_code,
         amount: amount,
-        payment_date: savedPayment?.payment_date || new Date().toISOString(),
+        payment_date: paymentRecord?.payment_date || new Date().toISOString(),
         payment_method: 'bank_transfer',
         reference: reference,
         transaction_reference: transactionReference,
-        student_name: `${studentProfile.first_name} ${studentProfile.last_name}`,
-        student_id: studentProfile.student_id || studentProfile.admission_number,
-        class_name: studentProfile.class_name,
-        fee_name: selectedAssignment.fee_name,
+        student_name: `${studentProfile?.first_name} ${studentProfile?.last_name}`,
+        student_id: studentProfile?.student_id || studentProfile?.admission_number,
+        class_name: studentProfile?.class_name,
+        fee_name: selectedAssignment?.fee_name,
         status: 'pending',
-        branch_code: branchCode,
-        bank_name: paymentGateway.bank_name,
-        bank_account_number: paymentGateway.bank_account_number,
-        bank_account_name: paymentGateway.bank_account_name,
-        signature: securityData.signature,
-        barcodePayload: securityData.barcodePayload,
-        qrPayload: securityData.qrPayload,
-        verificationToken: securityData.verificationToken,
-        verificationUrl: `${import.meta.env.VITE_SUPABASE_URL || ''}/functions/v1/verify-receipt`,
+        bank_name: selectedBankAccount.bank_name,
+        bank_account_number: selectedBankAccount.account_number,
+        bank_account_name: selectedBankAccount.account_name,
+        bank_account_id: selectedBankAccount.id,
       };
       
       setBankTransferData(bankData);
@@ -2349,20 +2164,12 @@ const StudentPayBill: React.FC = () => {
       console.error('Bank transfer error:', error);
       await savePaymentRecord({
         assignmentId: selectedAssignment.id,
-        feeId: selectedAssignment.fee_id,
-        studentId: studentProfile.id,
-        branchId: studentProfile.branch_id,
-        amount: Number(selectedAssignment.amount_due || selectedAssignment.original_amount || 0),
-        amountPaid: Number(amount),
+        amount: amount,
         reference: reference,
         status: 'failed',
         failureReason: error.message || 'Bank transfer submission failed',
         gatewayReference: reference,
         paymentMethod: 'bank_transfer',
-        createdBy: user?.id,
-        studentName: `${studentProfile.first_name} ${studentProfile.last_name}`,
-        studentIdNumber: studentProfile.student_id,
-        feeName: selectedAssignment.fee_name,
       });
       setFailureReason(error.message || 'Failed to submit bank transfer. Please try again.');
       setShowFailure(true);
@@ -2371,6 +2178,63 @@ const StudentPayBill: React.FC = () => {
     }
   };
 
+  // ============================================
+  // HANDLE PAY NOW
+  // ============================================
+  const handlePayNow = (assignment: any) => {
+    if (!paymentGateway && !gatewayLoading) {
+      toast.error('Payment configuration not loaded. Please try again.');
+      return;
+    }
+    
+    const statusInfo = getPaymentStatusForAssignment(assignment);
+    
+    if (statusInfo.status === 'paid') {
+      toast.success('✅ This fee is already paid');
+      return;
+    }
+    
+    if (statusInfo.status === 'waived') {
+      toast.info('🛡️ This fee is exempted');
+      return;
+    }
+    
+    if (statusInfo.status === 'pending') {
+      toast.info('⏳ Payment is awaiting confirmation');
+      return;
+    }
+    
+    if (!statusInfo.isPayable || statusInfo.balance <= 0) {
+      toast.info('This fee is not payable at this time');
+      return;
+    }
+    
+    setSelectedAssignment(assignment);
+    setAmount(statusInfo.balance);
+    if (bankAccounts.length > 0) {
+      setSelectedBankAccount(prev => prev && bankAccounts.some(account => account.id === prev.id) ? prev : bankAccounts[0]);
+    }
+    if (!paymentGateway?.paystack_public_key && bankAccounts.length > 0) {
+      setPaymentMethod('bank_transfer');
+    }
+    setShowPaymentModal(true);
+    handleFileRemove();
+    setTransactionReference('');
+  };
+
+  // ============================================
+  // VIEW ERROR DETAILS
+  // ============================================
+  const viewErrorDetails = (payment: any) => {
+    setSelectedFailedPayment(payment);
+    const errorType = getErrorType(payment);
+    setPaymentErrorType(errorType);
+    setShowErrorModal(true);
+  };
+
+  // ============================================
+  // HANDLE SUBMIT PAYMENT
+  // ============================================
   const handleSubmitPayment = async () => {
     if (!selectedAssignment) {
       toast.error('No fee selected');
@@ -2389,8 +2253,8 @@ const StudentPayBill: React.FC = () => {
       }
       await handlePayWithPaystack();
     } else {
-      if (!paymentGateway.bank_account_number) {
-        toast.error('Bank details not configured for this branch. Please use Paystack.');
+      if (!selectedBankAccount) {
+        toast.error('Please select a bank account.');
         return;
       }
       await handleBankTransfer();
@@ -2412,11 +2276,6 @@ const StudentPayBill: React.FC = () => {
 
   const totalOriginal = assignments.reduce(
     (sum, a) => sum + Number(a.original_amount ?? a.amount_due ?? a.amount ?? 0),
-    0
-  );
-
-  const totalDiscount = assignments.reduce(
-    (sum, a) => sum + Number(a.discount_amount || 0),
     0
   );
 
@@ -2443,13 +2302,14 @@ const StudentPayBill: React.FC = () => {
 
     if (filterStatus === 'all') return true;
     if (filterStatus === 'unpaid') {
-      return statusInfo.status === 'unpaid' || statusInfo.status === 'failed';
+      return statusInfo.status === 'unpaid' || statusInfo.status === 'partial';
     }
     if (filterStatus === 'paid') return statusInfo.status === 'paid';
     if (filterStatus === 'overdue') return statusInfo.status === 'overdue';
     if (filterStatus === 'pending') return statusInfo.status === 'pending';
     if (filterStatus === 'waived') return statusInfo.status === 'waived';
     if (filterStatus === 'cancelled') return statusInfo.status === 'cancelled';
+    if (filterStatus === 'failed') return statusInfo.status === 'failed';
     return true;
   });
 
@@ -2760,7 +2620,6 @@ const StudentPayBill: React.FC = () => {
                           exit={{ opacity: 0, height: 0 }}
                           className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200 dark:border-gray-700 space-y-3 sm:space-y-4"
                         >
-                          {/* Fee Details Grid */}
                           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
                             <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2.5 sm:p-3">
                               <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Assignment ID</p>
@@ -2790,7 +2649,6 @@ const StudentPayBill: React.FC = () => {
                             </div>
                           </div>
 
-                          {/* Fee Breakdown with Waiver Support */}
                           <FeeBreakdownDisplay
                             breakdown={breakdown}
                             totalAmount={assignment.amount_due || 0}
@@ -2801,7 +2659,6 @@ const StudentPayBill: React.FC = () => {
                             formatCurrencyFn={formatCurrency}
                           />
 
-                          {/* Payment History */}
                           {payments.filter(p => p.assignment_id === assignment.id).length > 0 && (
                             <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-3 sm:p-4 border border-gray-200 dark:border-gray-700">
                               <div className="flex items-center gap-2 mb-2">
@@ -2883,7 +2740,7 @@ const StudentPayBill: React.FC = () => {
       )}
 
       {/* ============================================ */}
-      {/* PAYMENT MODAL */}
+      {/* PAYMENT MODAL - WITH BANK ACCOUNT SELECTION */}
       {/* ============================================ */}
       <AnimatePresence>
         {showPaymentModal && selectedAssignment && paymentGateway && (
@@ -2953,7 +2810,7 @@ const StudentPayBill: React.FC = () => {
                     </motion.div>
                   )}
                   
-                  {paymentGateway.bank_account_number && (
+                  {bankAccounts.length > 0 && (
                     <motion.div
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
@@ -2983,8 +2840,41 @@ const StudentPayBill: React.FC = () => {
                   )}
                 </div>
 
-                {paymentMethod === 'bank_transfer' && paymentGateway.bank_account_number && (
+                {paymentMethod === 'bank_transfer' && bankAccounts.length > 0 && (
                   <div className="space-y-3 sm:space-y-4">
+                    {/* Bank Account Selection */}
+                    <div className="space-y-2">
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Select Bank Account
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {bankAccounts.map((account) => (
+                          <button
+                            key={account.id}
+                            type="button"
+                            onClick={() => setSelectedBankAccount(account)}
+                            className={`text-left p-3 rounded-xl border-2 transition-all ${
+                              selectedBankAccount?.id === account.id
+                                ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                                : 'border-gray-200 dark:border-gray-700 hover:border-green-300'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-gray-900 dark:text-white">
+                                {account.label}
+                              </span>
+                              {selectedBankAccount?.id === account.id && (
+                                <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+                              )}
+                            </div>
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">{account.bank_name}</p>
+                            <p className="text-xs font-mono font-semibold text-gray-900 dark:text-white mt-0.5">{account.account_number}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Bank Details Display */}
                     <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg sm:rounded-xl p-3 sm:p-4 space-y-1.5 sm:space-y-2 border border-gray-200 dark:border-gray-600">
                       <p className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
                         <Banknote className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-500" />
@@ -2993,18 +2883,18 @@ const StudentPayBill: React.FC = () => {
                       <div className="space-y-1 text-xs sm:text-sm">
                         <div className="flex flex-col xs:flex-row xs:justify-between items-start xs:items-center py-1 border-b border-gray-200 dark:border-gray-600 gap-0.5 xs:gap-0">
                           <span className="text-gray-500">Bank</span>
-                          <span className="font-medium text-gray-900 dark:text-white">{paymentGateway.bank_name}</span>
+                          <span className="font-medium text-gray-900 dark:text-white">{selectedBankAccount?.bank_name || '—'}</span>
                         </div>
                         <div className="flex flex-col xs:flex-row xs:justify-between items-start xs:items-center py-1 border-b border-gray-200 dark:border-gray-600 gap-0.5 xs:gap-0">
                           <span className="text-gray-500">Account Name</span>
-                          <span className="font-medium text-gray-900 dark:text-white">{paymentGateway.bank_account_name}</span>
+                          <span className="font-medium text-gray-900 dark:text-white">{selectedBankAccount?.account_name || '—'}</span>
                         </div>
                         <div className="flex flex-col xs:flex-row xs:justify-between items-start xs:items-center py-1 gap-0.5 xs:gap-0">
                           <span className="text-gray-500">Account Number</span>
                           <span className="font-medium text-gray-900 dark:text-white font-mono flex items-center gap-2">
-                            {paymentGateway.bank_account_number}
+                            {selectedBankAccount?.account_number || '—'}
                             <button
-                              onClick={() => copyToClipboard(paymentGateway.bank_account_number)}
+                              onClick={() => copyToClipboard(selectedBankAccount?.account_number || '')}
                               className="p-0.5 sm:p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-all"
                             >
                               {copied ? <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-green-500" /> : <Copy className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-gray-400" />}
@@ -3014,6 +2904,7 @@ const StudentPayBill: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* Transaction Reference */}
                     <div>
                       <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Transaction Reference
@@ -3028,6 +2919,7 @@ const StudentPayBill: React.FC = () => {
                       <p className="text-[10px] sm:text-xs text-gray-400 mt-1">Enter the reference number from your bank transfer</p>
                     </div>
 
+                    {/* Upload Proof */}
                     <div>
                       <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Upload Payment Proof
@@ -3080,11 +2972,11 @@ const StudentPayBill: React.FC = () => {
                       )}
                     </div>
 
-                    {paymentGateway.payment_instructions && (
+                    {(selectedBankAccount?.payment_instructions || paymentGateway.payment_instructions) && (
                       <div className="p-2 sm:p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                         <p className="text-[10px] sm:text-xs text-blue-700 dark:text-blue-300 whitespace-pre-line">
                           <Info className="w-3 h-3 inline mr-1" />
-                          {paymentGateway.payment_instructions}
+                          {selectedBankAccount?.payment_instructions || paymentGateway.payment_instructions}
                         </p>
                       </div>
                     )}

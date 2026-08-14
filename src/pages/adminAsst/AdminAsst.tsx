@@ -1,3 +1,5 @@
+// src/pages/adminAsst/AdminAsst.tsx — COMPLETE WITH INVENTORY LIST/CARD VIEW, EDIT, VIEW
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -98,6 +100,8 @@ import {
   SortAsc,
   SortDesc,
   CreditCard,
+  Globe as GlobeIcon,
+  Megaphone,
 } from 'lucide-react';
 
 // Recharts
@@ -123,12 +127,12 @@ import ClassesList from '../classes/ClassesList';
 import ReportsDashboard from '../reports/ReportsDashboard';
 import Settings from '../settings/Settings';
 import Profile from '../profile/Profile';
-import NotificationPanel from './components/NotificationPanel';
-import StudentProfileModal from './components/StudentProfileModal';
+import NotificationPanel from './adminAsst/components/NotificationPanel';
+import StudentProfileModal from './adminAsst/components/StudentProfileModal';
 
 // Hooks
-import { useAdminData } from './hooks/useAdminData';
-import { useNotifications } from './hooks/useNotifications';
+import { useAdminData } from '../adminAsst/adminAsst/hooks/useAdminData';
+import { useNotifications } from '../adminAsst/adminAsst/hooks/useNotifications';
 
 // Import success image
 import successImage from '../../assets/transfer.png';
@@ -136,6 +140,100 @@ import successImage from '../../assets/transfer.png';
 type Page = 'dashboard' | 'students' | 'classes' | 'sessions' | 'collections' | 'inventory' | 'reports' | 'activity' | 'settings' | 'profile' | 'payment';
 
 const COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#14B8A6', '#F97316', '#6366F1', '#06B6D4'];
+
+// ============================================
+// ANNOUNCEMENT COMPONENT
+// ============================================
+const AnnouncementBanner: React.FC = () => {
+  const [announcements, setAnnouncements] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    fetchAnnouncements();
+  }, []);
+
+  const fetchAnnouncements = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('announcements')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (error) throw error;
+      setAnnouncements(data || []);
+    } catch (error) {
+      console.error('Error fetching announcements:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (announcements.length > 1) {
+      const timer = setInterval(() => {
+        setCurrentIndex((prev) => (prev + 1) % announcements.length);
+      }, 8000);
+      return () => clearInterval(timer);
+    }
+  }, [announcements.length]);
+
+  if (loading || dismissed || announcements.length === 0) return null;
+
+  const current = announcements[currentIndex];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+      className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-4 text-white shadow-lg mb-4"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <Megaphone className="w-4 h-4 flex-shrink-0" />
+            <span className="text-xs font-semibold uppercase tracking-wider opacity-80">Announcement</span>
+            {announcements.length > 1 && (
+              <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full">
+                {currentIndex + 1}/{announcements.length}
+              </span>
+            )}
+          </div>
+          <h4 className="font-semibold text-sm sm:text-base">{current.title}</h4>
+          <p className="text-xs sm:text-sm opacity-90 mt-0.5 line-clamp-2">{current.message}</p>
+          {current.created_at && (
+            <p className="text-[10px] opacity-70 mt-1">
+              {dayjs(current.created_at).format('MMM D, YYYY')}
+            </p>
+          )}
+        </div>
+        <button
+          onClick={() => setDismissed(true)}
+          className="p-1 hover:bg-white/20 rounded-lg transition-all flex-shrink-0"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      {announcements.length > 1 && (
+        <div className="flex justify-center gap-1 mt-2">
+          {announcements.map((_, idx) => (
+            <button
+              key={idx}
+              onClick={() => setCurrentIndex(idx)}
+              className={`h-1 rounded-full transition-all ${
+                idx === currentIndex ? 'w-6 bg-white' : 'w-2 bg-white/40'
+              }`}
+            />
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
+};
 
 // ============================================
 // MAIN ADMIN ASST COMPONENT
@@ -164,6 +262,7 @@ const AdminAsst: React.FC = () => {
   const [selectedTerm, setSelectedTerm] = useState<any>(null);
   const [selectedSession, setSelectedSession] = useState<any>(null);
   const [isSubmittingCollection, setIsSubmittingCollection] = useState(false);
+  const [filteredInventory, setFilteredInventory] = useState<any[]>([]);
 
   // Signature Modal State
   const [showSignatureModal, setShowSignatureModal] = useState(false);
@@ -184,6 +283,8 @@ const AdminAsst: React.FC = () => {
     quantity_added: 10,
     minimum_stock: 5,
     description: '',
+    class_id: '',
+    is_general: true,
   });
   const [inventoryLoading, setInventoryLoading] = useState(false);
 
@@ -239,6 +340,19 @@ const AdminAsst: React.FC = () => {
     loadStudentsWithClasses();
   }, [students, classes]);
 
+  // Filter inventory based on selected student's class
+  useEffect(() => {
+    if (selectedStudentForCollection && inventory) {
+      const studentClassId = selectedStudentForCollection.class_id;
+      const filtered = inventory.filter((item: any) => {
+        return item.is_general === true || item.class_id === studentClassId || (item.class_id === null && item.is_general === false);
+      });
+      setFilteredInventory(filtered);
+    } else {
+      setFilteredInventory(inventory || []);
+    }
+  }, [selectedStudentForCollection, inventory]);
+
   // Group collections by student
   useEffect(() => {
     if (collections && collections.length > 0) {
@@ -264,7 +378,6 @@ const AdminAsst: React.FC = () => {
         return acc;
       }, {});
 
-      // Apply filters
       let filtered = Object.values(grouped);
       
       if (collectionFilter === 'current') {
@@ -321,12 +434,7 @@ const AdminAsst: React.FC = () => {
     toast.success('Data refreshed!', { id: 'refresh' });
   };
 
-  // ============================================
-  // handleViewStudent - UPDATED to handle different student data structures
-  // ============================================
   const handleViewStudent = (student: any) => {
-    console.log('🔍 Viewing student:', student);
-    
     const studentData = {
       id: student.student_id || student.id,
       student_id: student.student_id || student.id,
@@ -335,6 +443,7 @@ const AdminAsst: React.FC = () => {
       full_name: student.student_name || `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'N/A',
       class_name: student.class_name || student.class_at_collection || 'Not Assigned',
       current_class: student.class_name || student.class_at_collection || 'Not Assigned',
+      class_id: student.class_id || null,
       current_status: student.current_status || student.status || 'active',
       status: student.status || student.current_status || 'active',
       gender: student.gender || 'N/A',
@@ -354,9 +463,6 @@ const AdminAsst: React.FC = () => {
     navigate('/students/register?returnTo=admin-asst');
   };
 
-  // ============================================
-  // SIGNATURE UPLOAD TO BUCKET - FIXED
-  // ============================================
   const uploadSignatureToBucket = async (file: File | Blob): Promise<string | null> => {
     try {
       let uploadFile = file;
@@ -389,9 +495,6 @@ const AdminAsst: React.FC = () => {
     }
   };
 
-  // ============================================
-  // COLLECTION WORKFLOW
-  // ============================================
   const openCollectionModal = () => {
     const currentSession = sessions?.find((s: any) => s.is_current);
     setSelectedStudentForCollection(null);
@@ -402,6 +505,7 @@ const AdminAsst: React.FC = () => {
     setRemarks('');
     setSelectedTerm(currentSession);
     setSelectedSession(currentSession);
+    setFilteredInventory([]);
     setShowAddCollectionModal(true);
   };
 
@@ -462,9 +566,6 @@ const AdminAsst: React.FC = () => {
     setSignatureFile(null);
   };
 
-  // ============================================
-  // HANDLE SAVE SIGNATURE - FIXED
-  // ============================================
   const handleSaveSignature = async () => {
     const canvas = canvasRef.current;
     let signatureUrl = null;
@@ -483,7 +584,6 @@ const AdminAsst: React.FC = () => {
         const response = await fetch(dataUrl);
         const blob = await response.blob();
         
-        // Create File from Blob
         const file = new window.File([blob], `signature_${Date.now()}.png`, { 
           type: 'image/png',
           lastModified: Date.now()
@@ -574,9 +674,6 @@ const AdminAsst: React.FC = () => {
     }
   };
 
-  // ============================================
-  // SIGNATURE CANVAS FUNCTIONS
-  // ============================================
   useEffect(() => {
     if (showSignatureModal) {
       setTimeout(initCanvas, 300);
@@ -688,9 +785,6 @@ const AdminAsst: React.FC = () => {
     e.target.value = '';
   };
 
-  // ============================================
-  // INVENTORY FUNCTIONS
-  // ============================================
   const handleAddInventory = async () => {
     if (!inventoryForm.item_name || inventoryForm.quantity_added < 1) {
       toast.error('Please fill all required fields');
@@ -709,6 +803,8 @@ const AdminAsst: React.FC = () => {
           quantity_distributed: 0,
           quantity_remaining: inventoryForm.quantity_added,
           minimum_stock: inventoryForm.minimum_stock || 5,
+          class_id: inventoryForm.is_general ? null : inventoryForm.class_id || null,
+          is_general: inventoryForm.is_general,
           branch_id: user?.branch_id || '11111111-1111-1111-1111-111111111111',
           created_by: user?.id || null,
         }])
@@ -724,6 +820,8 @@ const AdminAsst: React.FC = () => {
         quantity_added: 10,
         minimum_stock: 5,
         description: '',
+        class_id: '',
+        is_general: true,
       });
       await fetchInventory();
     } catch (error: any) {
@@ -775,7 +873,6 @@ const AdminAsst: React.FC = () => {
     { day: 'Fri', collections: collections?.filter((c: any) => dayjs(c.collection_date).day() === 5).length || 0 },
   ];
 
-  // Mobile nav items - simplified without hamburger
   const mobileNavItems = [
     { id: 'dashboard', label: 'Home', icon: School },
     { id: 'students', label: 'Students', icon: Users },
@@ -789,7 +886,7 @@ const AdminAsst: React.FC = () => {
 
   return (
     <div className="space-y-3 pb-20 sm:pb-0">
-      {/* Mobile Header - Simplified without hamburger */}
+      {/* Mobile Header */}
       <div className="flex items-center justify-between gap-2 sm:hidden">
         <div className="flex items-center gap-2">
           <h1 className="text-lg font-bold text-gray-900 dark:text-white capitalize">{currentPage}</h1>
@@ -864,6 +961,7 @@ const AdminAsst: React.FC = () => {
               {currentPage === 'inventory' && (
                 <InventoryPage
                   inventory={inventory}
+                  classes={classes}
                   onAddInventory={() => setShowAddInventoryModal(true)}
                   onDeleteItem={async (id) => {
                     if (confirm('Delete this item?')) {
@@ -876,6 +974,7 @@ const AdminAsst: React.FC = () => {
                       }
                     }
                   }}
+                  fetchInventory={fetchInventory}
                 />
               )}
               {currentPage === 'students' && <StudentsList />}
@@ -911,7 +1010,7 @@ const AdminAsst: React.FC = () => {
         </div>
       </div>
 
-      {/* Mobile Bottom Navigation - No hamburger menu */}
+      {/* Mobile Bottom Navigation */}
       <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 z-50 sm:hidden shadow-lg">
         <div className="flex items-center justify-around px-1 py-1">
           {mobileNavItems.map((item) => {
@@ -941,7 +1040,7 @@ const AdminAsst: React.FC = () => {
           <AddCollectionModal
             onClose={() => setShowAddCollectionModal(false)}
             students={studentsWithClasses}
-            inventory={inventory}
+            inventory={filteredInventory}
             sessions={sessions}
             selectedStudent={selectedStudentForCollection}
             setSelectedStudent={setSelectedStudentForCollection}
@@ -962,6 +1061,7 @@ const AdminAsst: React.FC = () => {
             onRemoveItem={removeItemFromCollection}
             onUpdateQuantity={updateItemQuantity}
             onSubmit={handleSubmitCollection}
+            classes={classes}
           />
         )}
       </AnimatePresence>
@@ -1029,6 +1129,7 @@ const AdminAsst: React.FC = () => {
             setForm={setInventoryForm}
             onSubmit={handleAddInventory}
             loading={inventoryLoading}
+            classes={classes}
           />
         )}
       </AnimatePresence>
@@ -1244,7 +1345,8 @@ const DashboardContent: React.FC<any> = ({
 
   return (
     <div className="space-y-3">
-      {/* Welcome Banner */}
+      <AnnouncementBanner />
+
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-teal-600 via-cyan-600 to-blue-600 p-4 sm:p-5 text-white shadow-xl">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute -top-20 -right-20 w-64 h-64 bg-white rounded-full blur-3xl" />
@@ -1271,7 +1373,6 @@ const DashboardContent: React.FC<any> = ({
         </div>
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
         <CompactStatCard icon={<Users className="w-4 h-4" />} label="Students" value={totalStudents} subValue={`${activeStudents} active`} color="blue" />
         <CompactStatCard icon={<GraduationCap className="w-4 h-4" />} label="Classes" value={totalClasses} subValue="Total" color="purple" />
@@ -1279,7 +1380,6 @@ const DashboardContent: React.FC<any> = ({
         <CompactStatCard icon={<Box className="w-4 h-4" />} label="Items" value={totalItems} subValue={`${lowStockItems} low`} color="orange" />
       </div>
 
-      {/* Quick Actions */}
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
         <QuickActionSmall icon={<UserPlus className="w-4 h-4" />} label="Add Student" color="blue" onClick={onAddStudent} />
         <QuickActionSmall icon={<HandHelping className="w-4 h-4" />} label="Collection" color="green" onClick={onAddCollection} />
@@ -1289,7 +1389,6 @@ const DashboardContent: React.FC<any> = ({
         <QuickActionSmall icon={<FileText className="w-4 h-4" />} label="Reports" color="red" onClick={() => {}} />
       </div>
 
-      {/* Charts */}
       <div className="space-y-3">
         <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-xl p-1 w-fit">
           <button onClick={() => onChartChange('bar')} className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${activeChart === 'bar' ? 'bg-white dark:bg-gray-800 shadow' : 'text-gray-500 dark:text-gray-400'}`}>Bar</button>
@@ -1343,7 +1442,6 @@ const DashboardContent: React.FC<any> = ({
         </div>
       </div>
 
-      {/* Recent Collections */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-2">
@@ -1483,7 +1581,6 @@ const CollectionsPage: React.FC<any> = ({
 
   return (
     <div className="space-y-4">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <HandHelping className="w-5 h-5 text-teal-500" />
@@ -1499,7 +1596,6 @@ const CollectionsPage: React.FC<any> = ({
         </button>
       </div>
 
-      {/* Filters */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="relative">
@@ -1562,7 +1658,6 @@ const CollectionsPage: React.FC<any> = ({
         </div>
       </div>
 
-      {/* Collections Grid/List */}
       {filtered.length === 0 ? (
         <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
           <HandHelping className="w-16 h-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
@@ -1633,7 +1728,7 @@ const CollectionsPage: React.FC<any> = ({
 };
 
 // ============================================
-// COLLECTION CARD COMPONENT
+// COLLECTION CARD
 // ============================================
 const CollectionCard: React.FC<{
   collection: any;
@@ -1727,37 +1822,135 @@ const CollectionCard: React.FC<{
 };
 
 // ============================================
-// INVENTORY PAGE COMPONENT
+// INVENTORY PAGE - WITH LIST AND CARD VIEW
 // ============================================
-const InventoryPage: React.FC<any> = ({ inventory, onAddInventory, onDeleteItem }) => {
+const InventoryPage: React.FC<any> = ({ inventory, classes, onAddInventory, onDeleteItem, fetchInventory }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [classFilter, setClassFilter] = useState('all');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState<any>({});
+  const [editing, setEditing] = useState(false);
 
   const categories = inventory?.map((i: any) => i.category).filter((c: string, i: number, arr: string[]) => arr.indexOf(c) === i) || [];
+  const classNames = classes?.map((c: any) => c.name) || [];
 
   const filtered = inventory?.filter((item: any) => {
-    const matchesSearch = item.item_name?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = item.item_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          item.category?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = categoryFilter === 'all' || item.category === categoryFilter;
-    return matchesSearch && matchesCategory;
+    const matchesClass = classFilter === 'all' || 
+      (item.is_general ? 'General' : (classes?.find((c: any) => c.id === item.class_id)?.name || 'Unassigned')) === classFilter;
+    return matchesSearch && matchesCategory && matchesClass;
   }) || [];
+
+  const getClassDisplay = (item: any) => {
+    if (item.is_general) return 'General';
+    const classObj = classes?.find((c: any) => c.id === item.class_id);
+    return classObj?.name || 'Unassigned';
+  };
+
+  const handleViewItem = (item: any) => {
+    setSelectedItem(item);
+    setShowViewModal(true);
+  };
+
+  const handleEditItem = (item: any) => {
+    setSelectedItem(item);
+    setEditForm({
+      item_name: item.item_name || '',
+      category: item.category || 'Books',
+      description: item.description || '',
+      quantity_added: item.quantity_added || 0,
+      minimum_stock: item.minimum_stock || 5,
+      class_id: item.class_id || '',
+      is_general: item.is_general ?? true,
+    });
+    setShowEditModal(true);
+  };
+
+  const handleUpdateItem = async () => {
+    if (!selectedItem) return;
+    if (!editForm.item_name || editForm.quantity_added < 1) {
+      toast.error('Please fill all required fields');
+      return;
+    }
+
+    setEditing(true);
+    try {
+      const { error } = await supabase
+        .from('inventory_items')
+        .update({
+          item_name: editForm.item_name,
+          category: editForm.category,
+          description: editForm.description || null,
+          quantity_added: editForm.quantity_added,
+          minimum_stock: editForm.minimum_stock || 5,
+          class_id: editForm.is_general ? null : editForm.class_id || null,
+          is_general: editForm.is_general,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', selectedItem.id);
+
+      if (error) throw error;
+
+      toast.success('Inventory item updated!');
+      setShowEditModal(false);
+      setSelectedItem(null);
+      if (fetchInventory) {
+        await fetchInventory();
+      }
+    } catch (error: any) {
+      console.error('Error updating inventory:', error);
+      toast.error(error.message || 'Failed to update item');
+    } finally {
+      setEditing(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Box className="w-5 h-5 text-orange-500" />
           <h2 className="text-lg font-bold text-gray-900 dark:text-white">Inventory</h2>
           <span className="text-xs text-gray-400 dark:text-gray-500">({inventory?.length || 0} items)</span>
+          {filtered.length !== inventory?.length && (
+            <span className="text-xs text-blue-500">({filtered.length} filtered)</span>
+          )}
         </div>
-        <button
-          onClick={onAddInventory}
-          className="px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-xl text-sm font-medium hover:opacity-90 transition-all flex items-center gap-2 shadow-lg shadow-orange-500/25"
-        >
-          <Plus className="w-4 h-4" />
-          Add Item
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-xl p-1">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-white dark:bg-gray-800 shadow' : 'text-gray-500 dark:text-gray-400'}`}
+              title="Card View"
+            >
+              <Grid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white dark:bg-gray-800 shadow' : 'text-gray-500 dark:text-gray-400'}`}
+              title="List View"
+            >
+              <List className="w-4 h-4" />
+            </button>
+          </div>
+          <button
+            onClick={onAddInventory}
+            className="px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-xl text-sm font-medium hover:opacity-90 transition-all flex items-center gap-2 shadow-lg shadow-orange-500/25"
+          >
+            <Plus className="w-4 h-4" />
+            Add Item
+          </button>
+        </div>
       </div>
 
+      {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -1765,7 +1958,7 @@ const InventoryPage: React.FC<any> = ({ inventory, onAddInventory, onDeleteItem 
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search inventory..."
+            placeholder="Search inventory by name or category..."
             className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all text-sm dark:text-white"
           />
         </div>
@@ -1779,73 +1972,602 @@ const InventoryPage: React.FC<any> = ({ inventory, onAddInventory, onDeleteItem 
             <option key={cat} value={cat}>{cat}</option>
           ))}
         </select>
+        <select
+          value={classFilter}
+          onChange={(e) => setClassFilter(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all text-sm dark:text-white"
+        >
+          <option value="all">All Classes</option>
+          <option value="General">General</option>
+          {classNames.map((cls: string) => (
+            <option key={cls} value={cls}>{cls}</option>
+          ))}
+        </select>
       </div>
 
+      {/* Inventory Display */}
       {filtered.length === 0 ? (
         <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
           <Box className="w-16 h-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 dark:text-white">No items found</h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Add your first inventory item</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {searchTerm || categoryFilter !== 'all' || classFilter !== 'all' 
+              ? 'Try adjusting your filters' 
+              : 'Add your first inventory item'}
+          </p>
+          {searchTerm || categoryFilter !== 'all' || classFilter !== 'all' ? (
+            <button
+              onClick={() => {
+                setSearchTerm('');
+                setCategoryFilter('all');
+                setClassFilter('all');
+              }}
+              className="mt-3 text-sm text-orange-600 hover:underline"
+            >
+              Clear all filters
+            </button>
+          ) : (
+            <button
+              onClick={onAddInventory}
+              className="mt-3 px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-xl text-sm font-medium hover:opacity-90 transition-all"
+            >
+              <Plus className="w-4 h-4 inline mr-1" />
+              Add Your First Item
+            </button>
+          )}
         </div>
-      ) : (
+      ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((item: any) => {
             const remaining = (item.quantity_added || 0) - (item.quantity_distributed || 0);
             const isLow = remaining <= (item.minimum_stock || 0);
+            const classDisplay = getClassDisplay(item);
             return (
-              <motion.div
+              <InventoryCard
                 key={item.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`bg-white dark:bg-gray-800 rounded-2xl shadow-lg border p-4 transition-all hover:shadow-xl ${
-                  isLow ? 'border-red-300 dark:border-red-700' : 'border-gray-200 dark:border-gray-700'
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <Package className="w-4 h-4 text-orange-500" />
-                      <h4 className="font-semibold text-gray-900 dark:text-white truncate">{item.item_name}</h4>
-                    </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{item.category}</p>
-                    {isLow && (
-                      <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[8px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
-                        <AlertTriangle className="w-3 h-3" />
-                        Low Stock
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => onDeleteItem(item.id)}
-                    className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-red-500"
-                  >
-                    <TrashIcon className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2 text-center">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Added</p>
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{item.quantity_added || 0}</p>
-                  </div>
-                  <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2 text-center">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Distributed</p>
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white">{item.quantity_distributed || 0}</p>
-                  </div>
-                  <div className={`bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2 text-center ${isLow ? 'border-2 border-red-300 dark:border-red-700' : ''}`}>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">Remaining</p>
-                    <p className={`text-sm font-semibold ${isLow ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>{remaining}</p>
-                  </div>
-                </div>
-
-                <div className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                  Min stock: {item.minimum_stock || 0}
-                </div>
-              </motion.div>
+                item={item}
+                remaining={remaining}
+                isLow={isLow}
+                classDisplay={classDisplay}
+                onView={handleViewItem}
+                onEdit={handleEditItem}
+                onDelete={onDeleteItem}
+              />
             );
           })}
         </div>
+      ) : (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-700/50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-400">Item</th>
+                  <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-400">Category</th>
+                  <th className="px-4 py-3 text-left text-gray-600 dark:text-gray-400">Class</th>
+                  <th className="px-4 py-3 text-right text-gray-600 dark:text-gray-400">Added</th>
+                  <th className="px-4 py-3 text-right text-gray-600 dark:text-gray-400">Distributed</th>
+                  <th className="px-4 py-3 text-right text-gray-600 dark:text-gray-400">Remaining</th>
+                  <th className="px-4 py-3 text-center text-gray-600 dark:text-gray-400">Status</th>
+                  <th className="px-4 py-3 text-center text-gray-600 dark:text-gray-400">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                {filtered.map((item: any) => {
+                  const remaining = (item.quantity_added || 0) - (item.quantity_distributed || 0);
+                  const isLow = remaining <= (item.minimum_stock || 0);
+                  const classDisplay = getClassDisplay(item);
+                  return (
+                    <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                      <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                        {item.item_name}
+                        {item.description && (
+                          <p className="text-xs text-gray-400 dark:text-gray-500 truncate max-w-[150px]">
+                            {item.description}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-1 rounded-full text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                          {item.category}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded-full text-xs ${
+                          item.is_general 
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                            : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                        }`}>
+                          {classDisplay}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{item.quantity_added || 0}</td>
+                      <td className="px-4 py-3 text-right text-gray-900 dark:text-white">{item.quantity_distributed || 0}</td>
+                      <td className={`px-4 py-3 text-right font-medium ${isLow ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>
+                        {remaining}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {isLow ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                            <AlertTriangle className="w-3 h-3" />
+                            Low Stock
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                            <CheckCircle className="w-3 h-3" />
+                            In Stock
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => handleViewItem(item)}
+                            className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 dark:text-blue-400 transition-all"
+                            title="View"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleEditItem(item)}
+                            className="p-1.5 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 text-amber-600 dark:text-amber-400 transition-all"
+                            title="Edit"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => onDeleteItem(item.id)}
+                            className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition-all"
+                            title="Delete"
+                          >
+                            <TrashIcon className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot className="bg-gray-50 dark:bg-gray-700/50 border-t border-gray-200 dark:border-gray-700">
+                <tr>
+                  <td colSpan={8} className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
+                    Showing {filtered.length} of {inventory?.length || 0} items
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
       )}
+
+      {/* View Item Modal */}
+      <AnimatePresence>
+        {showViewModal && selectedItem && (
+          <ViewInventoryModal
+            item={selectedItem}
+            classes={classes}
+            onClose={() => {
+              setShowViewModal(false);
+              setSelectedItem(null);
+            }}
+            onEdit={() => {
+              setShowViewModal(false);
+              handleEditItem(selectedItem);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Edit Item Modal */}
+      <AnimatePresence>
+        {showEditModal && selectedItem && (
+          <EditInventoryModal
+            onClose={() => {
+              setShowEditModal(false);
+              setSelectedItem(null);
+            }}
+            form={editForm}
+            setForm={setEditForm}
+            onSubmit={handleUpdateItem}
+            loading={editing}
+            classes={classes}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+
+// ============================================
+// INVENTORY CARD
+// ============================================
+const InventoryCard: React.FC<{
+  item: any;
+  remaining: number;
+  isLow: boolean;
+  classDisplay: string;
+  onView: (item: any) => void;
+  onEdit: (item: any) => void;
+  onDelete: (id: string) => void;
+}> = ({ item, remaining, isLow, classDisplay, onView, onEdit, onDelete }) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`bg-white dark:bg-gray-800 rounded-2xl shadow-lg border p-4 transition-all hover:shadow-xl ${
+        isLow ? 'border-red-300 dark:border-red-700' : 'border-gray-200 dark:border-gray-700'
+      }`}
+    >
+      <div className="flex items-start justify-between">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <Package className="w-4 h-4 text-orange-500" />
+            <h4 className="font-semibold text-gray-900 dark:text-white truncate">{item.item_name}</h4>
+          </div>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <span className="text-xs text-gray-500 dark:text-gray-400">{item.category}</span>
+            <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
+            <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+              item.is_general 
+                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+            }`}>
+              {classDisplay}
+            </span>
+          </div>
+          {isLow && (
+            <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[8px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+              <AlertTriangle className="w-3 h-3" />
+              Low Stock
+            </span>
+          )}
+          {item.description && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 line-clamp-2">{item.description}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onView(item)}
+            className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 dark:text-blue-400 transition-all"
+            title="View"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => onEdit(item)}
+            className="p-1.5 rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 text-amber-600 dark:text-amber-400 transition-all"
+            title="Edit"
+          >
+            <Edit className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => onDelete(item.id)}
+            className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition-all"
+            title="Delete"
+          >
+            <TrashIcon className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2 text-center">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Added</p>
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">{item.quantity_added || 0}</p>
+        </div>
+        <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2 text-center">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Distributed</p>
+          <p className="text-sm font-semibold text-gray-900 dark:text-white">{item.quantity_distributed || 0}</p>
+        </div>
+        <div className={`bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2 text-center ${isLow ? 'border-2 border-red-300 dark:border-red-700' : ''}`}>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Remaining</p>
+          <p className={`text-sm font-semibold ${isLow ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>{remaining}</p>
+        </div>
+      </div>
+
+      <div className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+        Min stock: {item.minimum_stock || 0}
+      </div>
+    </motion.div>
+  );
+};
+
+// ============================================
+// VIEW INVENTORY MODAL
+// ============================================
+const ViewInventoryModal: React.FC<{
+  item: any;
+  classes: any[];
+  onClose: () => void;
+  onEdit: () => void;
+}> = ({ item, classes, onClose, onEdit }) => {
+  const classDisplay = item.is_general 
+    ? 'General (All Classes)' 
+    : classes?.find((c: any) => c.id === item.class_id)?.name || 'Unassigned';
+
+  const remaining = (item.quantity_added || 0) - (item.quantity_distributed || 0);
+  const isLow = remaining <= (item.minimum_stock || 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        className="bg-white dark:bg-gray-900 rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+      >
+        <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <Box className="w-5 h-5 text-orange-500" />
+            Item Details
+          </h3>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {/* Item Name & Status */}
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">{item.item_name}</h2>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="text-sm text-gray-500 dark:text-gray-400">{item.category}</span>
+                <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
+                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                  item.is_general 
+                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                }`}>
+                  {classDisplay}
+                </span>
+              </div>
+            </div>
+            {isLow ? (
+              <span className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                <AlertTriangle className="w-4 h-4" />
+                Low Stock
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                <CheckCircle className="w-4 h-4" />
+                In Stock
+              </span>
+            )}
+          </div>
+
+          {/* Description */}
+          {item.description && (
+            <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3">
+              <p className="text-sm text-gray-600 dark:text-gray-300">{item.description}</p>
+            </div>
+          )}
+
+          {/* Stats Grid */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 text-center">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Total Added</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{item.quantity_added || 0}</p>
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 text-center">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Distributed</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{item.quantity_distributed || 0}</p>
+            </div>
+            <div className={`bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 text-center ${isLow ? 'border-2 border-red-300 dark:border-red-700' : ''}`}>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Remaining</p>
+              <p className={`text-2xl font-bold ${isLow ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>{remaining}</p>
+            </div>
+            <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 text-center">
+              <p className="text-xs text-gray-500 dark:text-gray-400">Min Stock</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{item.minimum_stock || 0}</p>
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div>
+            <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+              <span>Distribution Progress</span>
+              <span>{item.quantity_added > 0 ? Math.round((item.quantity_distributed / item.quantity_added) * 100) : 0}%</span>
+            </div>
+            <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-orange-500 to-amber-500 rounded-full transition-all duration-500"
+                style={{ width: `${item.quantity_added > 0 ? Math.min((item.quantity_distributed / item.quantity_added) * 100, 100) : 0}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Timestamps */}
+          <div className="text-xs text-gray-400 dark:text-gray-500 space-y-1 pt-2 border-t border-gray-200 dark:border-gray-700">
+            <p>Created: {dayjs(item.created_at).format('MMM D, YYYY h:mm A')}</p>
+            {item.updated_at && (
+              <p>Last Updated: {dayjs(item.updated_at).format('MMM D, YYYY h:mm A')}</p>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all text-sm">
+              Close
+            </button>
+            <button
+              onClick={onEdit}
+              className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl font-medium hover:opacity-90 transition-all flex items-center justify-center gap-2 text-sm"
+            >
+              <Edit className="w-4 h-4" />
+              Edit Item
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+// ============================================
+// EDIT INVENTORY MODAL
+// ============================================
+const EditInventoryModal: React.FC<{
+  onClose: () => void;
+  form: any;
+  setForm: (form: any) => void;
+  onSubmit: () => void;
+  loading: boolean;
+  classes: any[];
+}> = ({ onClose, form, setForm, onSubmit, loading, classes }) => {
+  const categories = ['Books', 'Uniform', 'Laboratory', 'Sports', 'Stationery', 'Arts', 'Others'];
+  const classNames = classes?.map((c: any) => c.name) || [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        className="bg-white dark:bg-gray-900 rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+      >
+        <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+            <Edit className="w-5 h-5 text-amber-500" />
+            Edit Inventory Item
+          </h3>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Item Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={form.item_name}
+              onChange={(e) => setForm({ ...form, item_name: e.target.value })}
+              placeholder="e.g., Mathematics Textbook"
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Category <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all text-sm"
+            >
+              {categories.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Class Assignment <span className="text-red-500">*</span>
+            </label>
+            <div className="flex items-center gap-3 mb-2">
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  type="radio"
+                  checked={form.is_general === true}
+                  onChange={() => setForm({ ...form, is_general: true, class_id: '' })}
+                  className="w-4 h-4 text-amber-600"
+                />
+                General (All Classes)
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  type="radio"
+                  checked={form.is_general === false}
+                  onChange={() => setForm({ ...form, is_general: false })}
+                  className="w-4 h-4 text-amber-600"
+                />
+                Specific Class
+              </label>
+            </div>
+            {!form.is_general && (
+              <select
+                value={form.class_id}
+                onChange={(e) => setForm({ ...form, class_id: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all text-sm"
+              >
+                <option value="">Select a class...</option>
+                {classNames.map((cls: string, index: number) => {
+                  const classObj = classes.find((c: any) => c.name === cls);
+                  return (
+                    <option key={index} value={classObj?.id || ''}>
+                      {cls}
+                    </option>
+                  );
+                })}
+              </select>
+            )}
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              {form.is_general 
+                ? 'This item will be available to all classes' 
+                : 'This item will only be available to the selected class'}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Quantity <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                value={form.quantity_added}
+                onChange={(e) => setForm({ ...form, quantity_added: parseInt(e.target.value) || 0 })}
+                min="1"
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Min Stock
+              </label>
+              <input
+                type="number"
+                value={form.minimum_stock}
+                onChange={(e) => setForm({ ...form, minimum_stock: parseInt(e.target.value) || 5 })}
+                min="0"
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all text-sm"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Description
+            </label>
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              rows={2}
+              placeholder="Add a description..."
+              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all text-sm"
+            />
+          </div>
+
+          <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all text-sm">
+              Cancel
+            </button>
+            <button
+              onClick={onSubmit}
+              disabled={loading || !form.item_name || form.quantity_added < 1 || (!form.is_general && !form.class_id)}
+              className="flex-1 px-4 py-2.5 bg-gradient-to-r from-amber-600 to-orange-600 text-white rounded-xl font-medium hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Update Item
+            </button>
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
 };
@@ -1877,8 +2599,16 @@ const AddCollectionModal: React.FC<any> = ({
   onRemoveItem,
   onUpdateQuantity,
   onSubmit,
+  classes,
 }) => {
   const currentSession = sessions?.find((s: any) => s.is_current);
+  const [classFilter, setClassFilter] = useState('all');
+
+  const filteredStudents = classFilter === 'all' 
+    ? students 
+    : students.filter((s: any) => s.class_name === classFilter);
+
+  const classNames = classes?.map((c: any) => c.name) || [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -1899,29 +2629,41 @@ const AddCollectionModal: React.FC<any> = ({
         </div>
 
         <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
-          {/* Student Selection */}
+          {/* Student Selection with Class Filter */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Student <span className="text-red-500">*</span>
             </label>
-            <div className="flex items-center gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 hover:border-teal-500 transition-all">
-              <Users className="w-5 h-5 text-gray-400 flex-shrink-0" />
+            <div className="flex flex-col gap-2">
               <select
-                className="flex-1 bg-transparent outline-none text-sm text-gray-900 dark:text-white appearance-none cursor-pointer"
-                value={selectedStudent?.id || ''}
-                onChange={(e) => {
-                  const student = students.find((s: any) => s.id === e.target.value);
-                  setSelectedStudent(student || null);
-                }}
+                value={classFilter}
+                onChange={(e) => setClassFilter(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all text-sm"
               >
-                <option value="">Select a student...</option>
-                {students.map((student: any) => (
-                  <option key={student.id} value={student.id}>
-                    {student.first_name} {student.last_name} - {student.class_name || 'No Class'}
-                  </option>
+                <option value="all">All Classes</option>
+                {classNames.map((cls: string) => (
+                  <option key={cls} value={cls}>{cls}</option>
                 ))}
               </select>
-              <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <div className="flex items-center gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 hover:border-teal-500 transition-all">
+                <Users className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                <select
+                  className="flex-1 bg-transparent outline-none text-sm text-gray-900 dark:text-white appearance-none cursor-pointer"
+                  value={selectedStudent?.id || ''}
+                  onChange={(e) => {
+                    const student = filteredStudents.find((s: any) => s.id === e.target.value);
+                    setSelectedStudent(student || null);
+                  }}
+                >
+                  <option value="">Select a student...</option>
+                  {filteredStudents.map((student: any) => (
+                    <option key={student.id} value={student.id}>
+                      {student.first_name} {student.last_name} - {student.class_name || 'No Class'}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              </div>
             </div>
             {selectedStudent && (
               <div className="mt-2 p-2 bg-teal-50 dark:bg-teal-900/20 rounded-lg flex items-center gap-2">
@@ -1978,6 +2720,11 @@ const AddCollectionModal: React.FC<any> = ({
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Add Items <span className="text-red-500">*</span>
+              {selectedStudent && (
+                <span className="text-xs text-gray-400 ml-2">
+                  (Showing items for {selectedStudent.class_name || 'General'})
+                </span>
+              )}
             </label>
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2">
@@ -2036,6 +2783,11 @@ const AddCollectionModal: React.FC<any> = ({
               {currentItem && (
                 <p className="text-xs text-gray-400 dark:text-gray-500">
                   Available: {(currentItem.quantity_added || 0) - (currentItem.quantity_distributed || 0)}
+                </p>
+              )}
+              {!selectedStudent && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  Please select a student to see available inventory items.
                 </p>
               )}
             </div>
@@ -2280,8 +3032,10 @@ const AddInventoryModal: React.FC<any> = ({
   setForm,
   onSubmit,
   loading,
+  classes,
 }) => {
   const categories = ['Books', 'Uniform', 'Laboratory', 'Sports', 'Stationery', 'Arts', 'Others'];
+  const classNames = classes?.map((c: any) => c.name) || [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -2330,6 +3084,54 @@ const AddInventoryModal: React.FC<any> = ({
             </select>
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Class Assignment <span className="text-red-500">*</span>
+            </label>
+            <div className="flex items-center gap-3 mb-2">
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  type="radio"
+                  checked={form.is_general === true}
+                  onChange={() => setForm({ ...form, is_general: true, class_id: '' })}
+                  className="w-4 h-4 text-teal-600"
+                />
+                General (All Classes)
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  type="radio"
+                  checked={form.is_general === false}
+                  onChange={() => setForm({ ...form, is_general: false })}
+                  className="w-4 h-4 text-teal-600"
+                />
+                Specific Class
+              </label>
+            </div>
+            {!form.is_general && (
+              <select
+                value={form.class_id}
+                onChange={(e) => setForm({ ...form, class_id: e.target.value })}
+                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all text-sm"
+              >
+                <option value="">Select a class...</option>
+                {classNames.map((cls: string, index: number) => {
+                  const classObj = classes.find((c: any) => c.name === cls);
+                  return (
+                    <option key={index} value={classObj?.id || ''}>
+                      {cls}
+                    </option>
+                  );
+                })}
+              </select>
+            )}
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              {form.is_general 
+                ? 'This item will be available to all classes' 
+                : 'This item will only be available to the selected class'}
+            </p>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -2376,7 +3178,7 @@ const AddInventoryModal: React.FC<any> = ({
             </button>
             <button
               onClick={onSubmit}
-              disabled={loading || !form.item_name || form.quantity_added < 1}
+              disabled={loading || !form.item_name || form.quantity_added < 1 || (!form.is_general && !form.class_id)}
               className="flex-1 px-4 py-2.5 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-xl font-medium hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Box className="w-4 h-4" />}

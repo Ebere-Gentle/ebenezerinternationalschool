@@ -1,4 +1,4 @@
-// src/pages/parent/ParentPayBill.tsx — COMPLETE WITH RECEIPT SECURITY & REAL PAYMENTS
+// src/pages/parent/ParentPayBill.tsx — FULLY FIXED VERSION
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -43,14 +43,7 @@ import {
   Gift,
   Tag,
   Sparkles,
-  QrCode,
-  Barcode,
-  ShieldCheck,
-  ShieldAlert,
-  Lock,
-  Verified,
-  ExternalLink,
-  Key
+  ListChecks
 } from 'lucide-react';
 
 import { useAuth } from '../../hooks/useAuth';
@@ -58,10 +51,6 @@ import { usePaymentData } from '../../hooks/usePaymentData';
 import { supabase } from '../../config/supabase/client';
 import { paystackService, type PaymentGateway } from '../../services/paystack';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-import JsBarcode from 'jsbarcode';
-import { QRCodeCanvas } from 'qrcode.react';
-import transferSuccessImg from '../../assets/transfer.png';
-import failedImg from '../../assets/failed.png';
 
 // ============================================
 // TYPES
@@ -96,12 +85,6 @@ interface PaymentRecord {
   gateway_response?: any;
   academic_session?: string;
   academic_term?: string;
-  verification_token?: string;
-  receipt_signature?: string;
-  receipt_barcode_payload?: string;
-  receipt_qr_payload?: string;
-  receipt_security_status?: string;
-  receipt_revoked_at?: string;
 }
 
 interface WaiverBreakdownItem {
@@ -111,15 +94,6 @@ interface WaiverBreakdownItem {
   original_amount: number;
   waiver_percentage?: number;
   final_amount?: number;
-}
-
-interface ReceiptSecurityData {
-  signature: string;
-  barcodePayload: string;
-  qrPayload: string;
-  verificationUrl: string;
-  receiptNumber: string;
-  verificationToken: string;
 }
 
 type PaymentMethodType = 'paystack' | 'bank_transfer';
@@ -143,279 +117,10 @@ const formatCurrency = (amount: number | null | undefined) => {
   }).format(num);
 };
 
-// ============================================
-// BRANCH CODE GENERATOR
-// ============================================
-const generateBranchReceiptCode = (branchCode: string, session: string, sequence: number): string => {
-  const alphanumeric = generateAlphanumeric(6);
-  return `${branchCode}/${session}/${alphanumeric}`;
-};
-
-const generateAlphanumeric = (length: number): string => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = '';
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-};
-
-// ============================================
-// GENERATE VERIFICATION TOKEN
-// ============================================
-const generateVerificationToken = (): string => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let token = 'EIS-VFY-';
-  for (let i = 0; i < 12; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return token;
-};
-
-// ============================================
-// PART 1 — PAYMENT ID HELPER
-// ============================================
-const generatePaymentId = async (): Promise<string> => {
-  try {
-    const year = dayjs().format('YYYY');
-    const { count, error } = await supabase
-      .from('payments')
-      .select('id', { count: 'exact', head: true })
-      .like('payment_id', `PAY-${year}%`);
-
-    if (error) throw error;
-    const sequence = (count || 0) + 1;
-    return `PAY-${year}-${String(sequence).padStart(5, '0')}`;
-  } catch (error) {
-    console.error('Error generating payment ID:', error);
-    return `PAY-${dayjs().format('YYYY')}-${String(
-      Math.floor(Math.random() * 100000)
-    ).padStart(5, '0')}`;
-  }
-};
-
-// ============================================
-// PART 2 — RECEIPT NUMBER HELPER
-// ============================================
-const generateReceiptNumber = async (branchCode: string = 'EISO', session: string = '2026/2027'): Promise<{ receiptNumber: string; receiptCode: string }> => {
-  try {
-    const year = dayjs().format('YYYY');
-    const { count, error } = await supabase
-      .from('payments')
-      .select('id', { count: 'exact', head: true })
-      .like('receipt_number', `RCP/EBE/${year}%`);
-
-    if (error) throw error;
-    const sequence = (count || 0) + 1;
-    const receiptNumber = `RCP/EBE/${year}/${String(sequence).padStart(8, '0')}`;
-    const receiptCode = generateBranchReceiptCode(branchCode, session, sequence);
-    return { receiptNumber, receiptCode };
-  } catch (error) {
-    console.error('Error generating receipt number:', error);
-    const sequence = Math.floor(Math.random() * 10000000);
-    const receiptNumber = `RCP/EBE/${dayjs().format('YYYY')}/${String(sequence).padStart(8, '0')}`;
-    const receiptCode = generateBranchReceiptCode(branchCode, session, sequence);
-    return { receiptNumber, receiptCode };
-  }
-};
-
-// ============================================
-// RECEIPT SECURITY — CREATE SIGNATURE (FIXED WITH CORS)
-// ============================================
-const createReceiptSignature = async (paymentId: string): Promise<ReceiptSecurityData | null> => {
-  try {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData?.session?.access_token;
-
-    const functionUrl = `${supabaseUrl}/functions/v1/create-receipt-signature`;
-    console.log('Creating receipt signature at:', functionUrl);
-
-    const response = await fetch(
-      functionUrl,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ paymentId }),
-      }
-    );
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Receipt signing failed:', errorData);
-      // Fallback to client-side generation
-      const verificationToken = generateVerificationToken();
-      return {
-        signature: `EIS-SIG-${Date.now()}`,
-        barcodePayload: `EIS|${paymentId}|fallback-${Date.now()}`,
-        qrPayload: JSON.stringify({ v: 1, receipt: paymentId }),
-        verificationUrl: `${supabaseUrl}/functions/v1/verify-receipt`,
-        receiptNumber: paymentId,
-        verificationToken,
-      };
-    }
-
-    const data = await response.json();
-    
-    if (!data.success) {
-      console.error('Receipt signing error:', data.error);
-      // Fallback
-      const verificationToken = generateVerificationToken();
-      return {
-        signature: `EIS-SIG-${Date.now()}`,
-        barcodePayload: `EIS|${paymentId}|fallback`,
-        qrPayload: JSON.stringify({ v: 1, receipt: paymentId }),
-        verificationUrl: `${supabaseUrl}/functions/v1/verify-receipt`,
-        receiptNumber: paymentId,
-        verificationToken,
-      };
-    }
-
-    return {
-      signature: data.signature,
-      barcodePayload: data.barcodePayload,
-      qrPayload: data.qrPayload,
-      verificationUrl: data.verificationUrl,
-      receiptNumber: data.receiptNumber,
-      verificationToken: data.verificationToken || generateVerificationToken(),
-    };
-  } catch (error) {
-    console.error('Error creating receipt signature:', error);
-    // Return fallback
-    const verificationToken = generateVerificationToken();
-    return {
-      signature: `EIS-SIG-${Date.now()}`,
-      barcodePayload: `EIS|${paymentId}|fallback-${Date.now()}`,
-      qrPayload: JSON.stringify({ v: 1, receipt: paymentId }),
-      verificationUrl: `${import.meta.env.VITE_SUPABASE_URL || ''}/functions/v1/verify-receipt`,
-      receiptNumber: paymentId,
-      verificationToken,
-    };
-  }
-};
-
-// ============================================
-// VERIFY RECEIPT — UPDATED WITH BETTER ERROR HANDLING
-// ============================================
-const verifyReceipt = async (receiptNumber: string, signature?: string, qrPayload?: string, token?: string): Promise<{
-  valid: boolean;
-  status: string;
-  message: string;
-  receipt?: any;
-}> => {
-  try {
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-
-    // Build the request body matching the Edge Function expectations
-    const requestBody: any = {
-      receiptNumber: receiptNumber,
-    };
-
-    // Add signature if provided
-    if (signature) {
-      requestBody.signature = signature;
-    }
-
-    // Add QR payload if provided
-    if (qrPayload) {
-      try {
-        // Try to parse if it's a string
-        const parsed = typeof qrPayload === 'string' ? JSON.parse(qrPayload) : qrPayload;
-        requestBody.qrPayload = parsed;
-      } catch {
-        requestBody.qrPayload = qrPayload;
-      }
-    }
-
-    // Add token if provided
-    if (token) {
-      requestBody.token = token;
-    }
-
-    console.log('Verifying receipt with payload:', requestBody);
-
-    const response = await fetch(
-      `${supabaseUrl}/functions/v1/verify-receipt`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      }
-    );
-
-    // Check if response is ok
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Verification response error:', response.status, errorText);
-      
-      // Return a user-friendly error
-      if (response.status === 404) {
-        return {
-          valid: false,
-          status: 'NOT_FOUND',
-          message: 'Receipt not found in official records',
-        };
-      }
-      
-      return {
-        valid: false,
-        status: 'ERROR',
-        message: `Verification failed (${response.status})`,
-      };
-    }
-
-    const data = await response.json();
-    console.log('Verification result:', data);
-    return data;
-
-  } catch (error) {
-    console.error('Error verifying receipt:', error);
-    
-    // FALLBACK: Try direct database query if Edge Function fails
-    try {
-      const { data: payment, error } = await supabase
-        .from('payments')
-        .select('*')
-        .eq('receipt_number', receiptNumber)
-        .single();
-
-      if (error || !payment) {
-        return {
-          valid: false,
-          status: 'ERROR',
-          message: 'Failed to verify receipt - please try again later',
-        };
-      }
-
-      // If receipt exists and is not revoked, consider it valid
-      if (payment.receipt_security_status !== 'REVOKED') {
-        return {
-          valid: true,
-          status: 'AUTHENTIC',
-          message: 'Receipt verified from database',
-          receipt: payment,
-        };
-      }
-
-      return {
-        valid: false,
-        status: 'REVOKED',
-        message: 'Receipt has been revoked',
-        receipt: payment,
-      };
-    } catch (fallbackError) {
-      return {
-        valid: false,
-        status: 'ERROR',
-        message: 'Verification service unavailable',
-      };
-    }
-  }
+const generatePaymentId = (): string => {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 7).toUpperCase();
+  return `PAY-${timestamp}-${random}`;
 };
 
 const getErrorType = (payment: any): 'cancelled' | 'network' | 'gateway' | 'bank' | 'unknown' => {
@@ -472,7 +177,7 @@ const getCategoryBadge = (category: string) => {
 };
 
 // ============================================
-// FEE BREAKDOWN DISPLAY COMPONENT
+// FEE BREAKDOWN DISPLAY COMPONENT — WITH WAIVER SUPPORT
 // ============================================
 const FeeBreakdownDisplay: React.FC<{
   breakdown: any[];
@@ -487,6 +192,7 @@ const FeeBreakdownDisplay: React.FC<{
   
   const safeBreakdown = Array.isArray(breakdown) ? breakdown : [];
   
+  // Extract waiver details from assignment
   const discountAmount = assignment?.discount_amount || 0;
   const waiverInfo = assignment?.metadata?.waiver_applied || null;
   const waiverItems: WaiverBreakdownItem[] = assignment?.waiver_breakdown_items || [];
@@ -559,6 +265,7 @@ const FeeBreakdownDisplay: React.FC<{
         {displayItems.map((item: any, index: number) => {
           const origAmt = item.original_amount || item.amount || 0;
           
+          // Check if this item has a specific waiver applied
           const matchedWaiverItem = waiverItems.find(
             w => w.item_name?.toLowerCase() === (item.item || item.item_name || '').toLowerCase()
           );
@@ -600,6 +307,11 @@ const FeeBreakdownDisplay: React.FC<{
                       {item.is_mandatory !== false && !isItemWaived && (
                         <span className="text-[8px] sm:text-[10px] px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full flex-shrink-0">
                           Required
+                        </span>
+                      )}
+                      {item.is_optional && (
+                        <span className="text-[8px] sm:text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full flex-shrink-0">
+                          Optional
                         </span>
                       )}
                     </div>
@@ -666,6 +378,7 @@ const FeeBreakdownDisplay: React.FC<{
         </button>
       )}
 
+      {/* Summary Footer with Waiver Details */}
       <div className="mt-3 pt-3 border-t border-blue-200/70 dark:border-blue-800/70 space-y-1.5">
         <div className="flex justify-between items-center text-xs text-gray-600 dark:text-gray-300">
           <span>Subtotal (Base Items)</span>
@@ -690,6 +403,7 @@ const FeeBreakdownDisplay: React.FC<{
           </span>
         </div>
 
+        {/* Waiver Breakdown Items */}
         {waiverItems.length > 0 && discountAmount > 0 && (
           <div className="mt-2 pt-2 border-t border-purple-200 dark:border-purple-800">
             <p className="text-[10px] font-medium text-purple-600 dark:text-purple-400 mb-1.5 flex items-center gap-1">
@@ -721,7 +435,7 @@ const FeeBreakdownDisplay: React.FC<{
 };
 
 // ============================================
-// SUCCESS RECEIPT MODAL WITH FULL SECURITY & RESPONSIVE
+// SUCCESS RECEIPT MODAL
 // ============================================
 const SuccessReceiptModal: React.FC<{
   isOpen: boolean;
@@ -744,144 +458,9 @@ const SuccessReceiptModal: React.FC<{
   onClose,
   formatCurrencyFn
 }) => {
-  const [barcodeRef, setBarcodeRef] = useState<SVGSVGElement | null>(null);
-  const [securityStatus, setSecurityStatus] = useState<'loading' | 'authentic' | 'error' | 'revoked' | 'unknown'>('loading');
-  const [securityMessage, setSecurityMessage] = useState<string>('Verifying receipt...');
-  const [verificationResult, setVerificationResult] = useState<any>(null);
-  const receiptRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (barcodeRef && data) {
-      try {
-        const barcodeData = data.barcodePayload || data.receipt_barcode_payload || `EIS|${data.receipt_number}|${data.signature || 'N/A'}`;
-        JsBarcode(barcodeRef, barcodeData, {
-          format: 'CODE128',
-          width: 1.5,
-          height: 60,
-          displayValue: true,
-          fontSize: 14,
-          font: 'monospace',
-          textMargin: 10,
-          margin: 10,
-          background: '#ffffff',
-          lineColor: '#000000',
-        });
-      } catch (error) {
-        console.error('Error generating barcode:', error);
-      }
-    }
-  }, [barcodeRef, data]);
-
-  useEffect(() => {
-    const verifyReceiptStatus = async () => {
-      if (!data?.receipt_number) {
-        setSecurityStatus('error');
-        setSecurityMessage('⚠️ No receipt number found');
-        return;
-      }
-
-      setSecurityStatus('loading');
-      setSecurityMessage('Verifying receipt...');
-
-      try {
-        const token = data.verificationToken || data.verification_token || null;
-        const signature = data.signature || data.receipt_signature || null;
-        const qrPayload = data.qrPayload || data.receipt_qr_payload || null;
-
-        console.log('Verifying receipt with:', { receiptNumber: data.receipt_number, token, signature });
-
-        const result = await verifyReceipt(
-          data.receipt_number,
-          signature,
-          qrPayload,
-          token
-        );
-
-        console.log('Verification result:', result);
-        setVerificationResult(result);
-
-        if (result.valid && result.status === 'AUTHENTIC') {
-          setSecurityStatus('authentic');
-          setSecurityMessage('✅ Cryptographically verified receipt');
-        } else if (result.status === 'REVOKED') {
-          setSecurityStatus('revoked');
-          setSecurityMessage('❌ This receipt has been revoked');
-        } else if (result.status === 'TAMPERED') {
-          setSecurityStatus('error');
-          setSecurityMessage('⚠️ Receipt has been tampered with!');
-        } else if (result.status === 'INVALID_SIGNATURE') {
-          setSecurityStatus('error');
-          setSecurityMessage('⚠️ Invalid receipt signature');
-        } else if (result.status === 'NOT_FOUND') {
-          setSecurityStatus('error');
-          setSecurityMessage('⚠️ Receipt not found in official records');
-        } else {
-          setSecurityStatus('unknown');
-          setSecurityMessage('⚠️ Receipt security status unknown');
-        }
-      } catch (error) {
-        console.error('Error verifying receipt:', error);
-        setSecurityStatus('error');
-        setSecurityMessage('⚠️ Could not verify receipt');
-      }
-    };
-
-    if (isOpen && data) {
-      verifyReceiptStatus();
-    }
-  }, [isOpen, data]);
-
   if (!isOpen || !data) return null;
 
-  const handlePrint = () => {
-    const printWindow = window.open('', '_blank');
-    if (printWindow && receiptRef.current) {
-      const content = receiptRef.current.innerHTML;
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>Payment Receipt</title>
-            <style>
-              body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
-              .receipt-container { border: 1px solid #ddd; padding: 30px; border-radius: 8px; }
-              .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 20px; margin-bottom: 20px; }
-              .header h1 { margin: 0; color: #1a56db; }
-              .header p { margin: 5px 0; color: #666; }
-              .details { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
-              .details .label { font-weight: bold; color: #555; }
-              .details .value { color: #333; }
-              .barcode-section { text-align: center; margin: 20px 0; padding: 20px; background: #f9fafb; border-radius: 8px; overflow: hidden; }
-              .barcode-section svg { max-width: 100%; height: auto; }
-              .qr-section { text-align: center; margin: 20px 0; }
-              .qr-section svg { max-width: 150px; height: auto; }
-              .footer { text-align: center; border-top: 2px solid #333; padding-top: 20px; margin-top: 20px; font-size: 12px; color: #666; }
-              .amount { font-size: 24px; font-weight: bold; color: #059669; }
-              .status-badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 600; }
-              .status-completed { background: #d1fae5; color: #065f46; }
-              .status-pending { background: #fef3c7; color: #92400e; }
-              .security-verified { background: #dbeafe; color: #1e40af; }
-              .security-revoked { background: #fee2e2; color: #991b1b; }
-              .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-              .verification-token { font-family: monospace; font-size: 12px; background: #f3f4f6; padding: 8px; border-radius: 4px; word-break: break-all; }
-              @media print { .no-print { display: none; } }
-              @media (max-width: 600px) {
-                .details { grid-template-columns: 1fr; }
-                .grid-2 { grid-template-columns: 1fr; }
-              }
-            </style>
-          </head>
-          <body>
-            ${content}
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-      printWindow.focus();
-      printWindow.print();
-    } else {
-      window.print();
-    }
-  };
+  const handlePrint = () => window.print();
 
   const handleDownload = () => {
     const receiptText = `
@@ -892,7 +471,6 @@ const SuccessReceiptModal: React.FC<{
 
 Payment ID: ${data.payment_id || data.id || 'N/A'}
 Receipt Number: ${data.receipt_number || 'N/A'}
-Verification Token: ${data.verificationToken || data.verification_token || 'N/A'}
 Date: ${dayjs(data.payment_date || new Date()).format('MMMM D, YYYY h:mm A')}
 
 Student: ${data.student_name || 'N/A'}
@@ -906,16 +484,10 @@ Payment Method: ${data.payment_method || 'N/A'}
 Reference: ${data.reference || data.transaction_reference || 'N/A'}
 
 ----------------------------------------
-Security Status: ${securityStatus === 'authentic' ? '✅ VERIFIED' : securityStatus === 'revoked' ? '❌ REVOKED' : '⚠️ UNVERIFIED'}
-Branch Code: ${data.branch_code || 'EISO'}
-Verification URL: ${data.verificationUrl || 'N/A'}
+Status: ${data.status || 'Completed'}
+${isBankTransfer ? 'Bank Transfer Reference: ' + (data.transaction_reference || 'N/A') : ''}
 
 ========================================
-This receipt is cryptographically signed.
-Scan the QR code to verify authenticity.
-Verify online: ${data.verificationUrl || ''}
-Token: ${data.verificationToken || data.verification_token || 'N/A'}
-
 Thank you for your payment!
     `;
 
@@ -931,60 +503,28 @@ Thank you for your payment!
     toast.success('Receipt downloaded');
   };
 
-  const getSecurityIcon = () => {
-    switch (securityStatus) {
-      case 'authentic': return <ShieldCheck className="w-4 h-4 text-green-600 dark:text-green-400" />;
-      case 'revoked': return <ShieldAlert className="w-4 h-4 text-red-600 dark:text-red-400" />;
-      case 'error': return <ShieldAlert className="w-4 h-4 text-orange-600 dark:text-orange-400" />;
-      case 'loading': return <Loader2 className="w-4 h-4 animate-spin text-blue-600 dark:text-blue-400" />;
-      default: return <Shield className="w-4 h-4 text-gray-600 dark:text-gray-400" />;
-    }
-  };
-
-  const getSecurityColor = () => {
-    switch (securityStatus) {
-      case 'authentic': return 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800';
-      case 'revoked': return 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800';
-      case 'error': return 'bg-orange-50 border-orange-200 dark:bg-orange-900/20 dark:border-orange-800';
-      case 'loading': return 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800';
-      default: return 'bg-gray-50 border-gray-200 dark:bg-gray-700/30 dark:border-gray-600';
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4">
       <motion.div
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+        className="bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto"
       >
-        <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-3 sm:p-4 flex items-center justify-between no-print">
+        <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-3 sm:p-4 flex items-center justify-between">
           <h3 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             <Receipt className="w-4 h-4 sm:w-5 sm:h-5 text-green-500" />
             Payment Receipt
           </h3>
-          <button onClick={onClose} className="p-1.5 sm:p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all no-print">
+          <button onClick={onClose} className="p-1.5 sm:p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all">
             <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
 
-        <div ref={receiptRef} className="p-4 sm:p-6 space-y-4" id="receipt-content">
-          {/* Receipt Header */}
-          <div className="text-center border-b border-gray-200 dark:border-gray-700 pb-4">
-            <h2 className="text-xl sm:text-2xl font-bold text-blue-700 dark:text-blue-400">Ebenezer International School</h2>
-            <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Official Payment Receipt</p>
-            <p className="text-[10px] sm:text-xs text-gray-400 mt-1">Branch: {data.branch_code || 'EISO'}</p>
-          </div>
-
-          {/* Status Icon */}
+        <div className="p-4 sm:p-6 space-y-4" id="receipt-content">
           <div className="text-center">
-            <div className="flex items-center justify-center mx-auto mb-3">
-              {isBankTransfer ? (
-                <img src={transferSuccessImg} alt="Bank Transfer" className="w-16 h-16 sm:w-20 sm:h-20 object-contain" />
-              ) : (
-                <img src={transferSuccessImg} alt="Payment Success" className="w-16 h-16 sm:w-20 sm:h-20 object-contain" />
-              )}
+            <div className="w-16 h-16 sm:w-20 sm:h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-3">
+              <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-green-600 dark:text-green-400" />
             </div>
             <h4 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white">
               {isBankTransfer ? 'Payment Submitted!' : 'Payment Successful!'}
@@ -996,170 +536,62 @@ Thank you for your payment!
             </p>
           </div>
 
-          {/* Security Badge */}
-          <div className={`flex flex-wrap items-center justify-center gap-2 p-2 rounded-lg border ${getSecurityColor()}`}>
-            {getSecurityIcon()}
-            <span className={`text-xs sm:text-sm font-medium text-center ${
-              securityStatus === 'authentic' ? 'text-green-700 dark:text-green-300' :
-              securityStatus === 'revoked' ? 'text-red-700 dark:text-red-300' :
-              securityStatus === 'error' ? 'text-orange-700 dark:text-orange-300' :
-              securityStatus === 'loading' ? 'text-blue-700 dark:text-blue-300' :
-              'text-gray-700 dark:text-gray-300'
-            }`}>
-              {securityMessage}
-            </span>
-            {securityStatus === 'authentic' && (
-              <span className="text-xs text-green-600 dark:text-green-400">🔒 Verified</span>
-            )}
-            {securityStatus === 'unknown' && (
-              <button
-                onClick={() => {
-                  setSecurityStatus('loading');
-                  setSecurityMessage('Retrying verification...');
-                  setTimeout(() => {
-                    setSecurityStatus('authentic');
-                    setSecurityMessage('✅ Cryptographically verified receipt');
-                  }, 1500);
-                }}
-                className="text-xs text-blue-600 hover:underline"
-              >
-                Retry
-              </button>
-            )}
+          <div className="text-center border-b border-gray-200 dark:border-gray-700 pb-3">
+            <h5 className="text-sm font-bold text-gray-900 dark:text-white">Ebenezer International School</h5>
+            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Official Payment Receipt</p>
           </div>
 
-          {/* Verification Token */}
-          <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3 text-center border border-gray-200 dark:border-gray-600">
-            <div className="flex items-center justify-center gap-2 mb-1">
-              <Key className="w-3 h-3 sm:w-4 sm:h-4 text-gray-500 flex-shrink-0" />
-              <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Verification Token</p>
-            </div>
-            <p className="text-xs sm:text-sm font-mono font-bold text-blue-600 dark:text-blue-400 break-all">
-              {data.verificationToken || data.verification_token || generateVerificationToken()}
-            </p>
-            <p className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-              Keep this token safe. It proves receipt authenticity.
-            </p>
-          </div>
-
-          {/* Payment Details Grid - Responsive */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 text-xs sm:text-sm bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3 sm:p-4">
-            <div className="flex flex-col min-w-0">
+          <div className="space-y-1.5 text-xs sm:text-sm">
+            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
               <span className="text-gray-500 dark:text-gray-400">Payment ID</span>
-              <span className="font-medium text-gray-900 dark:text-white font-mono text-[10px] sm:text-xs break-all">
-                {data.payment_id || data.id || 'N/A'}
-              </span>
+              <span className="font-medium text-gray-900 dark:text-white font-mono text-[10px]">{data.payment_id || data.id || 'N/A'}</span>
             </div>
-            <div className="flex flex-col min-w-0">
+            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
               <span className="text-gray-500 dark:text-gray-400">Receipt Number</span>
-              <span className="font-medium text-gray-900 dark:text-white font-mono text-[10px] sm:text-xs break-all">
-                {data.receipt_number || 'N/A'}
-              </span>
+              <span className="font-medium text-gray-900 dark:text-white">{data.receipt_number || 'N/A'}</span>
             </div>
-            <div className="flex flex-col min-w-0">
+            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
               <span className="text-gray-500 dark:text-gray-400">Date</span>
               <span className="font-medium text-gray-900 dark:text-white">
-                {dayjs(data.payment_date || new Date()).format('MMM D, YYYY h:mm A')}
+                {dayjs(data.payment_date || new Date()).format('MMMM D, YYYY h:mm A')}
               </span>
             </div>
-            <div className="flex flex-col min-w-0">
-              <span className="text-gray-500 dark:text-gray-400">Status</span>
-              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium w-fit ${
-                isBankTransfer 
-                  ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                  : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-              }`}>
-                {isBankTransfer ? 'Pending Verification' : 'Completed'}
-              </span>
-            </div>
-            <div className="flex flex-col col-span-1 sm:col-span-2 min-w-0">
+            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
               <span className="text-gray-500 dark:text-gray-400">Student</span>
-              <span className="font-medium text-gray-900 dark:text-white break-words">{data.student_name || 'N/A'}</span>
+              <span className="font-medium text-gray-900 dark:text-white">{data.student_name || 'N/A'}</span>
             </div>
-            <div className="flex flex-col min-w-0">
+            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
               <span className="text-gray-500 dark:text-gray-400">Student ID</span>
-              <span className="font-medium text-gray-900 dark:text-white break-all">{data.student_id || 'N/A'}</span>
+              <span className="font-medium text-gray-900 dark:text-white">{data.student_id || 'N/A'}</span>
             </div>
-            <div className="flex flex-col min-w-0">
+            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
               <span className="text-gray-500 dark:text-gray-400">Class</span>
-              <span className="font-medium text-gray-900 dark:text-white break-words">{data.class_name || 'N/A'}</span>
+              <span className="font-medium text-gray-900 dark:text-white">{data.class_name || 'N/A'}</span>
             </div>
-            <div className="flex flex-col min-w-0">
+            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
               <span className="text-gray-500 dark:text-gray-400">Fee</span>
-              <span className="font-medium text-gray-900 dark:text-white break-words">{data.fee_name || 'N/A'}</span>
+              <span className="font-medium text-gray-900 dark:text-white">{data.fee_name || 'N/A'}</span>
             </div>
-            <div className="flex flex-col min-w-0">
+            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
               <span className="text-gray-500 dark:text-gray-400">Payment Method</span>
-              <span className="font-medium text-gray-900 dark:text-white capitalize break-words">{data.payment_method || 'N/A'}</span>
+              <span className="font-medium text-gray-900 dark:text-white capitalize">{data.payment_method || 'N/A'}</span>
             </div>
             {data.transaction_reference && (
-              <div className="flex flex-col col-span-1 sm:col-span-2 min-w-0">
+              <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
                 <span className="text-gray-500 dark:text-gray-400">Transaction Ref</span>
-                <span className="font-medium text-gray-900 dark:text-white font-mono text-[10px] sm:text-xs break-all">
+                <span className="font-medium text-gray-900 dark:text-white font-mono text-[10px] sm:text-xs truncate max-w-[150px]">
                   {data.transaction_reference}
                 </span>
               </div>
             )}
-            <div className="flex flex-col col-span-1 sm:col-span-2 pt-2 border-t border-gray-200 dark:border-gray-600">
-              <span className="text-gray-500 dark:text-gray-400">Amount Paid</span>
-              <span className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400">
+            <div className="flex justify-between py-2 border-t-2 border-gray-300 dark:border-gray-600 mt-2">
+              <span className="font-semibold text-gray-900 dark:text-white">Amount Paid</span>
+              <span className="font-bold text-lg text-green-600 dark:text-green-400">
                 {formatCurrencyFn(data.amount || 0)}
               </span>
             </div>
           </div>
 
-          {/* Barcode Section - Responsive */}
-          <div className="barcode-section bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3 sm:p-4 text-center border border-gray-200 dark:border-gray-600 overflow-hidden">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <Barcode className="w-3 h-3 sm:w-4 sm:h-4 text-gray-500 flex-shrink-0" />
-              <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Payment Authentication</p>
-              <Lock className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 flex-shrink-0" />
-            </div>
-            <div className="w-full overflow-x-auto flex justify-center">
-              <svg ref={setBarcodeRef} className="max-w-full" style={{ height: 'auto', minWidth: '200px', maxWidth: '100%' }} />
-            </div>
-            <p className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500 mt-1 font-mono break-all">
-              {data.barcodePayload || data.receipt_barcode_payload || `EIS|${data.receipt_number}|${data.signature || 'N/A'}`}
-            </p>
-            <p className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-              Scan with any barcode scanner to verify authenticity
-            </p>
-          </div>
-
-          {/* QR Code Section - Responsive */}
-          <div className="qr-section text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <QrCode className="w-3 h-3 sm:w-4 sm:h-4 text-gray-500 flex-shrink-0" />
-              <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Scan to Verify</p>
-              <ShieldCheck className="w-3 h-3 sm:w-4 sm:h-4 text-green-500 flex-shrink-0" />
-            </div>
-            <div className="inline-block bg-white dark:bg-gray-900 p-2 rounded-lg border border-gray-200 dark:border-gray-600">
-              <QRCodeCanvas
-                value={data.qrPayload || data.receipt_qr_payload || JSON.stringify({
-                  v: 2,
-                  token: data.verificationToken || data.verification_token || 'N/A',
-                  receipt: data.receipt_number,
-                  signature: data.signature || data.receipt_signature || 'N/A',
-                })}
-                size={Math.min(150, window.innerWidth - 100)}
-                bgColor="#ffffff"
-                fgColor="#000000"
-                level="H"
-                includeMargin={true}
-              />
-            </div>
-            <p className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500 mt-1">
-              Scan with your phone to verify this receipt
-            </p>
-            {data.verificationUrl && (
-              <p className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500 mt-1 break-all flex items-center justify-center gap-1">
-                <ExternalLink className="w-3 h-3 flex-shrink-0" />
-                <span className="break-all">Verify at: {data.verificationUrl}</span>
-              </p>
-            )}
-          </div>
-
-          {/* Progress */}
           <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
             <div className="flex justify-between text-xs sm:text-sm mb-1">
               <span className="text-gray-500 dark:text-gray-400">Payment Progress</span>
@@ -1176,29 +608,32 @@ Thank you for your payment!
             </p>
           </div>
 
-          <div className="text-center border-t border-gray-200 dark:border-gray-700 pt-3">
-            <p className="text-[10px] sm:text-xs text-gray-400 dark:text-gray-500">
-              {isBankTransfer 
-                ? 'This payment is pending verification. You will receive a confirmation email once approved.'
-                : 'Thank you for your payment. This receipt is cryptographically signed and can be verified.'}
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-4 mt-2">
-              <span className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500 break-all">
-                Receipt Code: {data.receipt_code || 'N/A'}
-              </span>
-              <span className="text-[8px] sm:text-[10px] text-gray-400 dark:text-gray-500 break-all">
-                Payment ID: {data.payment_id || data.id || 'N/A'}
-              </span>
-            </div>
-            {securityStatus === 'authentic' && (
-              <p className="text-[8px] sm:text-[10px] text-green-600 dark:text-green-400 mt-1 flex items-center justify-center gap-1">
-                <Verified className="w-3 h-3" />
-                Cryptographically verified receipt
+          <div className="text-center">
+            <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${
+              isBankTransfer 
+                ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+            }`}>
+              {isBankTransfer ? (
+                <>
+                  <Clock className="w-3 h-3" />
+                  Pending Verification
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="w-3 h-3" />
+                  Completed
+                </>
+              )}
+            </span>
+            {isBankTransfer && (
+              <p className="text-[10px] sm:text-xs text-gray-400 dark:text-gray-500 mt-1">
+                Your payment will be verified within 24-48 hours
               </p>
             )}
           </div>
 
-          <div className="flex flex-col xs:flex-row gap-2 no-print">
+          <div className="flex flex-col xs:flex-row gap-2">
             <button onClick={handlePrint} className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-sm flex items-center justify-center gap-2">
               <Printer className="w-4 h-4" />
               Print
@@ -1314,245 +749,6 @@ const ImageUploadPreview: React.FC<{
 };
 
 // ============================================
-// FAILURE MODAL WITH FAILED IMAGE
-// ============================================
-const FailureModal: React.FC<{
-  isOpen: boolean;
-  title: string;
-  message: string;
-  details?: string;
-  onRetry: () => void;
-  onCancel: () => void;
-}> = ({ isOpen, title, message, details, onRetry, onCancel }) => {
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4">
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl max-w-md w-full p-4 sm:p-6 text-center"
-      >
-        <div className="flex items-center justify-center mb-3 sm:mb-4">
-          <img src={failedImg} alt="Payment Failed" className="w-16 h-16 sm:w-20 sm:h-20 object-contain" />
-        </div>
-        <h3 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white">{title || 'Payment Failed'}</h3>
-        <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-2">
-          {message || 'There was an issue processing your payment. Please try again.'}
-        </p>
-        {details && (
-          <p className="text-[10px] sm:text-xs text-gray-400 mt-1">{details}</p>
-        )}
-        <div className="flex flex-col xs:flex-row gap-2 sm:gap-3 mt-4">
-          <button
-            onClick={onCancel}
-            className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg sm:rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-sm"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onRetry}
-            className="flex-1 px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg sm:rounded-xl font-medium hover:opacity-90 transition-all text-sm"
-          >
-            Retry
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-};
-
-// ============================================
-// PART 5 — UPDATE ASSIGNMENT AFTER PAYMENT
-// ============================================
-const updateAssignmentAfterPayment = async (
-  assignmentId: string,
-  additionalAmount: number
-) => {
-  try {
-    const { data: assignment, error: assignmentError } = await supabase
-      .from('student_fee_assignments')
-      .select('*')
-      .eq('id', assignmentId)
-      .single();
-
-    if (assignmentError) throw assignmentError;
-    if (!assignment) throw new Error('Fee assignment not found');
-
-    const currentPaid = Number(assignment.amount_paid || 0);
-    const amountDue = Number(
-      assignment.amount_due ??
-      assignment.original_amount ??
-      0
-    );
-
-    const newPaid = Math.min(
-      amountDue,
-      currentPaid + Number(additionalAmount)
-    );
-
-    const newBalance = Math.max(
-      0,
-      amountDue - newPaid
-    );
-
-    const newStatus =
-      newBalance <= 0
-        ? 'paid'
-        : newPaid > 0
-          ? 'partial'
-          : 'unpaid';
-
-    const { error: updateError } = await supabase
-      .from('student_fee_assignments')
-      .update({
-        amount_paid: newPaid,
-        balance: newBalance,
-        payment_status: newStatus,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', assignmentId);
-
-    if (updateError) throw updateError;
-
-    return {
-      amount_paid: newPaid,
-      balance: newBalance,
-      payment_status: newStatus
-    };
-  } catch (error) {
-    console.error(
-      'Error updating assignment after payment:',
-      error
-    );
-
-    throw error;
-  }
-};
-
-// ============================================
-// PART 6 — PAYMENT RECORD SAVING (FIXED WITH SECURITY)
-// ============================================
-const savePaymentRecord = async (params: {
-  assignmentId: string;
-  feeId: string;
-  studentId: string;
-  branchId: string;
-  amount: number;
-  amountPaid: number;
-  reference: string;
-  status: 'pending' | 'success' | 'failed';
-  failureReason?: string;
-  gatewayReference?: string;
-  paymentMethod?: string;
-  paymentProofUrl?: string;
-  transactionReference?: string;
-  academicSession?: string;
-  academicTerm?: string;
-  createdBy?: string;
-  studentName?: string;
-  studentIdNumber?: string;
-  feeName?: string;
-  branchCode?: string;
-}) => {
-  try {
-    const paymentId = await generatePaymentId();
-    const { receiptNumber, receiptCode } = await generateReceiptNumber(
-      params.branchCode || 'EISO',
-      params.academicSession || '2026/2027'
-    );
-    
-    // Generate verification token
-    const verificationToken = generateVerificationToken();
-
-    const paymentData = {
-      payment_id: paymentId,
-      receipt_number: receiptNumber,
-      receipt_code: receiptCode,
-      verification_token: verificationToken,
-      student_id: params.studentId,
-      fee_id: params.feeId,
-      assignment_id: params.assignmentId,
-      branch_id: params.branchId,
-      amount: params.amount,
-      amount_paid: params.amountPaid,
-      balance: Math.max(0, params.amount - params.amountPaid),
-      payment_method: params.paymentMethod || 'paystack',
-      payment_date: new Date().toISOString(),
-      status: params.status === 'success' ? 'completed' : params.status === 'pending' ? 'pending' : 'failed',
-      transaction_reference: params.reference,
-      gateway_reference: params.gatewayReference || params.reference,
-      failure_reason: params.failureReason || null,
-      created_by: params.createdBy || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      payment_proof_url: params.paymentProofUrl || null,
-      academic_session: params.academicSession || null,
-      academic_term: params.academicTerm || null,
-      branch_code: params.branchCode || 'EISO',
-      gateway_response: params.status === 'success' ? { success: true } : { failed: true, reason: params.failureReason },
-      receipt_security_status: 'PENDING',
-      receipt_security_version: 2,
-      metadata: {
-        student_name: params.studentName || '',
-        student_id: params.studentIdNumber || '',
-        fee_name: params.feeName || '',
-        payment_method: params.paymentMethod || 'paystack',
-        assignment_id: params.assignmentId,
-        reference: params.reference,
-        transaction_reference: params.transactionReference || null,
-        receipt_code: receiptCode,
-        verification_token: verificationToken,
-      }
-    };
-
-    const { data, error } = await supabase
-      .from('payments')
-      .insert([paymentData])
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error saving payment:', error);
-      throw error;
-    }
-
-    // Generate receipt signature
-    if (data?.id) {
-      const securityData = await createReceiptSignature(data.id);
-      if (securityData) {
-        // Update the payment with security data
-        await supabase
-          .from('payments')
-          .update({
-            receipt_signature: securityData.signature,
-            receipt_barcode_payload: securityData.barcodePayload,
-            receipt_qr_payload: securityData.qrPayload,
-            receipt_security_status: 'AUTHENTIC',
-            verification_token: securityData.verificationToken || verificationToken,
-          })
-          .eq('id', data.id);
-        
-        // Return the updated payment with security data
-        const { data: updatedPayment } = await supabase
-          .from('payments')
-          .select('*')
-          .eq('id', data.id)
-          .single();
-        
-        return updatedPayment || data;
-      }
-    }
-
-    return data;
-  } catch (error) {
-    console.error('Error saving payment record:', error);
-    throw error;
-  }
-};
-
-// ============================================
 // MAIN PARENTPAYBILL COMPONENT
 // ============================================
 const ParentPayBill: React.FC = () => {
@@ -1569,6 +765,7 @@ const ParentPayBill: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('paystack');
   const [amount, setAmount] = useState(0);
   const [processing, setProcessing] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [showFailure, setShowFailure] = useState(false);
   const [failureReason, setFailureReason] = useState('');
   const [failureDetails, setFailureDetails] = useState('');
@@ -1576,7 +773,7 @@ const ParentPayBill: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [gatewayLoading, setGatewayLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [filterStatus, setFilterStatus] = useState<'all' | 'unpaid' | 'paid' | 'overdue' | 'pending' | 'cancelled' | 'failed' | 'waived'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'unpaid' | 'paid' | 'overdue' | 'pending' | 'cancelled' | 'failed'>('all');
   const [expandedFee, setExpandedFee] = useState<string | null>(null);
   const [selectedFailedPayment, setSelectedFailedPayment] = useState<any | null>(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
@@ -1599,13 +796,32 @@ const ParentPayBill: React.FC = () => {
   const [transactionReference, setTransactionReference] = useState('');
   const [showBankTransferSuccess, setShowBankTransferSuccess] = useState(false);
   const [bankTransferData, setBankTransferData] = useState<any | null>(null);
+  const [wasCancelledByUser, setWasCancelledByUser] = useState(false);
+
+  // Paystack lifecycle refs: onClose can fire immediately after callback.
+  // Never let a late onClose overwrite a successful/failed terminal result.
+  const paystackTerminalRef = useRef<'none' | 'success' | 'failed' | 'cancelled' | 'network'>('none');
+  const paystackCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const paystackCallbackReceivedRef = useRef(false);
+  const paystackPopupOpenRef = useRef(false);
   const [fileName, setFileName] = useState<string | null>(null);
   
   // Refs
   const pendingReferenceRef = useRef<string | null>(null);
   const pendingAmountRef = useRef<number>(0);
   const pendingAssignmentIdRef = useRef<string | null>(null);
+  const pendingStudentIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // IMPORTANT: declare this BEFORE any callback that uses it.
+  // Paystack callbacks/onClose use this to clear the current transaction refs.
+  function clearPaystackRefs(): void {
+    pendingReferenceRef.current = null;
+    pendingAmountRef.current = 0;
+    pendingAssignmentIdRef.current = null;
+    pendingStudentIdRef.current = null;
+    paystackPopupOpenRef.current = false;
+  }
 
   // User info for audit
   const [userIP, setUserIP] = useState<string>('Not recorded');
@@ -1782,7 +998,7 @@ const ParentPayBill: React.FC = () => {
   // ============================================
   // FETCH FEE BREAKDOWN AND DETAILS
   // ============================================
-  const fetchBreakdownForAssignment = useCallback(async (assignmentId: string, feeId: string) => {
+  const fetchBreakdownForAssignment = useCallback(async (assignmentId: string, feeId: string, templateId?: string) => {
     if (breakdownData[assignmentId]) return;
     if (loadingBreakdown[assignmentId]) return;
     
@@ -1919,171 +1135,116 @@ const ParentPayBill: React.FC = () => {
   };
 
   // ============================================
-  // PART 3 — PAYMENT STATUS (FIXED)
+  // FIXED: Get payment status from payments (source of truth)
   // ============================================
   const getPaymentStatusForAssignment = (assignment: any) => {
-    const assignmentPayments = payments.filter(
-      p => p.assignment_id === assignment.id
-    );
-
-    const completedPayments = assignmentPayments.filter(
-      p =>
-        p.status === 'completed' ||
-        p.status === 'success'
-    );
-
-    const pendingPayments = assignmentPayments.filter(
-      p =>
-        p.status === 'pending' ||
-        p.status === 'processing'
-    );
-
-    const failedPayments = assignmentPayments.filter(
-      p =>
-        p.status === 'failed' ||
-        p.status === 'rejected'
-    );
-
-    const cancelledPayments = assignmentPayments.filter(
-      p =>
-        p.status === 'cancelled' ||
-        p.status === 'canceled'
-    );
-
-    const totalPaidFromPayments = completedPayments.reduce(
-      (sum, p) => sum + Number(p.amount_paid || p.amount || 0),
-      0
-    );
-
-    const amountDue = Number(
-      assignment.amount_due ??
-      assignment.original_amount ??
-      assignment.amount ??
-      0
-    );
-
-    const storedBalance = Number(assignment.balance || 0);
-
-    const calculatedBalance = Math.max(
-      0,
-      amountDue - totalPaidFromPayments
-    );
-
-    const balance =
-      completedPayments.length > 0
-        ? calculatedBalance
-        : storedBalance || calculatedBalance;
-
+    // Get all payments for this assignment
+    const assignmentPayments = payments.filter(p => p.assignment_id === assignment.id);
+    
+    // Calculate total paid from payments (source of truth)
+    const totalPaidFromPayments = assignmentPayments
+      .filter(p => ['success', 'completed', 'approved', 'paid'].includes(String(p.status).toLowerCase()))
+      .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
+    
+    // Get balance from assignment or calculate
+    const balance = assignment.balance || Math.max(0, assignment.amount_due - totalPaidFromPayments);
+    
+    // Check for cancelled or failed payments
+    const hasCancelled = assignmentPayments.some(p => p.status === 'cancelled' || p.status === 'canceled');
+    const hasFailed = assignmentPayments.some(p => p.status === 'failed' || p.status === 'rejected');
+    const hasPending = assignmentPayments.some(p => p.status === 'pending' || p.status === 'processing');
+    
+    // Determine status based on payments
     let status = assignment.payment_status || 'unpaid';
     let label = 'Unpaid';
-    let badgeColor =
-      'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
-    let isPayable = balance > 0;
+    let badgeColor = 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
+    let isPayable = false;
     let icon = Clock;
 
-    if (pendingPayments.length > 0) {
+    if (hasPending) {
       status = 'pending';
       label = 'Pending';
-      badgeColor =
-        'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
+      badgeColor = 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
       isPayable = false;
       icon = Clock;
-    } else if (failedPayments.length > 0 && balance > 0) {
+    } else if (hasCancelled) {
+      status = 'cancelled';
+      label = 'Cancelled';
+      badgeColor = 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
+      isPayable = true;
+      icon = X;
+    } else if (hasFailed) {
       status = 'failed';
       label = 'Failed';
-      badgeColor =
-        'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
+      badgeColor = 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
       isPayable = true;
       icon = AlertTriangle;
-    } else if (
-      assignment.payment_status === 'waived' ||
-      (
-        Number(assignment.discount_amount || 0) >= amountDue &&
-        amountDue > 0
-      )
-    ) {
+    } else if (assignment.payment_status === 'waived') {
       status = 'waived';
       label = 'Exempted';
-      badgeColor =
-        'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
+      badgeColor = 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
       isPayable = false;
       icon = Shield;
-    } else if (balance <= 0) {
+    } else if (balance === 0 || assignment.payment_status === 'paid') {
       status = 'paid';
       label = 'Paid';
-      badgeColor =
-        'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
+      badgeColor = 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
       isPayable = false;
       icon = CheckCircle;
-    } else if (
-      assignment.due_date &&
-      new Date(assignment.due_date) < new Date() &&
-      balance > 0
-    ) {
+    } else if (assignment.payment_status === 'overdue' || (assignment.due_date && new Date(assignment.due_date) < new Date() && balance > 0)) {
       status = 'overdue';
       label = 'Overdue';
-      badgeColor =
-        'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+      badgeColor = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+      isPayable = true;
+      icon = AlertCircle;
+    } else if (balance > 0 && totalPaidFromPayments > 0) {
+      // Partial payment detected
+      status = 'partial';
+      label = 'Partial';
+      badgeColor = 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
       isPayable = true;
       icon = AlertCircle;
     } else if (balance > 0) {
       status = 'unpaid';
       label = 'Unpaid';
-      badgeColor =
-        'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
+      badgeColor = 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
       isPayable = true;
       icon = Clock;
     }
 
-    return {
-      status,
-      label,
-      badgeColor,
-      isPayable,
-      icon,
-      balance,
-      amountDue,
-      totalPaidFromPayments,
-      completedPayments,
-      pendingPayments,
-      failedPayments,
-      cancelledPayments
-    };
+    return { status, label, badgeColor, isPayable, icon, balance, totalPaidFromPayments };
   };
 
-  // ============================================
-  // PART 11 — HANDLE PAY NOW (FIXED)
-  // ============================================
   const handlePayNow = (assignment: any) => {
     if (!paymentGateway && !gatewayLoading) {
       toast.error('Payment configuration not loaded. Please try again.');
       return;
     }
     
-    const statusInfo = getPaymentStatusForAssignment(assignment);
+    const status = getPaymentStatusForAssignment(assignment);
     
-    if (statusInfo.status === 'paid') {
-      toast.success('✅ This fee is already paid');
+    if (status.status === 'cancelled' || status.status === 'failed') {
+      setSelectedAssignment(assignment);
+      setAmount(assignment.balance || 0);
+      setShowPaymentModal(true);
+      handleFileRemove();
+      setTransactionReference('');
       return;
     }
     
-    if (statusInfo.status === 'waived') {
-      toast.info('🛡️ This fee is exempted');
-      return;
-    }
-    
-    if (statusInfo.status === 'pending') {
-      toast.info('⏳ Payment is awaiting confirmation');
-      return;
-    }
-    
-    if (!statusInfo.isPayable || statusInfo.balance <= 0) {
-      toast.info('This fee is not payable at this time');
+    if (!status.isPayable) {
+      if (status.status === 'paid') {
+        toast.success('✅ This fee is already paid');
+      } else if (status.status === 'pending') {
+        toast.info('⏳ Payment is awaiting confirmation');
+      } else if (status.status === 'waived') {
+        toast.info('🛡️ This fee is exempted');
+      }
       return;
     }
     
     setSelectedAssignment(assignment);
-    setAmount(statusInfo.balance);
+    setAmount(assignment.balance || 0);
     setShowPaymentModal(true);
     handleFileRemove();
     setTransactionReference('');
@@ -2096,9 +1257,6 @@ const ParentPayBill: React.FC = () => {
     setShowErrorModal(true);
   };
 
-  // ============================================
-  // PART 9 — UPLOAD PAYMENT PROOF
-  // ============================================
   const uploadPaymentProof = async (file: File, paymentId: string): Promise<{ path: string; url: string } | null> => {
     try {
       const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
@@ -2128,9 +1286,304 @@ const ParentPayBill: React.FC = () => {
     }
   };
 
-  // ============================================
-  // PART 7 — PAYSTACK PAYMENT (REAL - NO FAKE TIMEOUT)
-  // ============================================
+  const savePaymentRecord = async (params: {
+    assignmentId: string;
+    amount: number;
+    reference: string;
+    status: 'pending' | 'success' | 'failed';
+    failureReason?: string;
+    gatewayReference?: string;
+    paymentMethod?: string;
+    paymentProofUrl?: string;
+    paymentProofPath?: string;
+    transactionReference?: string;
+  }) => {
+    try {
+      const paymentId = generatePaymentId();
+      const receiptNumber = `RCP-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+      const paymentData = {
+        payment_id: paymentId,
+        receipt_number: receiptNumber,
+        student_id: selectedChild?.id,
+        assignment_id: params.assignmentId,
+        fee_id: selectedAssignment?.fee_id,
+        amount: params.amount,
+        // CRITICAL: cancelled/pending/failed transactions are NOT money received.
+        // Only a successful/completed payment gets amount_paid.
+        amount_paid: params.status === 'success' ? params.amount : 0,
+        balance: params.status === 'success' ? 0 : params.amount,
+        payment_method: params.paymentMethod || 'paystack',
+        payment_date: new Date().toISOString(),
+        status: params.status === 'success' ? 'completed' : params.status === 'pending' ? 'pending' : 'failed',
+        transaction_reference: params.reference,
+        gateway_reference: params.gatewayReference || params.reference,
+        failure_reason: params.failureReason || null,
+        branch_id: selectedChild?.branch_id,
+        created_by: user?.id,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        payment_proof_url: params.paymentProofUrl || null,
+        payment_proof_path: params.paymentProofPath || null,
+        gateway_response: params.status === 'success' ? { success: true } : { failed: true, reason: params.failureReason },
+        metadata: {
+          student_name: `${selectedChild?.first_name} ${selectedChild?.last_name}`,
+          student_id: selectedChild?.id,
+          fee_name: selectedAssignment?.fee_name,
+          fee_id: selectedAssignment?.fee_id,
+          payment_method: params.paymentMethod || 'paystack',
+          assignment_id: params.assignmentId,
+          reference: params.reference,
+          transaction_reference: params.transactionReference || null,
+          ip_address: userIP,
+          user_agent: userAgent,
+          parent_id: user?.id,
+        }
+      };
+
+      const { data, error } = await supabase
+        .from('payments')
+        .insert([paymentData])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error saving payment:', error);
+        throw error;
+      }
+
+      if (params.status === 'success') {
+        await updateAssignmentAfterPayment(params.assignmentId, params.amount);
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error saving payment record:', error);
+      throw error;
+    }
+  };
+
+  const updateAssignmentAfterPayment = async (assignmentId: string, amountPaid: number) => {
+    try {
+      const { data: assignment } = await supabase
+        .from('student_fee_assignments')
+        .select('amount_paid, balance, amount_due')
+        .eq('id', assignmentId)
+        .single();
+
+      if (!assignment) return;
+
+      const newPaid = (assignment.amount_paid || 0) + amountPaid;
+      const newBalance = Math.max(0, (assignment.balance || 0) - amountPaid);
+      const newStatus = newBalance <= 0 ? 'paid' : 'partial';
+
+      await supabase
+        .from('student_fee_assignments')
+        .update({
+          amount_paid: newPaid,
+          balance: newBalance,
+          payment_status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', assignmentId);
+
+    } catch (error) {
+      console.error('Error updating assignment:', error);
+      throw error;
+    }
+  };
+
+  const handlePaymentSuccess = useCallback(async (reference: string) => {
+    const assignmentId = pendingAssignmentIdRef.current;
+    const amount = pendingAmountRef.current;
+    
+    if (!reference || !assignmentId) {
+      toast.error('Missing payment information');
+      return;
+    }
+    
+    try {
+      const { data: paymentRecord } = await supabase
+        .from('payments')
+        .select('*')
+        .eq('transaction_reference', reference)
+        .single();
+
+      await supabase
+        .from('payments')
+        .update({
+          status: 'completed',
+          approved_by: user?.id,
+          approved_at: new Date().toISOString(),
+          gateway_reference: reference,
+          updated_at: new Date().toISOString(),
+          gateway_response: { success: true, reference },
+        })
+        .eq('transaction_reference', reference);
+
+      await updateAssignmentAfterPayment(assignmentId, amount);
+      
+      await refreshPaymentData();
+      if (selectedChild?.id) {
+        await fetchPayments(selectedChild.id);
+      }
+      
+      const successData = {
+        id: paymentRecord?.payment_id || paymentRecord?.id,
+        payment_id: paymentRecord?.payment_id,
+        receipt_number: paymentRecord?.receipt_number,
+        amount: amount,
+        payment_date: paymentRecord?.payment_date || new Date().toISOString(),
+        payment_method: 'paystack',
+        reference: reference,
+        transaction_reference: reference,
+        student_name: `${selectedChild?.first_name} ${selectedChild?.last_name}`,
+        student_id: selectedChild?.student_id || selectedChild?.admission_number,
+        class_name: selectedChild?.class_name,
+        fee_name: selectedAssignment?.fee_name,
+        status: 'completed',
+      };
+      
+      setSuccessPaymentData(successData);
+      setShowSuccessReceipt(true);
+      setShowPaymentModal(false);
+      
+      toast.success(`Payment of ${formatCurrency(amount)} completed successfully!`);
+      setProcessing(false);
+      
+      paystackTerminalRef.current = 'success';
+      clearPaystackRefs();
+      
+    } catch (error) {
+      console.error('Error updating payment:', error);
+      toast.error('Payment succeeded but failed to update records. Please contact support.');
+      setProcessing(false);
+    }
+  }, [selectedChild, user, selectedAssignment, refreshPaymentData, clearPaystackRefs]);
+
+  const handlePaymentFailure = useCallback(async (reference: string, message?: string) => {
+    if (!reference) return;
+    
+    try {
+      await supabase
+        .from('payments')
+        .update({
+          status: 'failed',
+          failure_reason: message || 'Payment failed',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('transaction_reference', reference);
+      
+      setFailureReason(message || 'Payment failed. Please try again.');
+      setShowFailure(true);
+      setProcessing(false);
+      paystackTerminalRef.current = 'failed';
+      clearPaystackRefs();
+    } catch (error) {
+      console.error('Error updating failed payment:', error);
+    }
+  }, []);
+
+  const paystackCallback = useCallback((response: any) => {
+    const reference = pendingReferenceRef.current;
+    if (!reference) return;
+
+    paystackCallbackReceivedRef.current = true;
+
+    // Paystack success is terminal. Mark it before awaiting DB work so a
+    // subsequent onClose event cannot turn the payment into cancelled/pending.
+    if (response?.status === 'success') {
+      paystackTerminalRef.current = 'success';
+      if (paystackCloseTimerRef.current) {
+        clearTimeout(paystackCloseTimerRef.current);
+        paystackCloseTimerRef.current = null;
+      }
+      void handlePaymentSuccess(reference);
+      return;
+    }
+
+    // A genuine Paystack callback with a non-success status is a failed payment,
+    // not a pending payment.
+    paystackTerminalRef.current = 'failed';
+    if (paystackCloseTimerRef.current) {
+      clearTimeout(paystackCloseTimerRef.current);
+      paystackCloseTimerRef.current = null;
+    }
+    void handlePaymentFailure(reference, response?.message || 'Payment failed');
+  }, [handlePaymentSuccess, handlePaymentFailure]);
+
+  const paystackOnClose = useCallback(() => {
+    const reference = pendingReferenceRef.current;
+    if (!reference) {
+      setProcessing(false);
+      return;
+    }
+
+    // Do NOT immediately mark pending/cancelled. Paystack can call onClose
+    // immediately after callback(), creating a race with the async success handler.
+    if (paystackTerminalRef.current !== 'none' || paystackCallbackReceivedRef.current) {
+      setProcessing(false);
+      return;
+    }
+
+    if (paystackCloseTimerRef.current) {
+      clearTimeout(paystackCloseTimerRef.current);
+    }
+
+    paystackCloseTimerRef.current = setTimeout(async () => {
+      const currentReference = pendingReferenceRef.current;
+      if (!currentReference || currentReference !== reference) return;
+
+      // Re-check the database before deciding this was a cancellation.
+      const { data: payment, error } = await supabase
+        .from('payments')
+        .select('status')
+        .eq('transaction_reference', reference)
+        .maybeSingle();
+
+      if (error) {
+        // Network/database failure: leave the record as pending because we
+        // cannot prove whether the payment was actually cancelled.
+        paystackTerminalRef.current = 'network';
+        setFailureReason('Network error while checking the Paystack payment. Please refresh or try again.');
+        setShowFailure(true);
+        setProcessing(false);
+        return;
+      }
+
+      if (payment?.status === 'completed' || payment?.status === 'success') {
+        paystackTerminalRef.current = 'success';
+        setProcessing(false);
+        clearPaystackRefs();
+        return;
+      }
+
+      if (payment?.status === 'failed' || payment?.status === 'rejected' || payment?.status === 'cancelled') {
+        setProcessing(false);
+        clearPaystackRefs();
+        return;
+      }
+
+      // The user closed Paystack without receiving a callback. This is the
+      // ONLY normal path where we convert the temporary pending row to cancelled.
+      await supabase
+        .from('payments')
+        .update({
+          status: 'cancelled',
+          failure_reason: 'User closed the Paystack payment window before completion',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('transaction_reference', reference)
+        .eq('status', 'pending');
+
+      paystackTerminalRef.current = 'cancelled';
+      setFailureReason('Payment was cancelled. No successful payment was recorded.');
+      setShowFailure(true);
+      setProcessing(false);
+      clearPaystackRefs();
+    }, 2500);
+  }, []);
+
   const handlePayWithPaystack = async () => {
     if (!selectedAssignment || !selectedChild) {
       toast.error('Missing payment information');
@@ -2147,61 +1600,31 @@ const ParentPayBill: React.FC = () => {
       return;
     }
 
-    // PART 10 — PREVENT DUPLICATE SUBMISSIONS
-    const { data: existingPending } = await supabase
-      .from('payments')
-      .select('id, payment_id, amount_paid, status')
-      .eq('assignment_id', selectedAssignment.id)
-      .in('status', ['pending', 'processing'])
-      .limit(1);
-
-    if (existingPending && existingPending.length > 0) {
-      toast.info(
-        'A payment for this fee is already awaiting confirmation.'
-      );
-      return;
-    }
-
     setProcessing(true);
     const reference = generateReference();
 
     try {
+      // Reset lifecycle state for this transaction.
+      if (paystackCloseTimerRef.current) {
+        clearTimeout(paystackCloseTimerRef.current);
+        paystackCloseTimerRef.current = null;
+      }
+      paystackTerminalRef.current = 'none';
+      paystackCallbackReceivedRef.current = false;
+      paystackPopupOpenRef.current = true;
+
       pendingReferenceRef.current = reference;
       pendingAmountRef.current = amount;
       pendingAssignmentIdRef.current = selectedAssignment.id;
+      pendingStudentIdRef.current = selectedChild.id;
 
-      // Get branch code
-      let branchCode = 'EISO';
-      if (selectedChild.branch_id) {
-        const { data: branchData } = await supabase
-          .from('branches')
-          .select('branch_code')
-          .eq('id', selectedChild.branch_id)
-          .single();
-        if (branchData?.branch_code) {
-          branchCode = branchData.branch_code;
-        }
-      }
-
-      // PART 6 — SAVE PAYMENT RECORD (PENDING)
-      const savedPayment = await savePaymentRecord({
+      await savePaymentRecord({
         assignmentId: selectedAssignment.id,
-        feeId: selectedAssignment.fee_id,
-        studentId: selectedChild.id,
-        branchId: selectedChild.branch_id,
-        amount: Number(selectedAssignment.amount_due || selectedAssignment.original_amount || 0),
-        amountPaid: Number(amount),
+        amount: amount,
         reference: reference,
         status: 'pending',
         gatewayReference: reference,
         paymentMethod: 'paystack',
-        academicSession: selectedAssignment.session,
-        academicTerm: selectedAssignment.term,
-        createdBy: user?.id,
-        studentName: `${selectedChild.first_name} ${selectedChild.last_name}`,
-        studentIdNumber: selectedChild.student_id,
-        feeName: selectedAssignment.fee_name,
-        branchCode: branchCode,
       });
 
       const handler = window.PaystackPop.setup({
@@ -2218,140 +1641,9 @@ const ParentPayBill: React.FC = () => {
           payment_type: 'fee_payment',
           branch_id: selectedChild.branch_id,
           parent_id: user?.id,
-          payment_id: savedPayment?.payment_id,
         },
-        callback: async (response: any) => {
-          if (response.status === 'success') {
-            try {
-              // Update payment to completed
-              const { data: updatedPayment } = await supabase
-                .from('payments')
-                .update({
-                  status: 'completed',
-                  gateway_reference: response.reference,
-                  updated_at: new Date().toISOString(),
-                  gateway_response: { success: true, reference: response.reference },
-                })
-                .eq('transaction_reference', reference)
-                .select()
-                .single();
-
-              // Update assignment
-              await updateAssignmentAfterPayment(selectedAssignment.id, amount);
-              
-              await refreshPaymentData();
-              if (selectedChild?.id) {
-                await fetchPayments(selectedChild.id);
-              }
-              
-              // Generate receipt signature if not already done
-              let securityData = {
-                signature: updatedPayment?.receipt_signature,
-                barcodePayload: updatedPayment?.receipt_barcode_payload,
-                qrPayload: updatedPayment?.receipt_qr_payload,
-                verificationToken: updatedPayment?.verification_token,
-              };
-
-              if (!securityData.signature && updatedPayment?.id) {
-                const sigData = await createReceiptSignature(updatedPayment.id);
-                if (sigData) {
-                  securityData = sigData;
-                  await supabase
-                    .from('payments')
-                    .update({
-                      receipt_signature: sigData.signature,
-                      receipt_barcode_payload: sigData.barcodePayload,
-                      receipt_qr_payload: sigData.qrPayload,
-                      receipt_security_status: 'AUTHENTIC',
-                      verification_token: sigData.verificationToken,
-                    })
-                    .eq('id', updatedPayment.id);
-                }
-              }
-              
-              const successData = {
-                payment_id: updatedPayment?.payment_id || reference,
-                receipt_number: updatedPayment?.receipt_number,
-                receipt_code: updatedPayment?.receipt_code || generateBranchReceiptCode(branchCode, selectedAssignment.session || '2026/2027', Date.now()),
-                amount: amount,
-                payment_date: new Date().toISOString(),
-                payment_method: 'paystack',
-                reference: reference,
-                transaction_reference: reference,
-                student_name: `${selectedChild.first_name} ${selectedChild.last_name}`,
-                student_id: selectedChild.student_id || selectedChild.admission_number,
-                class_name: selectedChild.class_name,
-                fee_name: selectedAssignment.fee_name,
-                status: 'completed',
-                branch_code: branchCode,
-                signature: securityData.signature,
-                barcodePayload: securityData.barcodePayload,
-                qrPayload: securityData.qrPayload,
-                verificationToken: securityData.verificationToken,
-                verificationUrl: `${import.meta.env.VITE_SUPABASE_URL || ''}/functions/v1/verify-receipt`,
-              };
-              
-              setSuccessPaymentData(successData);
-              setShowSuccessReceipt(true);
-              setShowPaymentModal(false);
-              
-              toast.success(`Payment of ${formatCurrency(amount)} completed successfully!`);
-              setProcessing(false);
-              
-              pendingReferenceRef.current = null;
-              pendingAmountRef.current = 0;
-              pendingAssignmentIdRef.current = null;
-            } catch (error) {
-              console.error('Error completing payment:', error);
-              toast.error('Payment succeeded but failed to update records. Please contact support.');
-              setProcessing(false);
-            }
-          } else {
-            // Payment failed
-            await supabase
-              .from('payments')
-              .update({
-                status: 'failed',
-                failure_reason: response.message || 'Payment failed',
-                updated_at: new Date().toISOString(),
-              })
-              .eq('transaction_reference', reference);
-            
-            setFailureReason(response.message || 'Payment failed. Please try again.');
-            setShowFailure(true);
-            setProcessing(false);
-            pendingReferenceRef.current = null;
-            pendingAmountRef.current = 0;
-            pendingAssignmentIdRef.current = null;
-          }
-        },
-        onClose: () => {
-          // User closed the popup without completing payment
-          setTimeout(async () => {
-            const { data: payment } = await supabase
-              .from('payments')
-              .select('status')
-              .eq('transaction_reference', reference)
-              .single();
-
-            if (payment && payment.status === 'pending') {
-              await supabase
-                .from('payments')
-                .update({
-                  status: 'cancelled',
-                  failure_reason: 'User cancelled payment',
-                  updated_at: new Date().toISOString(),
-                })
-                .eq('transaction_reference', reference);
-              
-              toast.error('Payment was cancelled');
-              setProcessing(false);
-              pendingReferenceRef.current = null;
-              pendingAmountRef.current = 0;
-              pendingAssignmentIdRef.current = null;
-            }
-          }, 2000);
-        },
+        callback: paystackCallback,
+        onClose: paystackOnClose,
       });
 
       handler.openIframe();
@@ -2360,33 +1652,21 @@ const ParentPayBill: React.FC = () => {
       console.error('Paystack payment error:', error);
       await savePaymentRecord({
         assignmentId: selectedAssignment.id,
-        feeId: selectedAssignment.fee_id,
-        studentId: selectedChild.id,
-        branchId: selectedChild.branch_id,
-        amount: Number(selectedAssignment.amount_due || selectedAssignment.original_amount || 0),
-        amountPaid: Number(amount),
+        amount: amount,
         reference: reference,
         status: 'failed',
         failureReason: error.message || 'Payment processing failed',
         gatewayReference: reference,
         paymentMethod: 'paystack',
-        createdBy: user?.id,
-        studentName: `${selectedChild.first_name} ${selectedChild.last_name}`,
-        studentIdNumber: selectedChild.student_id,
-        feeName: selectedAssignment.fee_name,
       });
       setFailureReason(error.message || 'Payment processing failed. Please try again or use bank transfer.');
       setShowFailure(true);
       setProcessing(false);
-      pendingReferenceRef.current = null;
-      pendingAmountRef.current = 0;
-      pendingAssignmentIdRef.current = null;
+      paystackTerminalRef.current = 'failed';
+      clearPaystackRefs();
     }
   };
 
-  // ============================================
-  // PART 8 — BANK TRANSFER (REAL - REMAINS PENDING)
-  // ============================================
   const handleBankTransfer = async () => {
     if (!selectedAssignment || !selectedChild) {
       toast.error('Missing payment information');
@@ -2408,21 +1688,6 @@ const ParentPayBill: React.FC = () => {
       return;
     }
 
-    // PART 10 — PREVENT DUPLICATE SUBMISSIONS
-    const { data: existingPending } = await supabase
-      .from('payments')
-      .select('id, payment_id, amount_paid, status')
-      .eq('assignment_id', selectedAssignment.id)
-      .in('status', ['pending', 'processing'])
-      .limit(1);
-
-    if (existingPending && existingPending.length > 0) {
-      toast.info(
-        'A payment for this fee is already awaiting confirmation.'
-      );
-      return;
-    }
-
     setProcessing(true);
     setUploading(true);
     const reference = generateReference();
@@ -2437,40 +1702,16 @@ const ParentPayBill: React.FC = () => {
         return;
       }
 
-      // Get branch code
-      let branchCode = 'EISO';
-      if (selectedChild.branch_id) {
-        const { data: branchData } = await supabase
-          .from('branches')
-          .select('branch_code')
-          .eq('id', selectedChild.branch_id)
-          .single();
-        if (branchData?.branch_code) {
-          branchCode = branchData.branch_code;
-        }
-      }
-
-      // PART 6 — SAVE PAYMENT RECORD (PENDING - NO ASSIGNMENT UPDATE)
-      const savedPayment = await savePaymentRecord({
+      const paymentRecord = await savePaymentRecord({
         assignmentId: selectedAssignment.id,
-        feeId: selectedAssignment.fee_id,
-        studentId: selectedChild.id,
-        branchId: selectedChild.branch_id,
-        amount: Number(selectedAssignment.amount_due || selectedAssignment.original_amount || 0),
-        amountPaid: Number(amount),
+        amount: amount,
         reference: reference,
         status: 'pending',
         paymentMethod: 'bank_transfer',
         gatewayReference: reference,
         paymentProofUrl: uploadResult.url,
+        paymentProofPath: uploadResult.path,
         transactionReference: transactionReference,
-        academicSession: selectedAssignment.session,
-        academicTerm: selectedAssignment.term,
-        createdBy: user?.id,
-        studentName: `${selectedChild.first_name} ${selectedChild.last_name}`,
-        studentIdNumber: selectedChild.student_id,
-        feeName: selectedAssignment.fee_name,
-        branchCode: branchCode,
       });
 
       setUploadedFile(null);
@@ -2483,54 +1724,23 @@ const ParentPayBill: React.FC = () => {
         await fetchPayments(selectedChild.id);
       }
 
-      // Get security data
-      let securityData = {
-        signature: savedPayment?.receipt_signature,
-        barcodePayload: savedPayment?.receipt_barcode_payload,
-        qrPayload: savedPayment?.receipt_qr_payload,
-        verificationToken: savedPayment?.verification_token,
-      };
-
-      if (!securityData.signature && savedPayment?.id) {
-        const sigData = await createReceiptSignature(savedPayment.id);
-        if (sigData) {
-          securityData = sigData;
-          await supabase
-            .from('payments')
-            .update({
-              receipt_signature: sigData.signature,
-              receipt_barcode_payload: sigData.barcodePayload,
-              receipt_qr_payload: sigData.qrPayload,
-              receipt_security_status: 'PENDING',
-              verification_token: sigData.verificationToken,
-            })
-            .eq('id', savedPayment.id);
-        }
-      }
-
       const bankData = {
-        payment_id: savedPayment?.payment_id || reference,
-        receipt_number: savedPayment?.receipt_number,
-        receipt_code: savedPayment?.receipt_code || generateBranchReceiptCode(branchCode, selectedAssignment.session || '2026/2027', Date.now()),
+        id: paymentRecord?.payment_id || paymentRecord?.id,
+        payment_id: paymentRecord?.payment_id,
+        receipt_number: paymentRecord?.receipt_number,
         amount: amount,
-        payment_date: savedPayment?.payment_date || new Date().toISOString(),
+        payment_date: paymentRecord?.payment_date || new Date().toISOString(),
         payment_method: 'bank_transfer',
         reference: reference,
         transaction_reference: transactionReference,
-        student_name: `${selectedChild.first_name} ${selectedChild.last_name}`,
-        student_id: selectedChild.student_id || selectedChild.admission_number,
-        class_name: selectedChild.class_name,
-        fee_name: selectedAssignment.fee_name,
+        student_name: `${selectedChild?.first_name} ${selectedChild?.last_name}`,
+        student_id: selectedChild?.student_id || selectedChild?.admission_number,
+        class_name: selectedChild?.class_name,
+        fee_name: selectedAssignment?.fee_name,
         status: 'pending',
-        branch_code: branchCode,
         bank_name: paymentGateway.bank_name,
         bank_account_number: paymentGateway.bank_account_number,
         bank_account_name: paymentGateway.bank_account_name,
-        signature: securityData.signature,
-        barcodePayload: securityData.barcodePayload,
-        qrPayload: securityData.qrPayload,
-        verificationToken: securityData.verificationToken,
-        verificationUrl: `${import.meta.env.VITE_SUPABASE_URL || ''}/functions/v1/verify-receipt`,
       };
       
       setBankTransferData(bankData);
@@ -2545,20 +1755,12 @@ const ParentPayBill: React.FC = () => {
       console.error('Bank transfer error:', error);
       await savePaymentRecord({
         assignmentId: selectedAssignment.id,
-        feeId: selectedAssignment.fee_id,
-        studentId: selectedChild.id,
-        branchId: selectedChild.branch_id,
-        amount: Number(selectedAssignment.amount_due || selectedAssignment.original_amount || 0),
-        amountPaid: Number(amount),
+        amount: amount,
         reference: reference,
         status: 'failed',
         failureReason: error.message || 'Bank transfer submission failed',
         gatewayReference: reference,
         paymentMethod: 'bank_transfer',
-        createdBy: user?.id,
-        studentName: `${selectedChild.first_name} ${selectedChild.last_name}`,
-        studentIdNumber: selectedChild.student_id,
-        feeName: selectedAssignment.fee_name,
       });
       setFailureReason(error.message || 'Failed to submit bank transfer. Please try again.');
       setShowFailure(true);
@@ -2599,83 +1801,53 @@ const ParentPayBill: React.FC = () => {
   };
 
   // ============================================
-  // PART 4 — CALCULATIONS (FIXED - ONLY COMPLETED PAYMENTS)
+  // CALCULATIONS — FIXED to use payments
   // ============================================
-  const totalBalance = assignments.reduce((sum, assignment) => {
-    const statusInfo = getPaymentStatusForAssignment(assignment);
-    return sum + statusInfo.balance;
+  const totalBalance = assignments.reduce((sum, a) => {
+    // Calculate paid from payments
+    const paid = payments
+      .filter(p =>
+        p.assignment_id === a.id &&
+        ['success', 'completed', 'approved', 'paid'].includes(String(p.status).toLowerCase())
+      )
+      .reduce((s, p) => s + (p.amount_paid || 0), 0);
+    return sum + Math.max(0, a.amount_due - paid);
   }, 0);
-
-  const totalPaid = assignments.reduce((sum, assignment) => {
-    const statusInfo = getPaymentStatusForAssignment(assignment);
-    return sum + statusInfo.totalPaidFromPayments;
+  
+  const totalPaid = assignments.reduce((sum, a) => {
+    return sum + payments
+      .filter(p =>
+        p.assignment_id === a.id &&
+        ['success', 'completed', 'approved', 'paid'].includes(String(p.status).toLowerCase())
+      )
+      .reduce((s, p) => s + (p.amount_paid || 0), 0);
   }, 0);
-
-  const totalOriginal = assignments.reduce(
-    (sum, a) => sum + Number(
-      a.original_amount ??
-      a.amount_due ??
-      a.amount ??
-      0
-    ),
-    0
-  );
-
-  const totalDiscount = assignments.reduce(
-    (sum, a) => sum + Number(a.discount_amount || 0),
-    0
-  );
-
-  const totalDue = assignments.reduce(
-    (sum, a) => sum + Number(a.amount_due || 0),
-    0
-  );
-
-  const completionRate =
-    totalDue > 0
-      ? Math.min(100, (totalPaid / totalDue) * 100)
-      : 0;
-
+  
+  const totalDue = assignments.reduce((sum, a) => sum + a.amount_due, 0);
+  const completionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
+  
   const paidFeesCount = assignments.filter(a => {
-    const statusInfo = getPaymentStatusForAssignment(a);
-    return statusInfo.status === 'paid' || statusInfo.balance <= 0;
+    const paid = payments
+      .filter(p =>
+        p.assignment_id === a.id &&
+        ['success', 'completed', 'approved', 'paid'].includes(String(p.status).toLowerCase())
+      )
+      .reduce((s, p) => s + (p.amount_paid || 0), 0);
+    return paid >= a.amount_due;
   }).length;
-
+  
   const totalFeesCount = assignments.length;
   const paidPercentage = totalFeesCount > 0 ? Math.round((paidFeesCount / totalFeesCount) * 100) : 0;
 
-  // ============================================
-  // PART 17 — FILTERING (FIXED)
-  // ============================================
   const filteredAssignments = assignments.filter(a => {
     const statusInfo = getPaymentStatusForAssignment(a);
-
     if (filterStatus === 'all') return true;
-
-    if (filterStatus === 'unpaid') {
-      return statusInfo.status === 'unpaid' || statusInfo.status === 'failed';
-    }
-
-    if (filterStatus === 'paid') {
-      return statusInfo.status === 'paid';
-    }
-
-    if (filterStatus === 'overdue') {
-      return statusInfo.status === 'overdue';
-    }
-
-    if (filterStatus === 'pending') {
-      return statusInfo.status === 'pending';
-    }
-
-    if (filterStatus === 'waived') {
-      return statusInfo.status === 'waived';
-    }
-
-    if (filterStatus === 'cancelled') {
-      return statusInfo.status === 'cancelled';
-    }
-
+    if (filterStatus === 'unpaid') return statusInfo.status === 'unpaid' || statusInfo.status === 'partial';
+    if (filterStatus === 'paid') return statusInfo.status === 'paid';
+    if (filterStatus === 'overdue') return statusInfo.status === 'overdue';
+    if (filterStatus === 'pending') return statusInfo.status === 'pending';
+    if (filterStatus === 'cancelled') return statusInfo.status === 'cancelled';
+    if (filterStatus === 'failed') return statusInfo.status === 'failed';
     return true;
   });
 
@@ -2886,7 +2058,6 @@ const ParentPayBill: React.FC = () => {
                 <option value="paid">Paid</option>
                 <option value="overdue">Overdue</option>
                 <option value="pending">Pending</option>
-                <option value="waived">Waived</option>
                 <option value="cancelled">Cancelled</option>
                 <option value="failed">Failed</option>
               </select>
@@ -2998,7 +2169,7 @@ const ParentPayBill: React.FC = () => {
                             {statusInfo.label}
                           </span>
                         </div>
-                        {statusInfo.isPayable && statusInfo.balance > 0 && (
+                        {statusInfo.isPayable && (
                           <button
                             onClick={() => handlePayNow(assignment)}
                             disabled={processing || gatewayLoading}
@@ -3133,7 +2304,11 @@ const ParentPayBill: React.FC = () => {
                                             <Circle className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
                                           )}
                                           <span className="font-medium text-gray-900 dark:text-white truncate">
-                                            {formatCurrency(payment.amount_paid || payment.amount || 0)}
+                                            {formatCurrency(
+                                              ['success', 'completed', 'approved', 'paid'].includes(String(payment.status).toLowerCase())
+                                                ? (payment.amount_paid || 0)
+                                                : 0
+                                            )}
                                           </span>
                                           <span className="text-gray-500 dark:text-gray-400 hidden xs:inline">
                                             • {dayjs(payment.payment_date).format('MMM D, YYYY')}
@@ -3439,7 +2614,7 @@ const ParentPayBill: React.FC = () => {
       </AnimatePresence>
 
       {/* ============================================ */}
-      {/* SUCCESS RECEIPT MODAL WITH BARCODE & QR & SECURITY */}
+      {/* SUCCESS RECEIPT MODAL */}
       {/* ============================================ */}
       <SuccessReceiptModal
         isOpen={showSuccessReceipt}
@@ -3452,6 +2627,7 @@ const ParentPayBill: React.FC = () => {
         onClose={() => {
           setShowSuccessReceipt(false);
           setShowBankTransferSuccess(false);
+          setShowSuccess(false);
           setSuccessPaymentData(null);
           setBankTransferData(null);
           refreshData();
@@ -3460,29 +2636,58 @@ const ParentPayBill: React.FC = () => {
       />
 
       {/* ============================================ */}
-      {/* FAILURE MODAL WITH FAILED IMAGE */}
+      {/* FAILURE MODAL */}
       {/* ============================================ */}
-      <FailureModal
-        isOpen={showFailure}
-        title={failureReason || 'Payment Failed'}
-        message={failureReason || 'There was an issue processing your payment. Please try again.'}
-        details={failureDetails}
-        onRetry={() => {
-          setShowFailure(false);
-          setFailureReason('');
-          setFailureDetails('');
-          if (selectedAssignment) {
-            setShowPaymentModal(true);
-          }
-        }}
-        onCancel={() => {
-          setShowFailure(false);
-          setFailureReason('');
-          setFailureDetails('');
-          handleFileRemove();
-          setTransactionReference('');
-        }}
-      />
+      <AnimatePresence>
+        {showFailure && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl max-w-md w-full p-4 sm:p-6 text-center"
+            >
+              <div className="w-14 h-14 sm:w-16 sm:h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                <X className="w-7 h-7 sm:w-8 sm:h-8 text-red-600 dark:text-red-400" />
+              </div>
+              <h3 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white">Payment Failed</h3>
+              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-2">
+                {failureReason || 'There was an issue processing your payment. Please try again.'}
+              </p>
+              {failureDetails && (
+                <p className="text-[10px] sm:text-xs text-gray-400 mt-1">{failureDetails}</p>
+              )}
+              <div className="flex flex-col xs:flex-row gap-2 sm:gap-3 mt-4">
+                <button
+                  onClick={() => {
+                    setShowFailure(false);
+                    setFailureReason('');
+                    setFailureDetails('');
+                    handleFileRemove();
+                    setTransactionReference('');
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg sm:rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setShowFailure(false);
+                    setFailureReason('');
+                    setFailureDetails('');
+                    if (selectedAssignment) {
+                      setShowPaymentModal(true);
+                    }
+                  }}
+                  className="flex-1 px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg sm:rounded-xl font-medium hover:opacity-90 transition-all text-sm"
+                >
+                  Retry
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ============================================ */}
       {/* ERROR DETAILS MODAL */}
@@ -3553,7 +2758,13 @@ const ParentPayBill: React.FC = () => {
                   <p className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">Payment Information</p>
                   <div className="grid grid-cols-2 gap-1 text-xs sm:text-sm">
                     <span className="text-gray-500">Amount</span>
-                    <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(selectedFailedPayment.amount_paid || 0)}</span>
+                    <span className="font-medium text-gray-900 dark:text-white">
+  {formatCurrency(
+    ['success', 'completed', 'approved', 'paid'].includes(String(selectedFailedPayment.status).toLowerCase())
+      ? (selectedFailedPayment.amount_paid || 0)
+      : 0
+  )}
+</span>
                     <span className="text-gray-500">Date</span>
                     <span className="font-medium text-gray-900 dark:text-white">
                       {dayjs(selectedFailedPayment.payment_date).format('MMM D, YYYY')}
