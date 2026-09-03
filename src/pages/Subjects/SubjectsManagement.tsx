@@ -11,6 +11,7 @@ import {
   Trash2,
   Eye,
   Loader2,
+  Filter,
   ChevronLeft,
   ChevronRight,
   RefreshCw,
@@ -30,11 +31,12 @@ import {
   UserPlus,
   UserMinus,
   School,
-  Filter,
   Tag,
   Copy,
   ExternalLink,
-  Target
+  Target,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
@@ -75,7 +77,6 @@ interface TeacherSubject {
   teacher_id: string;
   subject_id: string;
   class_id: string | null;
-  academic_session: string;
   created_at: string;
   teacher_name?: string;
   subject_name?: string;
@@ -108,6 +109,7 @@ const SubjectsManagement: React.FC = () => {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const pageSize = 10;
 
   // Modal states
@@ -182,6 +184,7 @@ const SubjectsManagement: React.FC = () => {
         fetchClasses(),
         fetchTeacherSubjects()
       ]);
+      // Calculate stats after all data is loaded
       calculateStats();
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -216,6 +219,9 @@ const SubjectsManagement: React.FC = () => {
       if (error) throw error;
       setSubjects(data || []);
       setTotalCount(count || 0);
+      
+      // Log for debugging
+      console.log('Subjects fetched:', data?.length || 0);
     } catch (error: any) {
       console.error('Error fetching subjects:', error);
       toast.error(error.message || 'Failed to fetch subjects');
@@ -235,6 +241,7 @@ const SubjectsManagement: React.FC = () => {
 
       if (error) throw error;
       setTeachers(data || []);
+      console.log('Teachers fetched:', data?.length || 0);
     } catch (error) {
       console.error('Error fetching teachers:', error);
     }
@@ -253,6 +260,7 @@ const SubjectsManagement: React.FC = () => {
 
       if (error) throw error;
       setClasses(data || []);
+      console.log('Classes fetched:', data?.length || 0);
     } catch (error) {
       console.error('Error fetching classes:', error);
     }
@@ -262,54 +270,97 @@ const SubjectsManagement: React.FC = () => {
     if (!userBranchId) return;
 
     try {
+      // First, get all teacher_subjects records (no joins)
       const { data, error } = await supabase
         .from('teacher_subjects')
-        .select(`
-          *,
-          teachers:teacher_id (
-            first_name,
-            last_name,
-            teacher_id
-          ),
-          subjects:subject_id (
-            name,
-            code,
-            subject_id
-          ),
-          classes:class_id (
-            name,
-            code
-          )
-        `)
-        .eq('academic_session', '2026/2027');
+        .select('*');
 
       if (error) throw error;
 
-      const formatted = data?.map(ts => ({
-        ...ts,
-        teacher_name: ts.teachers ? `${ts.teachers.first_name} ${ts.teachers.last_name}` : 'Unknown',
-        subject_name: ts.subjects?.name || 'Unknown',
-        subject_code: ts.subjects?.code || 'N/A',
-        class_name: ts.classes?.name || 'All Classes',
-        class_code: ts.classes?.code || 'ALL'
-      })) || [];
+      console.log('Teacher subjects raw data:', data?.length || 0);
+
+      if (!data || data.length === 0) {
+        setTeacherSubjects([]);
+        return;
+      }
+
+      // Get all teacher IDs and subject IDs from the records
+      const teacherIds = [...new Set(data.map(ts => ts.teacher_id).filter(Boolean))];
+      const subjectIds = [...new Set(data.map(ts => ts.subject_id).filter(Boolean))];
+      const classIds = [...new Set(data.map(ts => ts.class_id).filter(Boolean))];
+
+      // Fetch all teachers
+      const { data: teachersData } = await supabase
+        .from('teachers')
+        .select('id, first_name, last_name, teacher_id')
+        .in('id', teacherIds);
+
+      // Fetch all subjects
+      const { data: subjectsData } = await supabase
+        .from('subjects')
+        .select('id, name, code, subject_id')
+        .in('id', subjectIds);
+
+      // Fetch all classes
+      const { data: classesData } = await supabase
+        .from('classes')
+        .select('id, name, code')
+        .in('id', classIds);
+
+      // Create lookup maps
+      const teacherMap: Record<string, any> = {};
+      teachersData?.forEach(t => {
+        teacherMap[t.id] = t;
+      });
+
+      const subjectMap: Record<string, any> = {};
+      subjectsData?.forEach(s => {
+        subjectMap[s.id] = s;
+      });
+
+      const classMap: Record<string, any> = {};
+      classesData?.forEach(c => {
+        classMap[c.id] = c;
+      });
+
+      // Format the data
+      const formatted = data.map(ts => {
+        const teacher = teacherMap[ts.teacher_id];
+        const subject = subjectMap[ts.subject_id];
+        const classData = ts.class_id ? classMap[ts.class_id] : null;
+
+        return {
+          ...ts,
+          teacher_name: teacher ? `${teacher.first_name} ${teacher.last_name}` : 'Unknown',
+          subject_name: subject?.name || 'Unknown',
+          subject_code: subject?.code || 'N/A',
+          class_name: classData?.name || 'All Classes',
+          class_code: classData?.code || 'ALL'
+        };
+      });
 
       setTeacherSubjects(formatted);
+      console.log('Formatted teacher subjects:', formatted.length);
     } catch (error) {
       console.error('Error fetching teacher subjects:', error);
+      toast.error('Failed to fetch subject assignments');
     }
   };
 
   const calculateStats = () => {
+    // Calculate stats from the data
     const subjectIds = new Set(teacherSubjects.map(ts => ts.subject_id));
     const teacherIds = new Set(teacherSubjects.map(ts => ts.teacher_id));
     
-    setStats({
+    const newStats = {
       totalSubjects: subjects.length,
       totalTeachers: teachers.length,
       totalAssignments: teacherSubjects.length,
       subjectsWithTeachers: subjectIds.size
-    });
+    };
+    
+    console.log('Stats calculated:', newStats);
+    setStats(newStats);
   };
 
   const handleCreateSubject = async () => {
@@ -417,13 +468,25 @@ const SubjectsManagement: React.FC = () => {
 
     setAssigning(true);
     try {
+      // Check if already assigned
+      const { data: existing } = await supabase
+        .from('teacher_subjects')
+        .select('id')
+        .eq('subject_id', assignmentForm.subject_id)
+        .eq('class_id', assignmentForm.class_id || null);
+
+      if (existing && existing.length > 0) {
+        toast.error('This subject is already assigned to this class');
+        setAssigning(false);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('teacher_subjects')
         .insert([{
           teacher_id: assignmentForm.teacher_id,
           subject_id: assignmentForm.subject_id,
           class_id: assignmentForm.class_id || null,
-          academic_session: '2026/2027',
           created_at: new Date().toISOString()
         }])
         .select();
@@ -467,55 +530,293 @@ const SubjectsManagement: React.FC = () => {
     setLoadingDetails(true);
 
     try {
-      // Get teachers for this subject
+      // Get assignments for this subject
       const { data: assignments } = await supabase
         .from('teacher_subjects')
-        .select(`
-          *,
-          teachers:teacher_id (
-            first_name,
-            last_name,
-            teacher_id,
-            email,
-            phone_number
-          ),
-          classes:class_id (
-            name,
-            code,
-            level
-          )
-        `)
-        .eq('subject_id', subject.id)
-        .eq('academic_session', '2026/2027');
+        .select('*')
+        .eq('subject_id', subject.id);
+
+      if (!assignments || assignments.length === 0) {
+        setSubjectTeachers([]);
+        setSubjectClasses([]);
+        setLoadingDetails(false);
+        return;
+      }
+
+      // Get teacher and class details
+      const teacherIds = [...new Set(assignments.map(a => a.teacher_id).filter(Boolean))];
+      const classIds = [...new Set(assignments.map(a => a.class_id).filter(Boolean))];
+
+      const [teachersData, classesData] = await Promise.all([
+        supabase.from('teachers').select('id, first_name, last_name, teacher_id, email, phone_number').in('id', teacherIds),
+        supabase.from('classes').select('id, name, code, level').in('id', classIds)
+      ]);
+
+      const teacherMap: Record<string, any> = {};
+      teachersData.data?.forEach(t => {
+        teacherMap[t.id] = t;
+      });
+
+      const classMap: Record<string, any> = {};
+      classesData.data?.forEach(c => {
+        classMap[c.id] = c;
+      });
 
       const teachersList = assignments
-        ?.filter(a => a.teachers)
+        .filter(a => a.teacher_id && teacherMap[a.teacher_id])
         .map(a => ({
-          ...a.teachers,
+          ...teacherMap[a.teacher_id],
           assignment_id: a.id,
           class_id: a.class_id,
-          class_name: a.classes?.name || 'All Classes',
-          class_code: a.classes?.code || 'ALL'
-        })) || [];
+          class_name: a.class_id ? classMap[a.class_id]?.name || 'All Classes' : 'All Classes',
+          class_code: a.class_id ? classMap[a.class_id]?.code || 'ALL' : 'ALL'
+        }));
 
       const classesList = assignments
-        ?.filter(a => a.class_id)
+        .filter(a => a.class_id && classMap[a.class_id])
         .map(a => ({
-          ...a.classes,
+          ...classMap[a.class_id],
           assignment_id: a.id,
-          teacher_name: a.teachers ? `${a.teachers.first_name} ${a.teachers.last_name}` : 'Unknown'
-        })) || [];
+          teacher_name: teacherMap[a.teacher_id] ? 
+            `${teacherMap[a.teacher_id].first_name} ${teacherMap[a.teacher_id].last_name}` : 'Unknown'
+        }));
 
       setSubjectTeachers(teachersList);
       setSubjectClasses(classesList);
     } catch (error) {
       console.error('Error fetching subject details:', error);
+      toast.error('Failed to load subject details');
     } finally {
       setLoadingDetails(false);
     }
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
+
+  // Render Grid View
+  const renderGridView = () => (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {subjects.map((subject, index) => {
+        const subjectAssignments = teacherSubjects.filter(ts => ts.subject_id === subject.id);
+        const teacherNames = subjectAssignments
+          .map(ts => ts.teacher_name)
+          .filter(Boolean);
+
+        return (
+          <motion.div
+            key={subject.id}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: index * 0.05 }}
+            className="bg-white/70 dark:bg-gray-800/70 rounded-2xl border border-white/20 dark:border-gray-700/50 shadow-xl hover:shadow-2xl transition-all group"
+          >
+            <div className="p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{subject.name}</h3>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                      {subject.code}
+                    </span>
+                  </div>
+                  {subject.description && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
+                      {subject.description}
+                    </p>
+                  )}
+                  <p className="text-xs text-gray-400 mt-2">ID: {subject.subject_id}</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-lg flex-shrink-0">
+                  <BookMarked className="w-5 h-5 text-white" />
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                  <Users className="w-4 h-4 mx-auto text-blue-500" />
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">{subjectAssignments.length}</p>
+                  <p className="text-[10px] text-gray-500">Assignments</p>
+                </div>
+                <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                  <User className="w-4 h-4 mx-auto text-green-500" />
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
+                    {teacherNames.length > 0 ? teacherNames.length : '❌'}
+                  </p>
+                  <p className="text-[10px] text-gray-500">Teachers</p>
+                </div>
+              </div>
+
+              {teacherNames.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {subjectAssignments.slice(0, 2).map((assignment, idx) => (
+                    <div key={idx} className="text-xs text-gray-600 dark:text-gray-300 flex items-center justify-between">
+                      <span className="font-medium">{assignment.teacher_name}</span>
+                      <span className="text-gray-400">{assignment.class_name || 'All Classes'}</span>
+                    </div>
+                  ))}
+                  {subjectAssignments.length > 2 && (
+                    <div className="text-xs text-gray-400">
+                      +{subjectAssignments.length - 2} more teacher{subjectAssignments.length - 2 > 1 ? 's' : ''}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <div className="text-xs text-gray-500">
+                  {dayjs(subject.created_at).format('MMM D, YYYY')}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => viewSubjectDetails(subject)}
+                    className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-blue-600 dark:text-blue-400"
+                    title="View Details"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingSubject(subject);
+                      setSubjectForm({
+                        name: subject.name,
+                        code: subject.code,
+                        description: subject.description || ''
+                      });
+                      setShowSubjectModal(true);
+                    }}
+                    className="p-1.5 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-all text-yellow-600 dark:text-yellow-400"
+                    title="Edit Subject"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteSubject(subject.id)}
+                    className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-red-500"
+                    title="Delete Subject"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        );
+      })}
+    </div>
+  );
+
+  // Render List View
+  const renderListView = () => (
+    <div className="bg-white/70 dark:bg-gray-800/70 rounded-2xl border border-white/20 dark:border-gray-700/50 shadow-xl overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-gray-50 dark:bg-gray-700/50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Subject</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Code</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Teachers</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Classes</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created</th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {subjects.map((subject) => {
+              const subjectAssignments = teacherSubjects.filter(ts => ts.subject_id === subject.id);
+              const teacherNames = subjectAssignments
+                .map(ts => ts.teacher_name)
+                .filter(Boolean);
+              const classNames = subjectAssignments
+                .map(ts => ts.class_name)
+                .filter(Boolean);
+
+              return (
+                <tr key={subject.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                  <td className="px-6 py-4">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{subject.name}</p>
+                      {subject.description && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate max-w-xs">
+                          {subject.description}
+                        </p>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                      {subject.code}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-700 dark:text-gray-300">
+                        {teacherNames.length > 0 ? teacherNames.slice(0, 3).join(', ') : 'No teachers'}
+                      </span>
+                      {teacherNames.length > 3 && (
+                        <span className="text-xs text-gray-400">+{teacherNames.length - 3} more</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex flex-wrap gap-1">
+                      {classNames.length > 0 ? (
+                        classNames.slice(0, 3).map((name, idx) => (
+                          <span key={idx} className="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                            {name}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-gray-400">Not assigned</span>
+                      )}
+                      {classNames.length > 3 && (
+                        <span className="text-xs text-gray-400">+{classNames.length - 3}</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {dayjs(subject.created_at).format('MMM D, YYYY')}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => viewSubjectDetails(subject)}
+                        className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-blue-600 dark:text-blue-400"
+                        title="View Details"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingSubject(subject);
+                          setSubjectForm({
+                            name: subject.name,
+                            code: subject.code,
+                            description: subject.description || ''
+                          });
+                          setShowSubjectModal(true);
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-all text-yellow-600 dark:text-yellow-400"
+                        title="Edit Subject"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteSubject(subject.id)}
+                        className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-red-500"
+                        title="Delete Subject"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -538,7 +839,7 @@ const SubjectsManagement: React.FC = () => {
             Manage subjects, assign teachers, and track class assignments
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <button
             onClick={() => {
               setEditingSubject(null);
@@ -613,7 +914,7 @@ const SubjectsManagement: React.FC = () => {
         </div>
       </div>
 
-      {/* Search and Filters */}
+      {/* Search and View Toggle */}
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -628,6 +929,33 @@ const SubjectsManagement: React.FC = () => {
             className="w-full pl-10 pr-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
           />
         </div>
+        
+        {/* View Toggle */}
+        <div className="flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-700 rounded-xl">
+          <button
+            onClick={() => setViewMode('grid')}
+            className={`p-2 rounded-lg transition-all ${
+              viewMode === 'grid' 
+                ? 'bg-white dark:bg-gray-600 shadow-md text-blue-600 dark:text-blue-400' 
+                : 'text-gray-500 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-gray-600/50'
+            }`}
+            title="Grid View"
+          >
+            <LayoutGrid className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setViewMode('list')}
+            className={`p-2 rounded-lg transition-all ${
+              viewMode === 'list' 
+                ? 'bg-white dark:bg-gray-600 shadow-md text-blue-600 dark:text-blue-400' 
+                : 'text-gray-500 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-gray-600/50'
+            }`}
+            title="List View"
+          >
+            <List className="w-4 h-4" />
+          </button>
+        </div>
+        
         <button
           onClick={fetchAllData}
           className="p-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
@@ -636,7 +964,7 @@ const SubjectsManagement: React.FC = () => {
         </button>
       </div>
 
-      {/* Subjects Grid */}
+      {/* Subjects Display */}
       {subjects.length === 0 ? (
         <div className="text-center py-12 bg-white/70 dark:bg-gray-800/70 rounded-2xl border border-white/20 dark:border-gray-700/50 shadow-xl">
           <BookOpen className="w-16 h-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
@@ -655,121 +983,7 @@ const SubjectsManagement: React.FC = () => {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {subjects.map((subject, index) => {
-            // Get teachers for this subject
-            const subjectAssignments = teacherSubjects.filter(ts => ts.subject_id === subject.id);
-            const teacherNames = subjectAssignments
-              .map(ts => ts.teacher_name)
-              .filter(Boolean);
-            
-            // Get classes for this subject
-            const classNames = subjectAssignments
-              .map(ts => ts.class_name)
-              .filter(Boolean);
-
-            return (
-              <motion.div
-                key={subject.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
-                className="bg-white/70 dark:bg-gray-800/70 rounded-2xl border border-white/20 dark:border-gray-700/50 shadow-xl hover:shadow-2xl transition-all group"
-              >
-                <div className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{subject.name}</h3>
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                          {subject.code}
-                        </span>
-                      </div>
-                      {subject.description && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
-                          {subject.description}
-                        </p>
-                      )}
-                      <p className="text-xs text-gray-400 mt-2">ID: {subject.subject_id}</p>
-                    </div>
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-lg flex-shrink-0">
-                      <BookMarked className="w-5 h-5 text-white" />
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-2">
-                    <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                      <Users className="w-4 h-4 mx-auto text-blue-500" />
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">{subjectAssignments.length}</p>
-                      <p className="text-[10px] text-gray-500">Assignments</p>
-                    </div>
-                    <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                      <User className="w-4 h-4 mx-auto text-green-500" />
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
-                        {teacherNames.length > 0 ? teacherNames.length : '❌'}
-                      </p>
-                      <p className="text-[10px] text-gray-500">Teachers</p>
-                    </div>
-                  </div>
-
-                  {/* Show teachers with their classes */}
-                  {teacherNames.length > 0 && (
-                    <div className="mt-2 space-y-1">
-                      {subjectAssignments.slice(0, 2).map((assignment, idx) => (
-                        <div key={idx} className="text-xs text-gray-600 dark:text-gray-300 flex items-center justify-between">
-                          <span className="font-medium">{assignment.teacher_name}</span>
-                          <span className="text-gray-400">{assignment.class_name || 'All Classes'}</span>
-                        </div>
-                      ))}
-                      {subjectAssignments.length > 2 && (
-                        <div className="text-xs text-gray-400">
-                          +{subjectAssignments.length - 2} more teacher{subjectAssignments.length - 2 > 1 ? 's' : ''}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                    <div className="text-xs text-gray-500">
-                      {dayjs(subject.created_at).format('MMM D, YYYY')}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => viewSubjectDetails(subject)}
-                        className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-blue-600 dark:text-blue-400"
-                        title="View Details"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          setEditingSubject(subject);
-                          setSubjectForm({
-                            name: subject.name,
-                            code: subject.code,
-                            description: subject.description || ''
-                          });
-                          setShowSubjectModal(true);
-                        }}
-                        className="p-1.5 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-all text-yellow-600 dark:text-yellow-400"
-                        title="Edit Subject"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteSubject(subject.id)}
-                        className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-red-500"
-                        title="Delete Subject"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
+        viewMode === 'grid' ? renderGridView() : renderListView()
       )}
 
       {/* Pagination */}
@@ -1041,7 +1255,6 @@ const SubjectsManagement: React.FC = () => {
                   </div>
                 ) : (
                   <>
-                    {/* Subject Info */}
                     <div className="p-4 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
                       <p className="text-sm text-gray-600 dark:text-gray-300">
                         {selectedSubject.description || 'No description provided'}
@@ -1064,7 +1277,6 @@ const SubjectsManagement: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Teachers Section */}
                     <div>
                       <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-3">
                         <Users className="w-4 h-4 text-blue-500" />
@@ -1094,7 +1306,6 @@ const SubjectsManagement: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Classes Section */}
                     {subjectClasses.length > 0 && (
                       <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                         <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-3">

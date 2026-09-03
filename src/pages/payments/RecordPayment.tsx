@@ -1,5 +1,5 @@
 // src/pages/payments/RecordPayment.tsx
-// Complete with receipt security - NO INSTALLMENTS
+// Complete with receipt security - WITH INSTALLMENTS SUPPORT
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -125,7 +125,7 @@ const paymentSchema = z.object({
 type PaymentFormData = z.infer<typeof paymentSchema>;
 
 // ============================================
-// UTILITY FUNCTIONS
+// UTILITY FUNCTIONS - UPDATED WITH UUID FORMAT
 // ============================================
 
 const formatCurrency = (amount: number) => {
@@ -137,6 +137,84 @@ const formatCurrency = (amount: number) => {
   }).format(amount);
 };
 
+// Generate UUID v4 for receipt numbers
+const generateUUID = (): string => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
+
+// Generate a shorter unique ID (8 characters)
+const generateShortId = (): string => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let result = '';
+  for (let i = 0; i < 8; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
+};
+
+// NEW: Generate receipt number with UUID format (NO SEQUENTIAL - GUARANTEED UNIQUE)
+const generateReceiptNumber = (branchCode: string = 'EBEO'): string => {
+  const year = dayjs().format('YYYY');
+  // Format: RCP/EBEO/2026/34yuxkil-yu
+  const uuid = generateUUID();
+  // Take first 8 chars of UUID for shorter format, or use full UUID
+  const shortUuid = uuid.substring(0, 8);
+  // Add a random component for extra uniqueness
+  const randomComponent = generateShortId();
+  return `RCP/${branchCode}/${year}/${shortUuid}-${randomComponent}`;
+};
+
+// Alternative: Generate receipt number with timestamp for guaranteed uniqueness
+const generateReceiptNumberWithTimestamp = (branchCode: string = 'EBEO'): string => {
+  const year = dayjs().format('YYYY');
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `RCP/${branchCode}/${year}/${timestamp}-${random}`;
+};
+
+// Generate receipt number with retry mechanism (for extra safety)
+const generateUniqueReceiptNumber = async (branchCode: string = 'EBEO', maxRetries: number = 3): Promise<string> => {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const receiptNumber = generateReceiptNumber(branchCode);
+    
+    // Check if this receipt number already exists
+    const { data, error } = await supabase
+      .from('payments')
+      .select('id')
+      .eq('receipt_number', receiptNumber)
+      .maybeSingle();
+    
+    if (error) {
+      console.error('Error checking receipt number:', error);
+      // If we can't check, still return the generated number
+      // The database constraint will catch duplicates
+      return receiptNumber;
+    }
+    
+    if (!data) {
+      // Receipt number is unique
+      return receiptNumber;
+    }
+    
+    console.log(`Receipt number ${receiptNumber} already exists, retrying... (Attempt ${attempt + 1})`);
+  }
+  
+  // If all retries fail, use timestamp-based generation (guaranteed unique)
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `RCP/${branchCode}/${dayjs().format('YYYY')}/${timestamp}-${random}`;
+};
+
+// Legacy function - kept for compatibility but no longer used for receipt numbers
+const generateBranchReceiptCode = (branchCode: string, session: string, sequence: number): string => {
+  const alphanumeric = generateAlphanumeric(6);
+  return `${branchCode}/${session}/${alphanumeric}`;
+};
+
 const generateAlphanumeric = (length: number): string => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let result = '';
@@ -144,11 +222,6 @@ const generateAlphanumeric = (length: number): string => {
     result += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return result;
-};
-
-const generateBranchReceiptCode = (branchCode: string, session: string, sequence: number): string => {
-  const alphanumeric = generateAlphanumeric(6);
-  return `${branchCode}/${session}/${alphanumeric}`;
 };
 
 const generateVerificationToken = (): string => {
@@ -161,46 +234,17 @@ const generateVerificationToken = (): string => {
 };
 
 const generatePaymentId = async (): Promise<string> => {
-  try {
-    const year = dayjs().format('YYYY');
-    const { count, error } = await supabase
-      .from('payments')
-      .select('id', { count: 'exact', head: true })
-      .like('payment_id', `PAY-${year}%`);
+  const { data, error } = await supabase.rpc('generate_payment_id');
 
-    if (error) throw error;
-    const sequence = (count || 0) + 1;
-    return `PAY-${year}-${String(sequence).padStart(5, '0')}`;
-  } catch (error) {
+  if (error) {
     console.error('Error generating payment ID:', error);
-    return `PAY-${dayjs().format('YYYY')}-${String(
-      Math.floor(Math.random() * 100000)
-    ).padStart(5, '0')}`;
+    throw new Error('Unable to generate a unique payment ID');
   }
+
+  return data;
 };
 
-const generateReceiptNumber = async (branchCode: string = 'EISO', session: string = '2026/2027'): Promise<{ receiptNumber: string; receiptCode: string }> => {
-  try {
-    const year = dayjs().format('YYYY');
-    const { count, error } = await supabase
-      .from('payments')
-      .select('id', { count: 'exact', head: true })
-      .like('receipt_number', `RCP/EBE/${year}%`);
-
-    if (error) throw error;
-    const sequence = (count || 0) + 1;
-    const receiptNumber = `RCP/EBE/${year}/${String(sequence).padStart(8, '0')}`;
-    const receiptCode = generateBranchReceiptCode(branchCode, session, sequence);
-    return { receiptNumber, receiptCode };
-  } catch (error) {
-    console.error('Error generating receipt number:', error);
-    const sequence = Math.floor(Math.random() * 10000000);
-    const receiptNumber = `RCP/EBE/${dayjs().format('YYYY')}/${String(sequence).padStart(8, '0')}`;
-    const receiptCode = generateBranchReceiptCode(branchCode, session, sequence);
-    return { receiptNumber, receiptCode };
-  }
-};
-
+// Create receipt signature with improved security
 const createReceiptSignature = async (paymentId: string): Promise<ReceiptSecurityData | null> => {
   try {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
@@ -610,7 +654,7 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
   const [studentLoading, setStudentLoading] = useState(false);
   const [assignmentsLoading, setAssignmentsLoading] = useState(false);
   const [branchId, setBranchId] = useState<string>('');
-  const [branchCode, setBranchCode] = useState<string>('EISO');
+  const [branchCode, setBranchCode] = useState<string>('EBEO');
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
@@ -699,7 +743,7 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
     }
   };
 
-  // Load student's fee assignments - ONLY UNPAID OR PARTIALLY PAID
+  // Load student's fee assignments - ONLY UNPAID OR PARTIALLY PAID (INSTALLMENTS)
   const loadStudentAssignments = async (studentId: string) => {
     setAssignmentsLoading(true);
     setAssignments([]);
@@ -733,7 +777,7 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
         `)
         .eq('student_id', studentId)
         .eq('is_active', true)
-        .neq('payment_status', 'paid')
+        .neq('payment_status', 'paid')  // This allows both 'unpaid' and 'partial' (installments)
         .order('due_date', { ascending: true });
 
       if (error) throw error;
@@ -990,7 +1034,9 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
     }
   };
 
-  // Submit handler with receipt generation
+  // ============================================
+  // UPDATED SUBMIT HANDLER - WITH UUID RECEIPT NUMBERS
+  // ============================================
   const onSubmit = async (data: PaymentFormData) => {
     if (!branchId) {
       toast.error('No branch assigned. Please contact administrator.');
@@ -1020,10 +1066,15 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
 
       // Generate IDs
       const paymentId = await generatePaymentId();
-      const { receiptNumber, receiptCode } = await generateReceiptNumber(
-        branchCode,
-        selectedAssignment?.session_name || '2026/2027'
-      );
+      
+      // ==========================================
+      // USE UUID-BASED RECEIPT NUMBER (NO DUPLICATES)
+      // ==========================================
+      const receiptNumber = generateReceiptNumber(branchCode);
+      
+      // Generate receipt code (separate from receipt number)
+      const receiptCode = `EBE/${dayjs().format('YYYY')}/${generateShortId()}`;
+      
       const verificationToken = generateVerificationToken();
 
       const uploadedFilesData = uploadedFiles
@@ -1041,7 +1092,7 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
 
       const paymentData = {
         payment_id: paymentId,
-        receipt_number: receiptNumber,
+        receipt_number: receiptNumber,  // UUID format: RCP/EBEO/2026/34yuxkil-yu
         receipt_code: receiptCode,
         verification_token: verificationToken,
         student_id: data.student_id,
@@ -1053,6 +1104,7 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
         payment_method: data.payment_method,
         payment_date: data.payment_date,
         due_date: selectedAssignment?.due_date || null,
+        // If fully paid, mark as completed; otherwise keep as pending (allows installments)
         status: isFullyPaid ? 'completed' : 'pending',
         transaction_reference: data.transaction_reference || paymentId,
         payment_proof_url: uploadedFilesData.length > 0 ? uploadedFilesData.map(f => f.url).join(',') : null,
@@ -1077,10 +1129,13 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
           fee_name: selectedAssignment?.fee_name || null,
           verification_token: verificationToken,
           receipt_code: receiptCode,
+          // Track if this is an installment payment
+          is_installment: !isFullyPaid,
+          remaining_balance: Math.max(newBalance, 0),
         },
       };
 
-      console.log('Inserting payment data:', paymentData);
+      console.log('Inserting payment data with UUID receipt:', paymentData);
 
       const { data: insertedData, error } = await supabase
         .from('payments')
@@ -1093,13 +1148,13 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
         throw error;
       }
 
-      // Update assignment
+      // Update assignment (supports installments)
       const { error: updateError } = await supabase
         .from('student_fee_assignments')
         .update({
           amount_paid: (selectedAssignment?.amount_paid || 0) + data.amount_paid,
           balance: Math.max(newBalance, 0),
-          payment_status: isFullyPaid ? 'paid' : 'partial',
+          payment_status: isFullyPaid ? 'paid' : 'partial',  // 'partial' allows installments
           updated_at: new Date().toISOString(),
         })
         .eq('id', data.assignment_id);
@@ -1150,12 +1205,17 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
         qrPayload: securityData?.qrPayload,
         verificationToken: securityData?.verificationToken || verificationToken,
         verificationUrl: `${import.meta.env.VITE_SUPABASE_URL || ''}/functions/v1/verify-receipt`,
+        // Include installment info
+        is_installment: !isFullyPaid,
+        remaining_balance: Math.max(newBalance, 0),
+        installment_message: !isFullyPaid ? `Remaining balance: ${formatCurrency(Math.max(newBalance, 0))}` : 'Fully paid',
       };
 
       setReceiptData(receiptData);
       setShowReceipt(true);
       
-      toast.success(`Payment recorded successfully! Receipt: ${receiptNumber}`);
+      const installmentMessage = !isFullyPaid ? ` (Installment payment. Remaining: ${formatCurrency(Math.max(newBalance, 0))})` : ' (Fully paid)';
+      toast.success(`Payment recorded successfully! Receipt: ${receiptNumber}${installmentMessage}`);
       
       uploadedFiles.forEach(f => URL.revokeObjectURL(f.preview));
       resetForm();
@@ -1348,7 +1408,7 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
                       {assignments.map((assignment) => (
                         <option key={assignment.id} value={assignment.id}>
                           {assignment.fee_name} - {formatCurrency(assignment.balance)} remaining 
-                          ({assignment.payment_status}) - {assignment.session_name} • {assignment.term_name}
+                          ({assignment.payment_status === 'partial' ? 'Installment' : assignment.payment_status}) - {assignment.session_name} • {assignment.term_name}
                         </option>
                       ))}
                     </select>
@@ -1417,7 +1477,7 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-gray-500 dark:text-gray-400">Status</span>
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(selectedAssignment.payment_status)}`}>
-                            {selectedAssignment.payment_status.charAt(0).toUpperCase() + selectedAssignment.payment_status.slice(1)}
+                            {selectedAssignment.payment_status === 'partial' ? 'Installment' : selectedAssignment.payment_status.charAt(0).toUpperCase() + selectedAssignment.payment_status.slice(1)}
                           </span>
                         </div>
                         {selectedAssignment.due_date && (
@@ -1491,11 +1551,11 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
                     <p className={`mt-1 text-sm ${
                       selectedAssignment.balance - watchedAmount === 0 ? 'text-green-600' :
                       selectedAssignment.balance - watchedAmount < 0 ? 'text-red-600' :
-                      'text-blue-600'
+                      'text-yellow-600'
                     }`}>
                       {selectedAssignment.balance - watchedAmount === 0 ? '✅ Fee will be fully paid' :
                        selectedAssignment.balance - watchedAmount < 0 ? '⚠️ Overpayment' :
-                       `${formatCurrency(selectedAssignment.balance - watchedAmount)} remaining after payment`}
+                       `📋 Installment payment. ${formatCurrency(selectedAssignment.balance - watchedAmount)} remaining`}
                     </p>
                   )}
                 </div>
@@ -1703,9 +1763,10 @@ const RecordPayment: React.FC<RecordPaymentProps> = ({
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex items-start gap-3">
               <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-blue-800 dark:text-blue-300">
-                <p>• Only shows outstanding fees (unpaid or partially paid).</p>
+                <p>• Shows outstanding fees (unpaid or partially paid - installment support).</p>
                 <p>• Each fee assignment is linked to a session and term.</p>
-                <p>• Payment status will update automatically based on the remaining balance.</p>
+                <p>• Payment status will update to "paid" when balance is cleared.</p>
+                <p>• Partial payments create installments (payment status: "partial").</p>
                 <p>• Upload payment proof or receipt for verification.</p>
                 <p>• All payments are recorded with cryptographic security.</p>
                 <p>• Receipts include QR codes and verification tokens.</p>

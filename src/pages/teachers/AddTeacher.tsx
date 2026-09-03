@@ -1,3 +1,5 @@
+// src/pages/teachers/AddTeacher.tsx — FIXED STAFF NUMBER FORMAT
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -138,6 +140,7 @@ const AddTeacher: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
+  const [branchCode, setBranchCode] = useState<string>('EISO');
   const [expandedSections, setExpandedSections] = useState({
     personal: true,
     professional: false,
@@ -312,6 +315,7 @@ const AddTeacher: React.FC = () => {
           
           if (branchId) {
             setUserBranchId(branchId);
+            await fetchBranchCode(branchId);
             await fetchClasses(branchId);
             if (isEditing) {
               await fetchTeacher(id!);
@@ -325,6 +329,26 @@ const AddTeacher: React.FC = () => {
     
     fetchUserBranch();
   }, [user, id, isEditing]);
+
+  // ============================================
+  // FETCH BRANCH CODE
+  // ============================================
+  
+  const fetchBranchCode = async (branchId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('branches')
+        .select('branch_code')
+        .eq('id', branchId)
+        .single();
+
+      if (!error && data?.branch_code) {
+        setBranchCode(data.branch_code);
+      }
+    } catch (error) {
+      console.error('Error fetching branch code:', error);
+    }
+  };
 
   const fetchClasses = async (branchId: string) => {
     try {
@@ -479,24 +503,51 @@ const AddTeacher: React.FC = () => {
     return cleaned;
   };
 
-  const generateEmployeeNumber = async (branchId: string) => {
-    const { data, count } = await supabase
-      .from('teachers')
-      .select('id', { count: 'exact' })
-      .eq('branch_id', branchId);
+  // ============================================
+  // GENERATE STAFF NUMBER
+  // Format: Branch/Year/Month/Number
+  // Example: EISO/2026/09/0001
+  // ============================================
+  
+  const generateStaffNumber = async (branchId: string, employmentDate: string) => {
+    try {
+      // Get branch code
+      let code = branchCode;
+      if (!code) {
+        const { data } = await supabase
+          .from('branches')
+          .select('branch_code')
+          .eq('id', branchId)
+          .single();
+        code = data?.branch_code || 'EISO';
+      }
 
-    const nextNumber = (count || 0) + 1;
-    return `TCH-${String(nextNumber).padStart(4, '0')}`;
-  };
+      // Get year and month from employment date
+      const date = dayjs(employmentDate);
+      const year = date.format('YYYY');
+      const month = date.format('MM');
 
-  const generateTeacherId = async (branchId: string) => {
-    const { data, count } = await supabase
-      .from('teachers')
-      .select('id', { count: 'exact' })
-      .eq('branch_id', branchId);
+      // Count existing staff with same branch, year, and month
+      const { count, error } = await supabase
+        .from('teachers')
+        .select('staff_number', { count: 'exact', head: false })
+        .eq('branch_id', branchId)
+        .like('staff_number', `${code}/${year}/${month}/%`);
 
-    const nextNumber = (count || 0) + 1;
-    return `TCH-${dayjs().format('YYYY')}-${String(nextNumber).padStart(4, '0')}`;
+      if (error) {
+        console.error('Error counting staff:', error);
+      }
+
+      const nextNumber = (count || 0) + 1;
+      const paddedNumber = String(nextNumber).padStart(4, '0');
+
+      return `${code}/${year}/${month}/${paddedNumber}`;
+    } catch (error) {
+      console.error('Error generating staff number:', error);
+      // Fallback
+      const date = dayjs(employmentDate);
+      return `${branchCode}/${date.format('YYYY')}/${date.format('MM')}/0001`;
+    }
   };
 
   const uploadPhoto = async (file: File): Promise<{ url: string; publicId: string } | null> => {
@@ -628,7 +679,10 @@ const AddTeacher: React.FC = () => {
       // Clean the data - convert empty strings to null
       const cleanedFormData = cleanDataForSubmission(formData);
 
-      const teacherData = {
+      // Get employment date
+      const employmentDate = cleanedFormData.employment_date || dayjs().format('YYYY-MM-DD');
+
+      let teacherData: any = {
         ...cleanedFormData,
         photo_url: photoUrl,
         photo_public_id: photoPublicId,
@@ -636,7 +690,7 @@ const AddTeacher: React.FC = () => {
         updated_at: new Date().toISOString(),
         // Ensure date fields are properly handled
         date_of_birth: cleanedFormData.date_of_birth || null,
-        employment_date: cleanedFormData.employment_date || null,
+        employment_date: employmentDate,
         contract_start_date: cleanedFormData.contract_start_date || null,
         contract_end_date: cleanedFormData.contract_end_date || null,
         probation_end_date: cleanedFormData.probation_end_date || null,
@@ -677,15 +731,14 @@ const AddTeacher: React.FC = () => {
 
         toast.success('Teacher updated successfully!');
       } else {
-        const employeeNumber = await generateEmployeeNumber(userBranchId);
-        const teacherId = await generateTeacherId(userBranchId);
+        // Generate staff number in format: Branch/Year/Month/Number
+        const staffNumber = await generateStaffNumber(userBranchId, employmentDate);
         
         const { error: insertError } = await supabase
           .from('teachers')
           .insert([{
             ...teacherData,
-            employee_number: employeeNumber,
-            teacher_id: teacherId,
+            staff_number: staffNumber,
             created_at: new Date().toISOString(),
             created_by: user?.id,
           }]);
@@ -708,7 +761,7 @@ const AddTeacher: React.FC = () => {
           return;
         }
 
-        toast.success('Teacher added successfully!');
+        toast.success(`Teacher added successfully! Staff Number: ${staffNumber}`);
       }
 
       navigate('/teachers');
@@ -1120,14 +1173,15 @@ const AddTeacher: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Employee ID
+                      Staff Number
                     </label>
                     <input
                       type="text"
-                      value={isEditing ? formData.employee_id || 'Auto-generated' : 'Auto-generated'}
+                      value={isEditing ? formData.staff_number || 'Auto-generated' : 'Auto-generated'}
                       disabled
-                      className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 cursor-not-allowed dark:text-white"
+                      className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-800 cursor-not-allowed dark:text-white font-mono"
                     />
+                    <p className="text-xs text-gray-400 mt-1">Format: {branchCode}/YYYY/MM/XXXX</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

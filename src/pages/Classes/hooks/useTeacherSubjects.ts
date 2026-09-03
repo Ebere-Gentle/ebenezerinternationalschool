@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../../config/supabase/client';
-import { TeacherSubject } from '../types';
+import type { TeacherSubject } from '../types';
 import toast from 'react-hot-toast';
 
-export const useTeacherSubjects = (branchId: string | null, session: string) => {
+export const useTeacherSubjects = (branchId: string | null) => {  // Remove session parameter
   const [teacherSubjects, setTeacherSubjects] = useState<TeacherSubject[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -34,7 +34,7 @@ export const useTeacherSubjects = (branchId: string | null, session: string) => 
             code
           )
         `)
-        .eq('academic_session', session)
+        // REMOVED: .eq('academic_session', session)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -53,7 +53,7 @@ export const useTeacherSubjects = (branchId: string | null, session: string) => 
     } finally {
       setLoading(false);
     }
-  }, [branchId, session]);
+  }, [branchId]);  // Remove session dependency
 
   useEffect(() => {
     fetchTeacherSubjects();
@@ -61,11 +61,27 @@ export const useTeacherSubjects = (branchId: string | null, session: string) => 
 
   const assignTeacherToSubject = async (data: Partial<TeacherSubject>) => {
     try {
+      // First check if this assignment already exists
+      const { data: existing, error: checkError } = await supabase
+        .from('teacher_subjects')
+        .select('id')
+        .eq('class_id', data.class_id)
+        .eq('subject_id', data.subject_id);
+
+      if (checkError) throw checkError;
+
+      if (existing && existing.length > 0) {
+        toast.error('This subject is already assigned to this class');
+        return null;
+      }
+
+      // Remove academic_session from insert
       const { data: assignment, error } = await supabase
         .from('teacher_subjects')
         .insert([{
-          ...data,
-          academic_session: session,
+          teacher_id: data.teacher_id,
+          subject_id: data.subject_id,
+          class_id: data.class_id,
           created_at: new Date().toISOString()
         }])
         .select()

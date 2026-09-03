@@ -1,3 +1,5 @@
+// src/pages/teachers/TeachersList.tsx — UPDATED WITH STAFF NUMBER FORMAT
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -59,7 +61,6 @@ const TeachersList: React.FC = () => {
       }
 
       try {
-        // Get branch_id from user object or fetch from users table
         let branchId = user.branch_id;
         
         if (!branchId) {
@@ -91,7 +92,6 @@ const TeachersList: React.FC = () => {
     fetchBranchAndTeachers();
   }, [user]);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = () => {
       setShowExportDropdown(false);
@@ -111,7 +111,6 @@ const TeachersList: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      // First, get all teachers for export
       const { data: allData, error: allError } = await supabase
         .from('teachers')
         .select('*')
@@ -121,7 +120,6 @@ const TeachersList: React.FC = () => {
       if (allError) throw allError;
       setAllTeachers(allData || []);
 
-      // Then apply filters for display
       let query = supabase
         .from('teachers')
         .select('*')
@@ -133,7 +131,7 @@ const TeachersList: React.FC = () => {
           `first_name.ilike.%${searchTerm}%,` +
           `last_name.ilike.%${searchTerm}%,` +
           `email.ilike.%${searchTerm}%,` +
-          `employee_number.ilike.%${searchTerm}%,` +
+          `staff_number.ilike.%${searchTerm}%,` +
           `phone_number.ilike.%${searchTerm}%`
         );
       }
@@ -160,7 +158,7 @@ const TeachersList: React.FC = () => {
   };
 
   // ============================================
-  // EXPORT FUNCTIONS - Export ALL teachers
+  // EXPORT FUNCTIONS
   // ============================================
   
   const exportTeachersJSON = async () => {
@@ -210,7 +208,7 @@ const TeachersList: React.FC = () => {
     setExporting(true);
     try {
       const fields = [
-        'employee_number', 'first_name', 'last_name', 
+        'staff_number', 'first_name', 'last_name', 
         'email', 'phone_number', 'department', 'position',
         'status', 'salary', 'gender', 'date_of_birth'
       ];
@@ -252,7 +250,7 @@ const TeachersList: React.FC = () => {
   };
 
   // ============================================
-  // PRINT FUNCTION - Print ALL teachers
+  // PRINT FUNCTION
   // ============================================
   
   const printTeachersList = async () => {
@@ -309,7 +307,7 @@ const TeachersList: React.FC = () => {
             <thead>
               <tr>
                 <th>#</th>
-                <th>Employee ID</th>
+                <th>Staff Number</th>
                 <th>Name</th>
                 <th>Department</th>
                 <th>Position</th>
@@ -322,7 +320,7 @@ const TeachersList: React.FC = () => {
               ${allTeachers.map((teacher, index) => `
                 <tr>
                   <td>${index + 1}</td>
-                  <td>${teacher.employee_number || 'N/A'}</td>
+                  <td>${teacher.staff_number || 'N/A'}</td>
                   <td>${teacher.first_name} ${teacher.last_name}</td>
                   <td>${teacher.department?.toUpperCase() || 'N/A'}</td>
                   <td>${teacher.position || 'N/A'}</td>
@@ -443,7 +441,7 @@ const TeachersList: React.FC = () => {
       teacher.last_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       teacher.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       teacher.phone_number?.includes(searchTerm) ||
-      teacher.employee_number?.toLowerCase().includes(searchTerm.toLowerCase());
+      teacher.staff_number?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const departmentMatch = filterDepartment ? teacher.department === filterDepartment : true;
     const statusMatch = filterStatus ? teacher.status === filterStatus : true;
@@ -472,7 +470,6 @@ const TeachersList: React.FC = () => {
     { value: 'terminated', label: 'Terminated' },
   ];
 
-  // Show loading spinner during initial load
   if (loading && teachers.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -481,7 +478,6 @@ const TeachersList: React.FC = () => {
     );
   }
 
-  // Show error state with loading spinner (no error message)
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -614,7 +610,6 @@ const TeachersList: React.FC = () => {
             <Loader2 className="w-8 h-8 text-gray-400" />
           </div>
           <p className="text-gray-500 dark:text-gray-400">Please wait while we fetch the teachers.</p>
-         
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -631,8 +626,8 @@ const TeachersList: React.FC = () => {
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center text-white font-medium text-sm flex-shrink-0">
-                      {teacher.profile_image_url ? (
-                        <img src={teacher.profile_image_url} alt={teacher.first_name} className="w-full h-full rounded-full object-cover" />
+                      {teacher.photo_url ? (
+                        <img src={teacher.photo_url} alt={teacher.first_name} className="w-full h-full rounded-full object-cover" />
                       ) : (
                         `${teacher.first_name?.[0] || 'T'}${teacher.last_name?.[0] || 'E'}`
                       )}
@@ -642,7 +637,7 @@ const TeachersList: React.FC = () => {
                         {teacher.first_name} {teacher.last_name}
                       </h3>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
-                        {teacher.employee_number || 'No ID'}
+                        {teacher.staff_number || 'No Staff Number'}
                       </p>
                     </div>
                   </div>

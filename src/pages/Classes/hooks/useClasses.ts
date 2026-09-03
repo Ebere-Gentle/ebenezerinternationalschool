@@ -3,7 +3,7 @@ import { supabase } from '../../../config/supabase/client';
 import type { Class, ClassStats } from '../types';
 import toast from 'react-hot-toast';
 
-export const useClasses = (branchId: string | null, session: string) => {
+export const useClasses = (branchId: string | null) => {  // Remove session parameter
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
@@ -38,11 +38,12 @@ export const useClasses = (branchId: string | null, session: string) => {
 
       if (classesError) throw classesError;
 
-      // Get student counts per class
+      // Get student counts per class (keep session for student_classes)
+      // Student_classes still has academic_session
       const { data: studentClasses } = await supabase
         .from('student_classes')
         .select('class_id, student_id')
-        .eq('academic_session', session)
+        .eq('academic_session', session)  // Keep this - student_classes has session
         .eq('is_current', true);
 
       const studentCounts: Record<string, number> = {};
@@ -50,11 +51,11 @@ export const useClasses = (branchId: string | null, session: string) => {
         studentCounts[sc.class_id] = (studentCounts[sc.class_id] || 0) + 1;
       });
 
-      // Get subject counts per class
+      // Get subject counts per class - REMOVE session filter
       const { data: teacherSubjects } = await supabase
         .from('teacher_subjects')
-        .select('class_id, subject_id')
-        .eq('academic_session', session);
+        .select('class_id, subject_id');
+        // REMOVED: .eq('academic_session', session)
 
       const subjectCounts: Record<string, Set<string>> = {};
       teacherSubjects?.forEach(ts => {
@@ -97,7 +98,7 @@ export const useClasses = (branchId: string | null, session: string) => {
     } finally {
       setLoading(false);
     }
-  }, [branchId, session]);
+  }, [branchId]);  // Remove session dependency
 
   useEffect(() => {
     fetchClasses();

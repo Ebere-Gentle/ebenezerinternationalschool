@@ -34,7 +34,11 @@ import {
   Clock,
   UserPlus,
   UserMinus,
-  BookOpen as BookOpenIcon
+  BookOpen as BookOpenIcon,
+  LayoutGrid,
+  List,
+  Trash,
+  AlertTriangle
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
@@ -83,6 +87,19 @@ interface ClassStats {
   completionRate: number;
 }
 
+// Valid level values matching the database enum (lowercase as in DB)
+const VALID_LEVELS = ['creche', 'nursery', 'primary', 'junior', 'senior', 'graduate'];
+
+// Display names for levels
+const LEVEL_DISPLAY_NAMES: Record<string, string> = {
+  'creche': 'Creche',
+  'nursery': 'Nursery',
+  'primary': 'Primary',
+  'junior': 'Junior',
+  'senior': 'Senior',
+  'graduate': 'Graduate'
+};
+
 const ClassesList: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -125,6 +142,10 @@ const ClassesList: React.FC = () => {
   const [selectedTeacher, setSelectedTeacher] = useState<string>('');
   const [addingStudent, setAddingStudent] = useState(false);
   const [currentTerm, setCurrentTerm] = useState<any>(null);
+  const [studentStatusFilter, setStudentStatusFilter] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
+  const [showOrphanCleanup, setShowOrphanCleanup] = useState(false);
+  const [orphanRecords, setOrphanRecords] = useState<any[]>([]);
 
   const pageSize = 10;
 
@@ -174,7 +195,6 @@ const ClassesList: React.FC = () => {
       if (!error && data) {
         setCurrentTerm(data);
       } else {
-        // Fallback to latest term
         const { data: latest } = await supabase
           .from('terms')
           .select('*')
@@ -199,6 +219,129 @@ const ClassesList: React.FC = () => {
       fetchSubjects();
     }
   }, [userBranchId, currentPage, searchTerm, statusFilter]);
+
+  // Fixed: Simplified orphan check without complex joins
+  const checkOrphanedRecords = async (classId?: string) => {
+    try {
+      // Get all teacher_subjects records
+      let query = supabase
+        .from('teacher_subjects')
+        .select('*');
+
+      if (classId) {
+        query = query.eq('class_id', classId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        setOrphanRecords([]);
+        setShowOrphanCleanup(false);
+        return [];
+      }
+
+      // Check each record for orphaned references
+      const orphanChecks = await Promise.all(data.map(async (record) => {
+        let isOrphan = false;
+        let issue = '';
+
+        // Check if class exists
+        if (record.class_id) {
+          const { data: classData, error: classError } = await supabase
+            .from('classes')
+            .select('id')
+            .eq('id', record.class_id)
+            .single();
+          
+          if (classError || !classData) {
+            isOrphan = true;
+            issue = 'Missing Class';
+          }
+        }
+
+        // Check if subject exists
+        if (record.subject_id) {
+          const { data: subjectData, error: subjectError } = await supabase
+            .from('subjects')
+            .select('id')
+            .eq('id', record.subject_id)
+            .single();
+          
+          if (subjectError || !subjectData) {
+            isOrphan = true;
+            issue = issue ? `${issue}, Missing Subject` : 'Missing Subject';
+          }
+        }
+
+        // Check if teacher exists
+        if (record.teacher_id) {
+          const { data: teacherData, error: teacherError } = await supabase
+            .from('teachers')
+            .select('id')
+            .eq('id', record.teacher_id)
+            .single();
+          
+          if (teacherError || !teacherData) {
+            isOrphan = true;
+            issue = issue ? `${issue}, Missing Teacher` : 'Missing Teacher';
+          }
+        }
+
+        if (isOrphan) {
+          return { ...record, issue };
+        }
+        return null;
+      }));
+
+      const orphans = orphanChecks.filter((r): r is any => r !== null);
+
+      setOrphanRecords(orphans);
+      setShowOrphanCleanup(orphans.length > 0);
+      
+      if (orphans.length > 0) {
+        toast.warning(`Found ${orphans.length} orphaned record(s). Click the cleanup button to fix.`);
+      }
+      
+      return orphans;
+    } catch (error) {
+      console.error('Error checking orphaned records:', error);
+      return [];
+    }
+  };
+
+  const cleanupOrphanedRecords = async () => {
+    if (orphanRecords.length === 0) {
+      toast.info('No orphaned records to clean up');
+      return;
+    }
+
+    if (!confirm(`Delete ${orphanRecords.length} orphaned record(s)? This cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      const ids = orphanRecords.map(r => r.id);
+      const { error } = await supabase
+        .from('teacher_subjects')
+        .delete()
+        .in('id', ids);
+
+      if (error) throw error;
+
+      toast.success(`Cleaned up ${ids.length} orphaned record(s)`);
+      setOrphanRecords([]);
+      setShowOrphanCleanup(false);
+      fetchClasses();
+      if (selectedClass) {
+        viewClassDetails(selectedClass);
+      }
+    } catch (error: any) {
+      console.error('Error cleaning up orphans:', error);
+      toast.error(error.message || 'Failed to clean up orphaned records');
+    }
+  };
 
   const fetchClasses = async () => {
     if (!userBranchId) return;
@@ -230,12 +373,11 @@ const ClassesList: React.FC = () => {
 
       if (error) throw error;
 
-      // Get students directly from students table (they have class_id)
+      // Get all students
       const { data: students } = await supabase
         .from('students')
-        .select('id, class_id')
-        .eq('branch_id', userBranchId)
-        .eq('current_status', 'active');
+        .select('id, class_id, current_status')
+        .eq('branch_id', userBranchId);
 
       const studentCounts: Record<string, number> = {};
       students?.forEach(s => {
@@ -244,12 +386,10 @@ const ClassesList: React.FC = () => {
         }
       });
 
-      // Get subject counts from teacher_subjects
-      const session = currentTerm?.session || '2026/2027';
+      // Get subject counts - COUNT ALL SUBJECTS (no session filter)
       const { data: teacherSubjects } = await supabase
         .from('teacher_subjects')
-        .select('class_id, subject_id')
-        .eq('academic_session', session);
+        .select('class_id, subject_id');
 
       const subjectCounts: Record<string, Set<string>> = {};
       teacherSubjects?.forEach(ts => {
@@ -278,12 +418,22 @@ const ClassesList: React.FC = () => {
         }
       }
 
-      const formattedClasses = data?.map(cls => ({
+      let formattedClasses = data?.map(cls => ({
         ...cls,
         class_teacher_name: cls.class_teacher_id ? teacherNames[cls.class_teacher_id] || 'Not Assigned' : 'Not Assigned',
         students_count: studentCounts[cls.id] || 0,
         subjects_count: subjectCounts[cls.id]?.size || 0
       })) || [];
+
+      // Sort: Graduate classes last, others alphabetically
+      formattedClasses = formattedClasses.sort((a, b) => {
+        const aIsGraduate = a.level === 'graduate' || a.name.toLowerCase().includes('graduate');
+        const bIsGraduate = b.level === 'graduate' || b.name.toLowerCase().includes('graduate');
+        
+        if (aIsGraduate && !bIsGraduate) return 1;
+        if (!aIsGraduate && bIsGraduate) return -1;
+        return a.name.localeCompare(b.name);
+      });
 
       setClasses(formattedClasses);
       setTotalCount(count || 0);
@@ -302,6 +452,9 @@ const ClassesList: React.FC = () => {
         totalTeachers,
         completionRate
       });
+
+      // Check for orphaned records
+      await checkOrphanedRecords();
 
     } catch (error: any) {
       console.error('Error fetching classes:', error);
@@ -350,19 +503,17 @@ const ClassesList: React.FC = () => {
     if (!selectedClass || !userBranchId) return;
 
     try {
-      // Get students already in this class (from students table)
       const { data: enrolledStudents } = await supabase
         .from('students')
         .select('id')
         .eq('class_id', selectedClass.id)
-        .eq('branch_id', userBranchId)
-        .eq('current_status', 'active');
+        .eq('branch_id', userBranchId);
 
       const enrolledIds = enrolledStudents?.map(e => e.id) || [];
 
       let query = supabase
         .from('students')
-        .select('id, first_name, last_name, admission_number, student_id')
+        .select('id, first_name, last_name, admission_number, student_id, current_status')
         .eq('branch_id', userBranchId)
         .eq('current_status', 'active');
 
@@ -382,12 +533,23 @@ const ClassesList: React.FC = () => {
   const handleCreateClass = async () => {
     if (!userBranchId) return;
 
+    const levelValue = formData.level.toLowerCase();
+    if (!VALID_LEVELS.includes(levelValue)) {
+      toast.error(`Invalid level. Must be one of: ${VALID_LEVELS.join(', ')}`);
+      return;
+    }
+
     setSaving(true);
     try {
       const { data, error } = await supabase
         .from('classes')
         .insert([{
-          ...formData,
+          name: formData.name,
+          code: formData.code,
+          level: levelValue,
+          class_teacher_id: formData.class_teacher_id || null,
+          capacity: parseInt(formData.capacity.toString()),
+          status: formData.status,
           branch_id: userBranchId,
           academic_session: currentTerm?.session || '2026/2027',
           created_at: new Date().toISOString(),
@@ -397,7 +559,10 @@ const ClassesList: React.FC = () => {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
 
       toast.success('Class created successfully!');
       setShowCreateModal(false);
@@ -421,17 +586,31 @@ const ClassesList: React.FC = () => {
   const handleUpdateClass = async () => {
     if (!editingClass) return;
 
+    const levelValue = formData.level.toLowerCase();
+    if (!VALID_LEVELS.includes(levelValue)) {
+      toast.error(`Invalid level. Must be one of: ${VALID_LEVELS.join(', ')}`);
+      return;
+    }
+
     setSaving(true);
     try {
       const { error } = await supabase
         .from('classes')
         .update({
-          ...formData,
+          name: formData.name,
+          code: formData.code,
+          level: levelValue,
+          class_teacher_id: formData.class_teacher_id || null,
+          capacity: parseInt(formData.capacity.toString()),
+          status: formData.status,
           updated_at: new Date().toISOString()
         })
         .eq('id', editingClass.id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        throw error;
+      }
 
       toast.success('Class updated successfully!');
       setEditingClass(null);
@@ -443,6 +622,7 @@ const ClassesList: React.FC = () => {
         capacity: 30,
         status: 'active'
       });
+      setShowCreateModal(false);
       fetchClasses();
     } catch (error: any) {
       console.error('Error updating class:', error);
@@ -456,7 +636,13 @@ const ClassesList: React.FC = () => {
     if (!confirm('Are you sure you want to delete this class?')) return;
 
     try {
-      // First update any students with this class_id to NULL
+      // First delete all subject assignments for this class
+      await supabase
+        .from('teacher_subjects')
+        .delete()
+        .eq('class_id', id);
+
+      // Then update students
       await supabase
         .from('students')
         .update({ class_id: null })
@@ -483,40 +669,63 @@ const ClassesList: React.FC = () => {
     setLoadingDetails(true);
 
     try {
-      // Fetch students directly from students table (they have class_id)
-      const { data: students } = await supabase
+      const isGraduateClass = cls.name.toLowerCase().includes('graduate') || 
+                              cls.level === 'graduate';
+      
+      let query = supabase
         .from('students')
-        .select('id, first_name, last_name, admission_number, student_id, email, phone_number, gender, date_of_birth')
+        .select('id, first_name, last_name, admission_number, student_id, email, phone_number, gender, date_of_birth, current_status')
         .eq('class_id', cls.id)
-        .eq('branch_id', userBranchId)
-        .eq('current_status', 'active');
+        .eq('branch_id', userBranchId);
 
+      if (!isGraduateClass) {
+        query = query.eq('current_status', 'active');
+      }
+
+      const { data: students } = await query;
       setClassStudents(students || []);
 
-      // Fetch subjects and teachers for this class
-      const session = currentTerm?.session || '2026/2027';
-      const { data: teacherSubjects } = await supabase
+      // Fixed: Simplified query without complex joins
+      const { data: teacherSubjects, error } = await supabase
         .from('teacher_subjects')
-        .select(`
-          *,
-          teachers:teacher_id (
-            first_name,
-            last_name,
-            teacher_id
-          ),
-          subjects:subject_id (
-            name,
-            code,
-            subject_id
-          )
-        `)
-        .eq('class_id', cls.id)
-        .eq('academic_session', session);
+        .select('*')
+        .eq('class_id', cls.id);
 
-      setClassSubjects(teacherSubjects || []);
+      if (error) {
+        console.error('Error fetching teacher subjects:', error);
+        setClassSubjects([]);
+        setLoadingDetails(false);
+        return;
+      }
+
+      // Get subject and teacher details separately
+      const subjectsWithDetails = await Promise.all((teacherSubjects || []).map(async (ts) => {
+        const [subjectResult, teacherResult] = await Promise.all([
+          supabase.from('subjects').select('id, name, code, subject_id, description').eq('id', ts.subject_id).single(),
+          supabase.from('teachers').select('id, first_name, last_name, teacher_id, email, phone_number').eq('id', ts.teacher_id).single()
+        ]);
+
+        return {
+          ...ts,
+          subjects: subjectResult.data || null,
+          teachers: teacherResult.data || null
+        };
+      }));
+
+      // Filter out any records where subject or teacher is null (orphaned)
+      const validSubjects = subjectsWithDetails.filter(item => 
+        item.subjects !== null && item.teachers !== null
+      );
+
+      setClassSubjects(validSubjects);
       await fetchAvailableStudents();
+      
+      // Check for orphaned records specific to this class
+      await checkOrphanedRecords(cls.id);
+      
     } catch (error) {
       console.error('Error fetching class details:', error);
+      toast.error('Failed to load class details');
     } finally {
       setLoadingDetails(false);
     }
@@ -530,7 +739,6 @@ const ClassesList: React.FC = () => {
 
     setAddingStudent(true);
     try {
-      // Update the student's class_id directly
       const { error } = await supabase
         .from('students')
         .update({ 
@@ -541,7 +749,6 @@ const ClassesList: React.FC = () => {
 
       if (error) throw error;
 
-      // Also add to student_classes for history tracking
       await supabase
         .from('student_classes')
         .insert([{
@@ -558,7 +765,7 @@ const ClassesList: React.FC = () => {
       setSelectedStudent('');
       setShowAddStudentModal(false);
       viewClassDetails(selectedClass);
-      fetchClasses(); // Refresh stats
+      fetchClasses();
     } catch (error: any) {
       console.error('Error adding student:', error);
       toast.error(error.message || 'Failed to add student');
@@ -571,7 +778,6 @@ const ClassesList: React.FC = () => {
     if (!confirm('Remove this student from the class?')) return;
 
     try {
-      // Update the student's class_id to NULL
       const { error } = await supabase
         .from('students')
         .update({ 
@@ -584,7 +790,7 @@ const ClassesList: React.FC = () => {
 
       toast.success('Student removed from class');
       viewClassDetails(selectedClass!);
-      fetchClasses(); // Refresh stats
+      fetchClasses();
     } catch (error: any) {
       console.error('Error removing student:', error);
       toast.error(error.message || 'Failed to remove student');
@@ -593,29 +799,60 @@ const ClassesList: React.FC = () => {
 
   const handleAddSubject = async () => {
     if (!selectedClass || !selectedSubject || !selectedTeacher) {
-      toast.error('Please select a subject and teacher');
+      toast.error('Please select both a subject and a teacher');
       return;
     }
 
     setSaving(true);
     try {
-      const { error } = await supabase
+      // Check if this subject is already assigned to this class
+      const { data: existing, error: checkError } = await supabase
+        .from('teacher_subjects')
+        .select('id, teacher_id')
+        .eq('class_id', selectedClass.id)
+        .eq('subject_id', selectedSubject);
+
+      if (checkError) {
+        console.error('Error checking existing records:', checkError);
+        throw checkError;
+      }
+
+      if (existing && existing.length > 0) {
+        const teacherName = teachers.find(t => t.id === existing[0].teacher_id)?.first_name || 'Unknown';
+        toast.error(
+          `This subject is already assigned to this class. ` +
+          `Currently assigned to: ${teacherName}`
+        );
+        setSaving(false);
+        return;
+      }
+
+      // Insert the new record
+      const { data: insertData, error: insertError } = await supabase
         .from('teacher_subjects')
         .insert([{
           teacher_id: selectedTeacher,
           subject_id: selectedSubject,
           class_id: selectedClass.id,
-          academic_session: currentTerm?.session || '2026/2027',
           created_at: new Date().toISOString()
-        }]);
+        }])
+        .select();
 
-      if (error) throw error;
+      if (insertError) {
+        console.error('Insert error:', insertError);
+        throw insertError;
+      }
+
+      console.log('Successfully inserted:', insertData);
 
       toast.success('Subject assigned to class successfully!');
       setSelectedSubject('');
       setSelectedTeacher('');
       setShowAddSubjectModal(false);
-      viewClassDetails(selectedClass);
+      
+      await viewClassDetails(selectedClass);
+      await fetchClasses();
+      
     } catch (error: any) {
       console.error('Error adding subject:', error);
       toast.error(error.message || 'Failed to add subject');
@@ -637,6 +874,7 @@ const ClassesList: React.FC = () => {
 
       toast.success('Subject removed from class');
       viewClassDetails(selectedClass!);
+      fetchClasses();
     } catch (error: any) {
       console.error('Error removing subject:', error);
       toast.error(error.message || 'Failed to remove subject');
@@ -644,6 +882,218 @@ const ClassesList: React.FC = () => {
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
+
+  // Render Grid View
+  const renderGridView = () => (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {classes.map((cls, index) => (
+        <motion.div
+          key={cls.id}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: index * 0.05 }}
+          className={`bg-white/70 dark:bg-gray-800/70 rounded-2xl border border-white/20 dark:border-gray-700/50 shadow-xl hover:shadow-2xl transition-all group ${
+            cls.level === 'graduate' || cls.name.toLowerCase().includes('graduate') 
+              ? 'border-green-500/30 dark:border-green-500/20' 
+              : ''
+          }`}
+        >
+          <div className="p-6">
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{cls.name}</h3>
+                  {cls.level === 'graduate' && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                      🎓 Graduate
+                    </span>
+                  )}
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    cls.status === 'active' 
+                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' 
+                      : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400'
+                  }`}>
+                    {cls.status}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Code: {cls.code}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Level: {LEVEL_DISPLAY_NAMES[cls.level] || cls.level}</p>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-lg flex-shrink-0">
+                {cls.level === 'graduate' ? (
+                  <GraduationCap className="w-6 h-6 text-white" />
+                ) : (
+                  <School className="w-6 h-6 text-white" />
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                <Users className="w-4 h-4 mx-auto text-blue-500" />
+                <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">{cls.students_count || 0}</p>
+                <p className="text-[10px] text-gray-500">Students</p>
+              </div>
+              <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                <BookMarked className="w-4 h-4 mx-auto text-purple-500" />
+                <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">{cls.subjects_count || 0}</p>
+                <p className="text-[10px] text-gray-500">Subjects</p>
+              </div>
+              <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
+                <User className="w-4 h-4 mx-auto text-green-500" />
+                <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
+                  {cls.class_teacher_name && cls.class_teacher_name !== 'Not Assigned' ? '✅' : '❌'}
+                </p>
+                <p className="text-[10px] text-gray-500">Class Teacher</p>
+              </div>
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="text-xs text-gray-500 truncate max-w-[120px]">
+                {cls.class_teacher_name || 'No class teacher assigned'}
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => viewClassDetails(cls)}
+                  className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-blue-600 dark:text-blue-400"
+                  title="View Details"
+                >
+                  <Eye className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => {
+                    setEditingClass(cls);
+                    setFormData({
+                      name: cls.name,
+                      code: cls.code,
+                      level: cls.level,
+                      class_teacher_id: cls.class_teacher_id || '',
+                      capacity: cls.capacity || 30,
+                      status: cls.status || 'active'
+                    });
+                    setShowCreateModal(true);
+                  }}
+                  className="p-1.5 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-all text-yellow-600 dark:text-yellow-400"
+                  title="Edit Class"
+                >
+                  <Edit className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleDeleteClass(cls.id)}
+                  className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-red-500"
+                  title="Delete Class"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      ))}
+    </div>
+  );
+
+  // Render List View
+  const renderListView = () => (
+    <div className="bg-white/70 dark:bg-gray-800/70 rounded-2xl border border-white/20 dark:border-gray-700/50 shadow-xl overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-gray-50 dark:bg-gray-700/50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Class</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Code</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Level</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Students</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Subjects</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Class Teacher</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {classes.map((cls) => {
+              const isGraduate = cls.level === 'graduate' || cls.name.toLowerCase().includes('graduate');
+              return (
+                <tr key={cls.id} className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors ${
+                  isGraduate ? 'bg-green-50/30 dark:bg-green-900/10' : ''
+                }`}>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      {isGraduate ? (
+                        <GraduationCap className="w-5 h-5 text-green-500" />
+                      ) : (
+                        <School className="w-5 h-5 text-blue-500" />
+                      )}
+                      <span className="font-medium text-gray-900 dark:text-white">{cls.name}</span>
+                      {isGraduate && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                          🎓 Graduate
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">{cls.code}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                    {LEVEL_DISPLAY_NAMES[cls.level] || cls.level}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">{cls.students_count || 0}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">{cls.subjects_count || 0}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                    {cls.class_teacher_name || 'Not Assigned'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`text-xs px-2 py-1 rounded-full ${
+                      cls.status === 'active' 
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' 
+                        : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400'
+                    }`}>
+                      {cls.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => viewClassDetails(cls)}
+                        className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-blue-600 dark:text-blue-400"
+                        title="View Details"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingClass(cls);
+                          setFormData({
+                            name: cls.name,
+                            code: cls.code,
+                            level: cls.level,
+                            class_teacher_id: cls.class_teacher_id || '',
+                            capacity: cls.capacity || 30,
+                            status: cls.status || 'active'
+                          });
+                          setShowCreateModal(true);
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-all text-yellow-600 dark:text-yellow-400"
+                        title="Edit Class"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteClass(cls.id)}
+                        className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-red-500"
+                        title="Delete Class"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 
   if (loading) {
     return (
@@ -655,7 +1105,29 @@ const ClassesList: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {showOrphanCleanup && orphanRecords.length > 0 && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+            <div>
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                Found {orphanRecords.length} orphaned record(s) in teacher_subjects
+              </p>
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                These records have missing references and may cause issues
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={cleanupOrphanedRecords}
+            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium transition-all flex items-center gap-1"
+          >
+            <Trash className="w-3 h-3" />
+            Clean Up
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent flex items-center gap-2">
@@ -686,7 +1158,6 @@ const ClassesList: React.FC = () => {
         </button>
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-white/70 dark:bg-gray-800/70 rounded-2xl p-4 border border-white/20 dark:border-gray-700/50 shadow-xl">
           <div className="flex items-center justify-between">
@@ -734,7 +1205,6 @@ const ClassesList: React.FC = () => {
         </div>
       </div>
 
-      {/* Search and Filters */}
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="flex-1 relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -762,6 +1232,32 @@ const ClassesList: React.FC = () => {
           <option value="inactive">Inactive</option>
           <option value="archived">Archived</option>
         </select>
+        
+        <div className="flex items-center gap-1 p-1 bg-gray-100 dark:bg-gray-700 rounded-xl">
+          <button
+            onClick={() => setViewMode('grid')}
+            className={`p-2 rounded-lg transition-all ${
+              viewMode === 'grid' 
+                ? 'bg-white dark:bg-gray-600 shadow-md text-blue-600 dark:text-blue-400' 
+                : 'text-gray-500 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-gray-600/50'
+            }`}
+            title="Grid View"
+          >
+            <LayoutGrid className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => setViewMode('list')}
+            className={`p-2 rounded-lg transition-all ${
+              viewMode === 'list' 
+                ? 'bg-white dark:bg-gray-600 shadow-md text-blue-600 dark:text-blue-400' 
+                : 'text-gray-500 dark:text-gray-400 hover:bg-white/50 dark:hover:bg-gray-600/50'
+            }`}
+            title="List View"
+          >
+            <List className="w-4 h-4" />
+          </button>
+        </div>
+        
         <button
           onClick={fetchClasses}
           className="p-2.5 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all"
@@ -770,7 +1266,6 @@ const ClassesList: React.FC = () => {
         </button>
       </div>
 
-      {/* Classes Grid */}
       {classes.length === 0 ? (
         <div className="text-center py-12 bg-white/70 dark:bg-gray-800/70 rounded-2xl border border-white/20 dark:border-gray-700/50 shadow-xl">
           <School className="w-16 h-16 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
@@ -796,102 +1291,9 @@ const ClassesList: React.FC = () => {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {classes.map((cls, index) => (
-            <motion.div
-              key={cls.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
-              className="bg-white/70 dark:bg-gray-800/70 rounded-2xl border border-white/20 dark:border-gray-700/50 shadow-xl hover:shadow-2xl transition-all group"
-            >
-              <div className="p-6">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{cls.name}</h3>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${
-                        cls.status === 'active' 
-                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' 
-                          : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400'
-                      }`}>
-                        {cls.status}
-                      </span>
-                    </div>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Code: {cls.code}</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Level: {cls.level}</p>
-                  </div>
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center shadow-lg flex-shrink-0">
-                    <GraduationCap className="w-6 h-6 text-white" />
-                  </div>
-                </div>
-
-                <div className="mt-4 grid grid-cols-3 gap-2">
-                  <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                    <Users className="w-4 h-4 mx-auto text-blue-500" />
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">{cls.students_count || 0}</p>
-                    <p className="text-[10px] text-gray-500">Students</p>
-                  </div>
-                  <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                    <BookMarked className="w-4 h-4 mx-auto text-purple-500" />
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">{cls.subjects_count || 0}</p>
-                    <p className="text-[10px] text-gray-500">Subjects</p>
-                  </div>
-                  <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                    <User className="w-4 h-4 mx-auto text-green-500" />
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white mt-1">
-                      {cls.class_teacher_name && cls.class_teacher_name !== 'Not Assigned' ? '✅' : '❌'}
-                    </p>
-                    <p className="text-[10px] text-gray-500">Class Teacher</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                  <div className="text-xs text-gray-500 truncate max-w-[120px]">
-                    {cls.class_teacher_name || 'No class teacher assigned'}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => viewClassDetails(cls)}
-                      className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-blue-600 dark:text-blue-400"
-                      title="View Details"
-                    >
-                      <Eye className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEditingClass(cls);
-                        setFormData({
-                          name: cls.name,
-                          code: cls.code,
-                          level: cls.level,
-                          class_teacher_id: cls.class_teacher_id || '',
-                          capacity: cls.capacity || 30,
-                          status: cls.status || 'active'
-                        });
-                        setShowCreateModal(true);
-                      }}
-                      className="p-1.5 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-all text-yellow-600 dark:text-yellow-400"
-                      title="Edit Class"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteClass(cls.id)}
-                      className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-red-500"
-                      title="Delete Class"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+        viewMode === 'grid' ? renderGridView() : renderListView()
       )}
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
           <div className="text-sm text-gray-500 dark:text-gray-400">
@@ -983,12 +1385,14 @@ const ClassesList: React.FC = () => {
                     className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
                   >
                     <option value="">Select Level</option>
-                    <option value="Creche">Creche</option>
-                    <option value="Nursery">Nursery</option>
-                    <option value="Primary">Primary</option>
-                    <option value="Junior">Junior</option>
-                    <option value="Senior">Senior</option>
+                    <option value="creche">Creche</option>
+                    <option value="nursery">Nursery</option>
+                    <option value="primary">Primary</option>
+                    <option value="junior">Junior</option>
+                    <option value="senior">Senior</option>
+                    <option value="graduate">Graduate</option>
                   </select>
+                  <p className="text-xs text-gray-500 mt-1">Valid levels: creche, nursery, primary, junior, senior, graduate</p>
                 </div>
 
                 <div>
@@ -1083,20 +1487,23 @@ const ClassesList: React.FC = () => {
                     {selectedClass.name} - Details
                   </h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {selectedClass.code} • {selectedClass.level}
+                    {selectedClass.code} • {LEVEL_DISPLAY_NAMES[selectedClass.level] || selectedClass.level}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setShowAddStudentModal(true);
-                      fetchAvailableStudents();
-                    }}
-                    className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-all flex items-center gap-1"
-                  >
-                    <UserPlus className="w-4 h-4" />
-                    Add Student
-                  </button>
+                  {!selectedClass.name.toLowerCase().includes('graduate') && 
+                   selectedClass.level !== 'graduate' && (
+                    <button
+                      onClick={() => {
+                        setShowAddStudentModal(true);
+                        fetchAvailableStudents();
+                      }}
+                      className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-all flex items-center gap-1"
+                    >
+                      <UserPlus className="w-4 h-4" />
+                      Add Student
+                    </button>
+                  )}
                   <button
                     onClick={() => setShowAddSubjectModal(true)}
                     className="px-3 py-1.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 transition-all flex items-center gap-1"
@@ -1123,7 +1530,6 @@ const ClassesList: React.FC = () => {
                   </div>
                 ) : (
                   <>
-                    {/* Class Info */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
                       <div>
                         <p className="text-xs text-gray-500">Class Teacher</p>
@@ -1147,10 +1553,30 @@ const ClassesList: React.FC = () => {
 
                     {/* Students Section */}
                     <div>
-                      <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-3">
-                        <Users className="w-4 h-4 text-blue-500" />
-                        Students ({classStudents.length})
-                      </h4>
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                          <Users className="w-4 h-4 text-blue-500" />
+                          Students ({classStudents.length})
+                        </h4>
+                        {(selectedClass.name.toLowerCase().includes('graduate') || 
+                         selectedClass.level === 'graduate') && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500">Filter:</span>
+                            <select
+                              value={studentStatusFilter}
+                              onChange={(e) => {
+                                setStudentStatusFilter(e.target.value);
+                                viewClassDetails(selectedClass);
+                              }}
+                              className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800"
+                            >
+                              <option value="all">All Students</option>
+                              <option value="graduated">Graduated</option>
+                              <option value="active">Active</option>
+                            </select>
+                          </div>
+                        )}
+                      </div>
                       {classStudents.length === 0 ? (
                         <p className="text-sm text-gray-500">No students enrolled in this class</p>
                       ) : (
@@ -1165,16 +1591,26 @@ const ClassesList: React.FC = () => {
                                   <p className="text-sm font-medium text-gray-900 dark:text-white">
                                     {student.first_name} {student.last_name}
                                   </p>
-                                  <p className="text-xs text-gray-500">{student.admission_number}</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-xs text-gray-500">{student.admission_number}</p>
+                                    {student.current_status === 'graduated' && (
+                                      <span className="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded-full">
+                                        Graduated
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                              <button
-                                onClick={() => handleRemoveStudent(student.id)}
-                                className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
-                                title="Remove student"
-                              >
-                                <UserMinus className="w-4 h-4" />
-                              </button>
+                              {!selectedClass.name.toLowerCase().includes('graduate') && 
+                               selectedClass.level !== 'graduate' && (
+                                <button
+                                  onClick={() => handleRemoveStudent(student.id)}
+                                  className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+                                  title="Remove student"
+                                >
+                                  <UserMinus className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -1183,37 +1619,58 @@ const ClassesList: React.FC = () => {
 
                     {/* Subjects & Teachers Section */}
                     <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                      <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-3">
-                        <BookMarked className="w-4 h-4 text-purple-500" />
-                        Subjects & Teachers ({classSubjects.length})
-                      </h4>
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                          <BookMarked className="w-4 h-4 text-purple-500" />
+                          Subjects & Teachers ({classSubjects.length})
+                        </h4>
+                        <button
+                          onClick={() => setShowAddSubjectModal(true)}
+                          className="text-xs px-3 py-1.5 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-all flex items-center gap-1"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Add Subject
+                        </button>
+                      </div>
                       {classSubjects.length === 0 ? (
-                        <p className="text-sm text-gray-500">No subjects assigned to this class</p>
+                        <div className="text-center py-6 bg-gray-50 dark:bg-gray-700/30 rounded-xl">
+                          <BookOpenIcon className="w-8 h-8 mx-auto text-gray-400 mb-2" />
+                          <p className="text-sm text-gray-500">No subjects assigned to this class</p>
+                          <p className="text-xs text-gray-400">Click "Add Subject" to assign subjects and teachers</p>
+                        </div>
                       ) : (
                         <div className="space-y-2">
                           {classSubjects.map((item) => (
-                            <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                              <div>
-                                <p className="text-sm font-medium text-gray-900 dark:text-white">
-                                  {item.subjects?.name || 'Unknown Subject'}
-                                </p>
-                                <p className="text-xs text-gray-500">Code: {item.subjects?.code || 'N/A'}</p>
-                              </div>
-                              <div className="flex items-center gap-4">
-                                <div className="text-right">
-                                  <p className="text-sm text-gray-700 dark:text-gray-300">
-                                    {item.teachers ? `${item.teachers.first_name} ${item.teachers.last_name}` : 'No teacher assigned'}
+                            <div key={item.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/30 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/50 transition-colors">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium text-gray-900 dark:text-white">
+                                    {item.subjects?.name || 'Unknown Subject'}
                                   </p>
-                                  <p className="text-xs text-gray-500">{item.teachers?.teacher_id || ''}</p>
+                                  <span className="text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 rounded-full">
+                                    {item.subjects?.code || 'N/A'}
+                                  </span>
                                 </div>
-                                <button
-                                  onClick={() => handleRemoveSubject(item.id)}
-                                  className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
-                                  title="Remove subject"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                {item.subjects?.description && (
+                                  <p className="text-xs text-gray-500 mt-0.5">{item.subjects.description}</p>
+                                )}
+                                <div className="flex items-center gap-2 mt-1">
+                                  <User className="w-3 h-3 text-gray-400" />
+                                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                                    Teacher: {item.teachers ? `${item.teachers.first_name} ${item.teachers.last_name}` : 'No teacher assigned'}
+                                  </p>
+                                  {item.teachers?.teacher_id && (
+                                    <span className="text-[10px] text-gray-400">({item.teachers.teacher_id})</span>
+                                  )}
+                                </div>
                               </div>
+                              <button
+                                onClick={() => handleRemoveSubject(item.id)}
+                                className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all ml-2"
+                                title="Remove subject"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </div>
                           ))}
                         </div>
@@ -1261,12 +1718,19 @@ const ClassesList: React.FC = () => {
                     className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
                   >
                     <option value="">Select a student...</option>
-                    {availableStudents.map(student => (
-                      <option key={student.id} value={student.id}>
-                        {student.first_name} {student.last_name} - {student.admission_number}
-                      </option>
-                    ))}
+                    {availableStudents.length === 0 ? (
+                      <option value="" disabled>No available students</option>
+                    ) : (
+                      availableStudents.map(student => (
+                        <option key={student.id} value={student.id}>
+                          {student.first_name} {student.last_name} - {student.admission_number}
+                        </option>
+                      ))
+                    )}
                   </select>
+                  {availableStudents.length === 0 && (
+                    <p className="text-xs text-gray-500 mt-1">All active students are already in this class</p>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
@@ -1309,7 +1773,9 @@ const ClassesList: React.FC = () => {
               className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-6 shadow-2xl"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Assign Subject to Class</h3>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  Assign Subject & Teacher to {selectedClass?.name}
+                </h3>
                 <button
                   onClick={() => {
                     setShowAddSubjectModal(false);
@@ -1325,7 +1791,7 @@ const ClassesList: React.FC = () => {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Select Subject
+                    Select Subject *
                   </label>
                   <select
                     value={selectedSubject}
@@ -1333,17 +1799,21 @@ const ClassesList: React.FC = () => {
                     className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
                   >
                     <option value="">Select a subject...</option>
-                    {subjects.map(subject => (
-                      <option key={subject.id} value={subject.id}>
-                        {subject.name} ({subject.code})
-                      </option>
-                    ))}
+                    {subjects.length === 0 ? (
+                      <option value="" disabled>No subjects available</option>
+                    ) : (
+                      subjects.map(subject => (
+                        <option key={subject.id} value={subject.id}>
+                          {subject.name} ({subject.code})
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Assign Teacher
+                    Assign Teacher *
                   </label>
                   <select
                     value={selectedTeacher}
@@ -1351,12 +1821,22 @@ const ClassesList: React.FC = () => {
                     className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all dark:text-white"
                   >
                     <option value="">Select a teacher...</option>
-                    {teachers.map(teacher => (
-                      <option key={teacher.id} value={teacher.id}>
-                        {teacher.first_name} {teacher.last_name}
-                      </option>
-                    ))}
+                    {teachers.length === 0 ? (
+                      <option value="" disabled>No teachers available</option>
+                    ) : (
+                      teachers.map(teacher => (
+                        <option key={teacher.id} value={teacher.id}>
+                          {teacher.first_name} {teacher.last_name} ({teacher.teacher_id})
+                        </option>
+                      ))
+                    )}
                   </select>
+                </div>
+
+                <div className="text-xs text-gray-500 bg-gray-50 dark:bg-gray-700/30 p-3 rounded-lg">
+                  <p className="font-medium">📚 Subjects are assigned to classes, not sessions</p>
+                  <p className="mt-1">Each subject can only be assigned once per class. The same teacher teaches the subject throughout all terms.</p>
+                  <p className="mt-1 text-green-600">✅ Current assignments: {classSubjects.length} subject(s)</p>
                 </div>
 
                 <div className="flex items-center gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">

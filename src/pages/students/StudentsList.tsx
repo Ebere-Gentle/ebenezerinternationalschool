@@ -22,7 +22,10 @@ import {
   X,
   FileJson,
   Table,
-  FileText
+  FileText,
+  GraduationCap,
+  School,
+  Award
 } from 'lucide-react';
 import { supabase } from '../../config/supabase/client';
 import toast from 'react-hot-toast';
@@ -48,12 +51,57 @@ interface Student {
   created_at: string;
   class_name?: string;
   branch_name?: string;
+  class_level?: string;
+  class_order?: number;
 }
+
+// Class level order for sorting (lowest to highest) - all lowercase to match DB enum
+const CLASS_ORDER: Record<string, number> = {
+  'creche': 1,
+  'nursery': 2,
+  'primary': 3,
+  'junior': 4,
+  'senior': 5
+  // 'graduate' is not in the enum, so we'll handle it differently
+};
+
+// Display names for levels - matching the actual DB enum values
+const LEVEL_DISPLAY_NAMES: Record<string, string> = {
+  'creche': 'Creche',
+  'nursery': 'Nursery',
+  'primary': 'Primary',
+  'junior': 'Junior',
+  'senior': 'Senior'
+};
+
+// Class level colors
+const LEVEL_COLORS: Record<string, string> = {
+  'creche': 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
+  'nursery': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+  'primary': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  'junior': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  'senior': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+};
+
+// For detecting graduate students - they have current_status = 'graduated' or class name contains 'Graduate'
+const isGraduateStudent = (student: any): boolean => {
+  // Check if student has 'graduated' status
+  if (student.current_status?.toLowerCase() === 'graduated') return true;
+  
+  // Check if class name contains 'Graduate'
+  if (student.class_name?.toLowerCase().includes('graduate')) return true;
+  
+  // Check if class level is 'graduate' (even though it's not in the enum)
+  if (student.class_level?.toLowerCase() === 'graduate') return true;
+  
+  return false;
+};
 
 const StudentsList: React.FC = () => {
   const navigate = useNavigate();
   const [students, setStudents] = useState<Student[]>([]);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
+  const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -61,13 +109,20 @@ const StudentsList: React.FC = () => {
   const [totalCount, setTotalCount] = useState(0);
   const [showFilters, setShowFilters] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [classFilter, setClassFilter] = useState<string>('all');
+  const [showGraduated, setShowGraduated] = useState<boolean>(false);
+  const [classes, setClasses] = useState<{id: string, name: string, level: string, code: string}[]>([]);
   const [expandedStudent, setExpandedStudent] = useState<string | null>(null);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const pageSize = 10;
 
   useEffect(() => {
+    fetchClasses();
+  }, []);
+
+  useEffect(() => {
     fetchStudents();
-  }, [currentPage, searchTerm, statusFilter]);
+  }, [currentPage, searchTerm, statusFilter, classFilter, showGraduated]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -78,54 +133,44 @@ const StudentsList: React.FC = () => {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
+  const fetchClasses = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('classes')
+        .select('id, name, code, level')
+        .eq('status', 'active')
+        .order('name');
+
+      if (error) throw error;
+
+      // Sort classes by level order - only use valid enum values
+      const sortedClasses = data?.sort((a, b) => {
+        const orderA = CLASS_ORDER[a.level?.toLowerCase()] || 999;
+        const orderB = CLASS_ORDER[b.level?.toLowerCase()] || 999;
+        return orderA - orderB;
+      }) || [];
+
+      setClasses(sortedClasses);
+    } catch (error) {
+      console.error('Error fetching classes:', error);
+    }
+  };
+
   const fetchStudents = async () => {
     setLoading(true);
     try {
-      // First, get all students without filter for export
-      let allQuery = supabase
-        .from('students')
-        .select(`
-          *,
-          classes!fk_students_class (
-            name,
-            code
-          )
-        `);
-
-      if (searchTerm) {
-        allQuery = allQuery.or(
-          `first_name.ilike.%${searchTerm}%,` +
-          `last_name.ilike.%${searchTerm}%,` +
-          `email.ilike.%${searchTerm}%,` +
-          `admission_number.ilike.%${searchTerm}%`
-        );
-      }
-
-      if (statusFilter !== 'all') {
-        allQuery = allQuery.eq('current_status', statusFilter);
-      }
-
-      const { data: allData, error: allError } = await allQuery;
-
-      if (allError) throw allError;
-
-      const formattedAllStudents = allData?.map((item: any) => ({
-        ...item,
-        class_name: item.classes?.name || 'Not Assigned',
-      })) || [];
-
-      setAllStudents(formattedAllStudents);
-
-      // Then get paginated results
+      // Build the query
       let query = supabase
         .from('students')
         .select(`
           *,
           classes!fk_students_class (
+            id,
             name,
-            code
+            code,
+            level
           )
-        `, { count: 'exact' });
+        `);
 
       if (searchTerm) {
         query = query.or(
@@ -140,21 +185,115 @@ const StudentsList: React.FC = () => {
         query = query.eq('current_status', statusFilter);
       }
 
+      if (classFilter !== 'all') {
+        query = query.eq('class_id', classFilter);
+      }
+
+      // Get all data for export and filtering
+      const { data: allData, error: allError } = await query;
+
+      if (allError) throw allError;
+
+      const formattedAllStudents = allData?.map((item: any) => ({
+        ...item,
+        class_name: item.classes?.name || 'Not Assigned',
+        class_level: item.classes?.level || null,
+        class_order: item.classes?.level ? CLASS_ORDER[item.classes.level.toLowerCase()] : 999
+      })) || [];
+
+      // Sort all students by class level (lowest to highest)
+      const sortedAll = formattedAllStudents.sort((a, b) => {
+        // Put students with no class at the end
+        if (!a.class_order && !b.class_order) return 0;
+        if (!a.class_order) return 1;
+        if (!b.class_order) return -1;
+        return a.class_order - b.class_order;
+      });
+
+      setAllStudents(sortedAll);
+
+      // Filter students based on showGraduated toggle
+      let nonGraduateStudents = sortedAll;
+      if (!showGraduated) {
+        nonGraduateStudents = sortedAll.filter(s => !isGraduateStudent(s));
+      }
+
+      setFilteredStudents(nonGraduateStudents);
+
+      // Then get paginated results
+      let paginatedQuery = supabase
+        .from('students')
+        .select(`
+          *,
+          classes!fk_students_class (
+            id,
+            name,
+            code,
+            level
+          )
+        `, { count: 'exact' });
+
+      if (searchTerm) {
+        paginatedQuery = paginatedQuery.or(
+          `first_name.ilike.%${searchTerm}%,` +
+          `last_name.ilike.%${searchTerm}%,` +
+          `email.ilike.%${searchTerm}%,` +
+          `admission_number.ilike.%${searchTerm}%`
+        );
+      }
+
+      if (statusFilter !== 'all') {
+        paginatedQuery = paginatedQuery.eq('current_status', statusFilter);
+      }
+
+      if (classFilter !== 'all') {
+        paginatedQuery = paginatedQuery.eq('class_id', classFilter);
+      }
+
+      // If not showing graduated, exclude them
+      if (!showGraduated) {
+        // We need to filter out graduated students - we'll do this in memory
+        // since we can't filter by class level in the query (it's not in the enum)
+      }
+
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
-      query = query.range(from, to).order('created_at', { ascending: false });
+      paginatedQuery = paginatedQuery.range(from, to).order('created_at', { ascending: false });
 
-      const { data, error, count } = await query;
+      const { data, error, count } = await paginatedQuery;
 
       if (error) throw error;
 
       const formattedStudents = data?.map((item: any) => ({
         ...item,
         class_name: item.classes?.name || 'Not Assigned',
+        class_level: item.classes?.level || null,
+        class_order: item.classes?.level ? CLASS_ORDER[item.classes.level.toLowerCase()] : 999
       })) || [];
 
-      setStudents(formattedStudents);
-      setTotalCount(count || 0);
+      // Filter paginated results for graduated if needed
+      let filteredPaginated = formattedStudents;
+      if (!showGraduated) {
+        filteredPaginated = formattedStudents.filter(s => !isGraduateStudent(s));
+      }
+
+      // Sort paginated students by class level
+      const sortedPaginated = filteredPaginated.sort((a, b) => {
+        if (!a.class_order && !b.class_order) return 0;
+        if (!a.class_order) return 1;
+        if (!b.class_order) return -1;
+        return a.class_order - b.class_order;
+      });
+
+      setStudents(sortedPaginated);
+      
+      // Count total excluding graduated if needed
+      let total = count || 0;
+      if (!showGraduated) {
+        const graduatedCount = allData?.filter(s => isGraduateStudent(s)).length || 0;
+        total = (count || 0) - graduatedCount;
+      }
+      setTotalCount(Math.max(0, total));
     } catch (error: any) {
       console.error('Error fetching students:', error);
       toast.error(error.message || 'Failed to fetch students');
@@ -196,19 +335,19 @@ const StudentsList: React.FC = () => {
   };
 
   // ============================================
-  // EXPORT FUNCTIONS - Export ALL students
+  // EXPORT FUNCTIONS
   // ============================================
   
   const exportStudentsJSON = async () => {
-    if (allStudents.length === 0) {
+    const exportData = showGraduated ? allStudents : allStudents.filter(s => !isGraduateStudent(s));
+    if (exportData.length === 0) {
       toast.error('No students to export');
       return;
     }
 
     setExporting(true);
     try {
-      // Create a clean copy of all student data
-      const cleanData = allStudents.map(student => ({
+      const cleanData = exportData.map(student => ({
         ...student,
         class_name: student.class_name || 'Not Assigned',
         date_of_birth: student.date_of_birth ? dayjs(student.date_of_birth).format('YYYY-MM-DD') : null,
@@ -229,7 +368,7 @@ const StudentsList: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       
-      toast.success(`Exported ${allStudents.length} students as JSON`);
+      toast.success(`Exported ${exportData.length} students as JSON`);
       setShowExportDropdown(false);
     } catch (error) {
       console.error('Export error:', error);
@@ -240,35 +379,31 @@ const StudentsList: React.FC = () => {
   };
 
   const exportStudentsCSV = async () => {
-    if (allStudents.length === 0) {
+    const exportData = showGraduated ? allStudents : allStudents.filter(s => !isGraduateStudent(s));
+    if (exportData.length === 0) {
       toast.error('No students to export');
       return;
     }
 
     setExporting(true);
     try {
-      // Define the fields you want to export
       const fields = [
         'student_id', 'admission_number', 'first_name', 'last_name', 
         'gender', 'date_of_birth', 'email', 'phone_number', 
         'class_name', 'admission_status', 'current_status', 'home_address'
       ];
       
-      // Create CSV header
       let csv = fields.join(',') + '\n';
       
-      // Create CSV rows for ALL students
-      allStudents.forEach(student => {
+      exportData.forEach(student => {
         const row = fields.map(field => {
           let value = student[field as keyof Student] || '';
-          // Handle special fields
           if (field === 'date_of_birth' && value) {
             value = dayjs(value).format('YYYY-MM-DD');
           }
           if (field === 'class_name') {
             value = student.class_name || 'Not Assigned';
           }
-          // Escape strings with commas or quotes
           if (typeof value === 'string' && (value.includes(',') || value.includes('"'))) {
             return `"${value.replace(/"/g, '""')}"`;
           }
@@ -277,7 +412,6 @@ const StudentsList: React.FC = () => {
         csv += row.join(',') + '\n';
       });
       
-      // Create blob and download
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -288,7 +422,7 @@ const StudentsList: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
       
-      toast.success(`Exported ${allStudents.length} students as CSV`);
+      toast.success(`Exported ${exportData.length} students as CSV`);
       setShowExportDropdown(false);
     } catch (error) {
       console.error('CSV export error:', error);
@@ -299,17 +433,17 @@ const StudentsList: React.FC = () => {
   };
 
   // ============================================
-  // PRINT FUNCTION - Print ALL students
+  // PRINT FUNCTION
   // ============================================
   
   const printStudentsList = async () => {
-    if (allStudents.length === 0) {
+    const printData = showGraduated ? allStudents : allStudents.filter(s => !isGraduateStudent(s));
+    if (printData.length === 0) {
       toast.error('No students to print');
       return;
     }
 
     try {
-      // Create a printable version of all students
       const printContent = `
         <!DOCTYPE html>
         <html>
@@ -335,8 +469,16 @@ const StudentsList: React.FC = () => {
             .status-inactive { background: #f3f4f6; color: #374151; }
             .status-transferred { background: #fef3c7; color: #92400e; }
             .status-suspended { background: #fee2e2; color: #991b1b; }
-            .status-pending { background: #dbeafe; color: #1e40af; }
+            .status-graduated { background: #e0e7ff; color: #3730a3; }
+            .class-badge { 
+              display: inline-block; 
+              padding: 2px 8px; 
+              border-radius: 4px; 
+              font-size: 11px; 
+              font-weight: 500;
+            }
             .footer { text-align: center; margin-top: 30px; color: #6b7280; font-size: 12px; }
+            .graduated-row { background-color: #f5f3ff !important; }
             @media print {
               .no-print { display: none; }
               .status-badge { break-inside: avoid; }
@@ -345,12 +487,16 @@ const StudentsList: React.FC = () => {
         </head>
         <body>
           <div class="header">
-            <h1>Students List</h1>
-            <p>Total Students: ${allStudents.length}</p>
+            <h1>📚 Students List</h1>
+            <p>Total Students: ${printData.length}</p>
+            <p style="font-size: 14px; color: #6b7280;">
+              ${classFilter !== 'all' ? `Class: ${classes.find(c => c.id === classFilter)?.name || 'All'}` : 'All Classes'} • 
+              ${statusFilter !== 'all' ? `Status: ${statusFilter}` : 'All Status'} •
+              ${showGraduated ? 'Including Graduated' : 'Excluding Graduated'}
+            </p>
           </div>
           <div class="meta">
             <span>Generated: ${new Date().toLocaleString()}</span>
-            <span>Status Filter: ${statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1)}</span>
             ${searchTerm ? `<span>Search: ${searchTerm}</span>` : ''}
           </div>
           <table>
@@ -367,8 +513,10 @@ const StudentsList: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              ${allStudents.map((student, index) => `
-                <tr>
+              ${printData.map((student, index) => {
+                const isGrad = isGraduateStudent(student);
+                return `
+                <tr class="${isGrad ? 'graduated-row' : ''}">
                   <td>${index + 1}</td>
                   <td>${student.admission_number || 'N/A'}</td>
                   <td>${student.first_name} ${student.middle_name || ''} ${student.last_name}</td>
@@ -377,12 +525,12 @@ const StudentsList: React.FC = () => {
                   <td>${student.email || 'N/A'}</td>
                   <td>${student.phone_number || 'N/A'}</td>
                   <td>
-                    <span class="status-badge status-${student.current_status}">
+                    <span class="status-badge status-${student.current_status || 'active'}">
                       ${student.current_status?.charAt(0).toUpperCase() + student.current_status?.slice(1) || 'Active'}
                     </span>
                   </td>
                 </tr>
-              `).join('')}
+              `}).join('')}
             </tbody>
           </table>
           <div class="footer">
@@ -392,7 +540,6 @@ const StudentsList: React.FC = () => {
         </html>
       `;
       
-      // Open print window
       const printWindow = window.open('', '_blank', 'width=1000,height=800');
       if (printWindow) {
         printWindow.document.write(printContent);
@@ -412,15 +559,13 @@ const StudentsList: React.FC = () => {
     setExpandedStudent(expandedStudent === studentId ? null : studentId);
   };
 
-  // Fix: Use valid enum values for student_status_type
-  // The valid values are: 'active', 'inactive', 'transferred', 'suspended'
-  // 'pending' is not a valid value for current_status
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       active: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
       inactive: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
       transferred: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
       suspended: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+      graduated: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
     };
     return colors[status] || colors.active;
   };
@@ -431,11 +576,11 @@ const StudentsList: React.FC = () => {
       inactive: 'bg-gray-500',
       transferred: 'bg-yellow-500',
       suspended: 'bg-red-500',
+      graduated: 'bg-indigo-500',
     };
     return colors[status] || colors.active;
   };
 
-  // Get admission status color - 'pending' is valid for admission_status
   const getAdmissionStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       pending: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
@@ -447,6 +592,11 @@ const StudentsList: React.FC = () => {
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
+
+  // Get counts
+  const activeCount = filteredStudents.filter(s => s.current_status === 'active').length;
+  const graduateCount = allStudents.filter(s => isGraduateStudent(s)).length;
+  const totalDisplayCount = filteredStudents.length;
 
   if (loading && students.length === 0) {
     return (
@@ -461,12 +611,33 @@ const StudentsList: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">Students</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <Users className="w-6 h-6 text-blue-600" />
+            Students
+          </h1>
           <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-0.5 sm:mt-1">
-            Manage all students across branches
+            Manage all students across classes
           </p>
         </div>
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          {/* Graduate Toggle */}
+          <button
+            onClick={() => setShowGraduated(!showGraduated)}
+            className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-sm sm:text-base rounded-xl transition-all ${
+              showGraduated
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25'
+                : 'border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+            }`}
+          >
+            <Award className="w-4 h-4" />
+            <span>{showGraduated ? 'Hide' : 'Show'} Graduated</span>
+            {!showGraduated && graduateCount > 0 && (
+              <span className="ml-1 px-2 py-0.5 text-xs bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 rounded-full">
+                {graduateCount}
+              </span>
+            )}
+          </button>
+
           {/* Export Dropdown */}
           <div className="relative">
             <button
@@ -544,14 +715,14 @@ const StudentsList: React.FC = () => {
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-sm sm:text-base border rounded-xl transition-all ${
-              showFilters || statusFilter !== 'all'
+              showFilters || statusFilter !== 'all' || classFilter !== 'all'
                 ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
                 : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
           >
             <Filter className="w-4 h-4" />
             <span className="hidden xs:inline">Filters</span>
-            {statusFilter !== 'all' && (
+            {(statusFilter !== 'all' || classFilter !== 'all') && (
               <span className="w-2 h-2 rounded-full bg-blue-500"></span>
             )}
           </button>
@@ -562,10 +733,11 @@ const StudentsList: React.FC = () => {
       {showFilters && (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-lg">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium text-gray-900 dark:text-white">Filter by Status</h3>
+            <h3 className="text-sm font-medium text-gray-900 dark:text-white">Filters</h3>
             <button
               onClick={() => {
                 setStatusFilter('all');
+                setClassFilter('all');
                 setShowFilters(false);
               }}
               className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
@@ -573,26 +745,72 @@ const StudentsList: React.FC = () => {
               Clear all
             </button>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {['all', 'active', 'inactive', 'transferred', 'suspended'].map((status) => (
+          
+          {/* Class Filter */}
+          <div className="mb-4">
+            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Filter by Class</h4>
+            <div className="flex flex-wrap gap-2">
               <button
-                key={status}
                 onClick={() => {
-                  setStatusFilter(status);
+                  setClassFilter('all');
                   setCurrentPage(1);
                 }}
                 className={`px-3 py-1.5 text-xs sm:text-sm rounded-full capitalize transition-all ${
-                  statusFilter === status
+                  classFilter === 'all'
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                 }`}
               >
-                {status === 'all' ? 'All' : status}
+                All Classes
               </button>
-            ))}
+              {classes.map(cls => {
+                const levelKey = cls.level?.toLowerCase() || '';
+                return (
+                  <button
+                    key={cls.id}
+                    onClick={() => {
+                      setClassFilter(cls.id);
+                      setCurrentPage(1);
+                    }}
+                    className={`px-3 py-1.5 text-xs sm:text-sm rounded-full transition-all ${
+                      classFilter === cls.id
+                        ? 'bg-blue-600 text-white'
+                        : `${LEVEL_COLORS[levelKey] || 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'} hover:opacity-80`
+                    }`}
+                  >
+                    {cls.name}
+                  </button>
+                );
+              })}
+            </div>
           </div>
+
+          {/* Status Filter */}
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Filter by Status</h4>
+            <div className="flex flex-wrap gap-2">
+              {['all', 'active', 'inactive', 'transferred', 'suspended', 'graduated'].map((status) => (
+                <button
+                  key={status}
+                  onClick={() => {
+                    setStatusFilter(status);
+                    setCurrentPage(1);
+                  }}
+                  className={`px-3 py-1.5 text-xs sm:text-sm rounded-full capitalize transition-all ${
+                    statusFilter === status
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  {status === 'all' ? 'All' : status}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Admission Status - Info Only */}
           <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Admission Status</h4>
+            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Admission Status (Info)</h4>
             <div className="flex flex-wrap gap-2">
               {['pending', 'admitted', 'rejected', 'withdrawn'].map((status) => (
                 <span
@@ -607,28 +825,31 @@ const StudentsList: React.FC = () => {
         </div>
       )}
 
-      {/* Stats Summary - Mobile Optimized */}
-      <div className="grid grid-cols-2 gap-2 sm:gap-4">
+      {/* Stats Summary */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-3 sm:p-4 border border-gray-200 dark:border-gray-700">
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Total</p>
-          <p className="text-lg sm:text-2xl font-bold text-gray-900 dark:text-white">{totalCount}</p>
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Total Active</p>
+          <p className="text-lg sm:text-2xl font-bold text-gray-900 dark:text-white">
+            {activeCount}
+          </p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-3 sm:p-4 border border-gray-200 dark:border-gray-700">
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Active</p>
-          <p className="text-lg sm:text-2xl font-bold text-green-600 dark:text-green-400">
-            {students.filter(s => s.current_status === 'active').length}
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">All Students</p>
+          <p className="text-lg sm:text-2xl font-bold text-blue-600 dark:text-blue-400">
+            {totalDisplayCount}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-3 sm:p-4 border border-gray-200 dark:border-gray-700">
           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Pending Admission</p>
           <p className="text-lg sm:text-2xl font-bold text-yellow-600 dark:text-yellow-400">
-            {students.filter(s => s.admission_status === 'pending').length}
+            {filteredStudents.filter(s => s.admission_status === 'pending').length}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-3 sm:p-4 border border-gray-200 dark:border-gray-700">
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Transferred</p>
-          <p className="text-lg sm:text-2xl font-bold text-blue-600 dark:text-blue-400">
-            {students.filter(s => s.current_status === 'transferred').length}
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Graduated</p>
+          <p className="text-lg sm:text-2xl font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+            <Award className="w-4 h-4" />
+            {graduateCount}
           </p>
         </div>
       </div>
@@ -639,7 +860,7 @@ const StudentsList: React.FC = () => {
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-8 text-center">
             <Users className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
             <p className="text-lg font-medium text-gray-900 dark:text-white">No students found</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Try adjusting your search</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Try adjusting your search or filters</p>
             <Link
               to="/students/register"
               className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:opacity-90 transition-all"
@@ -649,121 +870,126 @@ const StudentsList: React.FC = () => {
             </Link>
           </div>
         ) : (
-          students.map((student) => (
-            <div
-              key={student.id}
-              className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden"
-            >
-              {/* Card Header - Always Visible */}
-              <div className="p-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center text-white font-medium text-sm flex-shrink-0">
-                      {student.passport_url ? (
-                        <img src={student.passport_url} alt={student.first_name} className="w-full h-full rounded-full object-cover" />
-                      ) : (
-                        `${student.first_name[0]}${student.last_name[0]}`
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                        {student.first_name} {student.last_name}
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                        {student.admission_number}
-                      </p>
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(student.current_status)}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${getStatusDotColor(student.current_status)}`}></span>
-                          {student.current_status?.charAt(0).toUpperCase() + student.current_status?.slice(1) || 'Active'}
-                        </span>
-                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${getAdmissionStatusColor(student.admission_status)}`}>
-                          {student.admission_status}
-                        </span>
+          students.map((student) => {
+            const isGrad = isGraduateStudent(student);
+            const levelKey = student.class_level?.toLowerCase() || '';
+            return (
+              <div
+                key={student.id}
+                className={`bg-white dark:bg-gray-800 rounded-2xl border ${isGrad ? 'border-indigo-300 dark:border-indigo-700' : 'border-gray-200 dark:border-gray-700'} shadow-sm overflow-hidden`}
+              >
+                {/* Card Header - Always Visible */}
+                <div className="p-4">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center text-white font-medium text-sm flex-shrink-0">
+                        {student.passport_url ? (
+                          <img src={student.passport_url} alt={student.first_name} className="w-full h-full rounded-full object-cover" />
+                        ) : (
+                          `${student.first_name[0]}${student.last_name[0]}`
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                          {student.first_name} {student.last_name}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {student.admission_number}
+                        </p>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(student.current_status)}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${getStatusDotColor(student.current_status)}`}></span>
+                            {student.current_status?.charAt(0).toUpperCase() + student.current_status?.slice(1) || 'Active'}
+                          </span>
+                          {student.class_level && LEVEL_COLORS[levelKey] && (
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${LEVEL_COLORS[levelKey]}`}>
+                              {LEVEL_DISPLAY_NAMES[levelKey] || student.class_level}
+                            </span>
+                          )}
+                          {isGrad && (
+                            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+                              🎓 Graduate
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
+                    <button
+                      onClick={() => toggleExpand(student.id)}
+                      className="ml-2 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all flex-shrink-0"
+                    >
+                      <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${
+                        expandedStudent === student.id ? 'rotate-180' : ''
+                      }`} />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => toggleExpand(student.id)}
-                    className="ml-2 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all flex-shrink-0"
-                  >
-                    <ChevronDown className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${
-                      expandedStudent === student.id ? 'rotate-180' : ''
-                    }`} />
-                  </button>
                 </div>
-              </div>
 
-              {/* Expanded Content */}
-              {expandedStudent === student.id && (
-                <div className="px-4 pb-4 pt-0 border-t border-gray-100 dark:border-gray-700">
-                  <div className="space-y-2 mt-3">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-gray-500 dark:text-gray-400 min-w-[80px]">Class:</span>
-                      <span className="text-gray-900 dark:text-white font-medium">{student.class_name}</span>
-                    </div>
-                    {student.email && (
+                {/* Expanded Content */}
+                {expandedStudent === student.id && (
+                  <div className="px-4 pb-4 pt-0 border-t border-gray-100 dark:border-gray-700">
+                    <div className="space-y-2 mt-3">
                       <div className="flex items-center gap-2 text-sm">
-                        <Mail className="w-4 h-4 text-gray-400" />
-                        <span className="text-gray-600 dark:text-gray-300 truncate">{student.email}</span>
+                        <span className="text-gray-500 dark:text-gray-400 min-w-[80px]">Class:</span>
+                        <span className="text-gray-900 dark:text-white font-medium">{student.class_name}</span>
                       </div>
-                    )}
-                    {student.phone_number && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <Phone className="w-4 h-4 text-gray-400" />
-                        <span className="text-gray-600 dark:text-gray-300">{student.phone_number}</span>
+                      {student.email && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Mail className="w-4 h-4 text-gray-400" />
+                          <span className="text-gray-600 dark:text-gray-300 truncate">{student.email}</span>
+                        </div>
+                      )}
+                      {student.phone_number && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Phone className="w-4 h-4 text-gray-400" />
+                          <span className="text-gray-600 dark:text-gray-300">{student.phone_number}</span>
+                        </div>
+                      )}
+                      {student.date_of_birth && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Calendar className="w-4 h-4 text-gray-400" />
+                          <span className="text-gray-600 dark:text-gray-300">
+                            {new Date(student.date_of_birth).toLocaleDateString()}
+                          </span>
+                        </div>
+                      )}
+                      {student.gender && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <User className="w-4 h-4 text-gray-400" />
+                          <span className="text-gray-600 dark:text-gray-300 capitalize">{student.gender}</span>
+                        </div>
+                      )}
+                      
+                      {/* Action Buttons */}
+                      <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
+                        <button
+                          onClick={() => handleViewStudent(student)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all"
+                        >
+                          <Eye className="w-4 h-4" />
+                          View
+                        </button>
+                        <button
+                          onClick={() => handleEditStudent(student)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 rounded-lg text-sm font-medium hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-all"
+                        >
+                          <Edit className="w-4 h-4" />
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteStudent(student)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-100 dark:hover:bg-red-900/30 transition-all"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Delete
+                        </button>
                       </div>
-                    )}
-                    {student.date_of_birth && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <Calendar className="w-4 h-4 text-gray-400" />
-                        <span className="text-gray-600 dark:text-gray-300">
-                          {new Date(student.date_of_birth).toLocaleDateString()}
-                        </span>
-                      </div>
-                    )}
-                    {student.gender && (
-                      <div className="flex items-center gap-2 text-sm">
-                        <User className="w-4 h-4 text-gray-400" />
-                        <span className="text-gray-600 dark:text-gray-300 capitalize">{student.gender}</span>
-                      </div>
-                    )}
-                    {student.home_address && (
-                      <div className="flex items-start gap-2 text-sm">
-                        <MapPin className="w-4 h-4 text-gray-400 mt-0.5" />
-                        <span className="text-gray-600 dark:text-gray-300">{student.home_address}</span>
-                      </div>
-                    )}
-                    
-                    {/* Action Buttons */}
-                    <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
-                      <button
-                        onClick={() => handleViewStudent(student)}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all"
-                      >
-                        <Eye className="w-4 h-4" />
-                        View
-                      </button>
-                      <button
-                        onClick={() => handleEditStudent(student)}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 rounded-lg text-sm font-medium hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-all"
-                      >
-                        <Edit className="w-4 h-4" />
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteStudent(student)}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-100 dark:hover:bg-red-900/30 transition-all"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Delete
-                      </button>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
-          ))
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 
@@ -779,8 +1005,11 @@ const StudentsList: React.FC = () => {
                 <th className="hidden md:table-cell px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Admission
                 </th>
-                <th className="hidden lg:table-cell px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Class
+                </th>
+                <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                  Level
                 </th>
                 <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                   Status
@@ -793,10 +1022,10 @@ const StudentsList: React.FC = () => {
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
               {students.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
                     <Users className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
                     <p className="text-lg font-medium">No students found</p>
-                    <p className="text-sm mt-1">Try adjusting your search or register a new student</p>
+                    <p className="text-sm mt-1">Try adjusting your search or filters</p>
                     <Link
                       to="/students/register"
                       className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:opacity-90 transition-all"
@@ -807,71 +1036,89 @@ const StudentsList: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                students.map((student) => (
-                  <tr key={student.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition">
-                    <td className="px-4 sm:px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center text-white font-medium text-sm flex-shrink-0">
-                          {student.passport_url ? (
-                            <img src={student.passport_url} alt={student.first_name} className="w-full h-full rounded-full object-cover" />
-                          ) : (
-                            `${student.first_name[0]}${student.last_name[0]}`
+                students.map((student) => {
+                  const isGrad = isGraduateStudent(student);
+                  const levelKey = student.class_level?.toLowerCase() || '';
+                  return (
+                    <tr key={student.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 transition ${isGrad ? 'bg-indigo-50/30 dark:bg-indigo-900/10' : ''}`}>
+                      <td className="px-4 sm:px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center text-white font-medium text-sm flex-shrink-0">
+                            {student.passport_url ? (
+                              <img src={student.passport_url} alt={student.first_name} className="w-full h-full rounded-full object-cover" />
+                            ) : (
+                              `${student.first_name[0]}${student.last_name[0]}`
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                              {student.first_name} {student.middle_name || ''} {student.last_name}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                              {student.email || 'No email'}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="hidden md:table-cell px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
+                        {student.admission_number}
+                      </td>
+                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
+                        {student.class_name}
+                      </td>
+                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
+                        {student.class_level && LEVEL_COLORS[levelKey] && (
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${LEVEL_COLORS[levelKey]}`}>
+                            {LEVEL_DISPLAY_NAMES[levelKey] || student.class_level}
+                          </span>
+                        )}
+                        {isGrad && !student.class_level && (
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+                            🎓 Graduate
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
+                        <div className="flex flex-col gap-1">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(student.current_status)}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${getStatusDotColor(student.current_status)}`}></span>
+                            {student.current_status?.charAt(0).toUpperCase() + student.current_status?.slice(1) || 'Active'}
+                          </span>
+                          {student.admission_status && (
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getAdmissionStatusColor(student.admission_status)}`}>
+                              {student.admission_status}
+                            </span>
                           )}
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                            {student.first_name} {student.middle_name || ''} {student.last_name}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                            {student.email || 'No email'}
-                          </p>
+                      </td>
+                      <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => handleViewStudent(student)}
+                            className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-blue-600 dark:text-blue-400"
+                            title="View Student Details"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleEditStudent(student)}
+                            className="p-1.5 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-all text-yellow-600 dark:text-yellow-400"
+                            title="Edit Student"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteStudent(student)}
+                            className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-red-600 dark:text-red-400"
+                            title="Delete Student"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                      </div>
-                    </td>
-                    <td className="hidden md:table-cell px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-                      {student.admission_number}
-                    </td>
-                    <td className="hidden lg:table-cell px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-                      {student.class_name}
-                    </td>
-                    <td className="px-4 sm:px-6 py-4 whitespace-nowrap">
-                      <div className="flex flex-col gap-1">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(student.current_status)}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${getStatusDotColor(student.current_status)}`}></span>
-                          {student.current_status?.charAt(0).toUpperCase() + student.current_status?.slice(1) || 'Active'}
-                        </span>
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${getAdmissionStatusColor(student.admission_status)}`}>
-                          {student.admission_status}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleViewStudent(student)}
-                          className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all text-blue-600 dark:text-blue-400"
-                          title="View Student Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleEditStudent(student)}
-                          className="p-1.5 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-all text-yellow-600 dark:text-yellow-400"
-                          title="Edit Student"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteStudent(student)}
-                          className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-all text-red-600 dark:text-red-400"
-                          title="Delete Student"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

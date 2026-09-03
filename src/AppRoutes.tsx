@@ -38,7 +38,9 @@ import MyChildren from './pages/parent/MyChildren';
 import ParentPaymentHistory from './pages/parent/ParentPaymentHistory';
 import { ParentProfile } from './pages/parent';
 
-// AdminAsst imports
+import MessagePage from './pages/communication/MessagesPage';
+import UserMessagePage from './pages/communication/UsersMessagePage';
+
 import AdminAsst from './pages/adminAsst';
 import AdminAsstProfile from './pages/adminAsst/AdminAsstProfile';
 import AdminAsstPayment from './pages/adminAsst/AdminAsstPayment';
@@ -46,14 +48,15 @@ import AdminAsstPayment from './pages/adminAsst/AdminAsstPayment';
 const AppRoutes: React.FC = () => {
   return (
     <Routes>
-      {/* Public Routes */}
+      {/* Public */}
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/404" element={<NotFound />} />
 
-      {/* ============================================ */}
-      {/* ADMIN ROUTES - Protected with allowedRoles */}
-      {/* ============================================ */}
+      {/* ===================================================== */}
+      {/* ADMIN / DIRECTOR / SUPER ADMIN / FINANCE              */}
+      {/* Admin messaging stays on MessagesPage.tsx             */}
+      {/* ===================================================== */}
       <Route
         path="/admin"
         element={
@@ -64,11 +67,32 @@ const AppRoutes: React.FC = () => {
       >
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
+        <Route path="messages" element={<MessagePage />} />
+        <Route path="messages/:conversationId" element={<MessagePage />} />
       </Route>
 
-      {/* ============================================ */}
-      {/* ADMIN ASSISTANT ROUTES */}
-      {/* ============================================ */}
+      {/* ===================================================== */}
+      {/* NORMAL USER MESSAGING                                 */}
+      {/* One dedicated route prevents role dashboards from     */}
+      {/* accidentally catching /student/messages etc.          */}
+      {/* ===================================================== */}
+      <Route
+        path="/user-messages"
+        element={
+          <ProtectedRoute
+            allowedRoles={['student', 'parent', 'teacher', 'record_keeper', 'admin_asst']}
+          >
+            <MainLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<UserMessagePage />} />
+        <Route path=":conversationId" element={<UserMessagePage />} />
+      </Route>
+
+      {/* ===================================================== */}
+      {/* ADMIN ASSISTANT / RECORD KEEPER                        */}
+      {/* ===================================================== */}
       <Route
         path="/admin-asst"
         element={
@@ -91,24 +115,9 @@ const AppRoutes: React.FC = () => {
         <Route index element={<Navigate to="/admin-asst/dashboard" replace />} />
       </Route>
 
-      {/* ============================================ */}
-      {/* TEACHER ROUTES */}
-      {/* ============================================ */}
-      <Route
-        path="/teacher"
-        element={
-          <ProtectedRoute allowedRoles={['teacher']}>
-            <MainLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route path="dashboard" element={<TeacherDashboard />} />
-        <Route index element={<Navigate to="/teacher/dashboard" replace />} />
-      </Route>
-
-      {/* ============================================ */}
-      {/* STUDENT ROUTES */}
-      {/* ============================================ */}
+      {/* ===================================================== */}
+      {/* STUDENT                                               */}
+      {/* ===================================================== */}
       <Route
         path="/student"
         element={
@@ -124,9 +133,24 @@ const AppRoutes: React.FC = () => {
         <Route path="paybill" element={<StudentPayBill />} />
       </Route>
 
-      {/* ============================================ */}
-      {/* PARENT ROUTES */}
-      {/* ============================================ */}
+      {/* ===================================================== */}
+      {/* TEACHER                                               */}
+      {/* ===================================================== */}
+      <Route
+        path="/teacher"
+        element={
+          <ProtectedRoute allowedRoles={['teacher']}>
+            <MainLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route path="dashboard" element={<TeacherDashboard />} />
+        <Route index element={<Navigate to="/teacher/dashboard" replace />} />
+      </Route>
+
+      {/* ===================================================== */}
+      {/* PARENT                                                */}
+      {/* ===================================================== */}
       <Route
         path="/parent"
         element={
@@ -145,10 +169,9 @@ const AppRoutes: React.FC = () => {
         <Route path="payment" element={<ParentPaymentHistory />} />
       </Route>
 
-      {/* ============================================ */}
-      {/* SHARED ROUTES - Used by multiple roles */}
-      {/* These should be in a route with NO allowedRoles */}
-      {/* ============================================ */}
+      {/* ===================================================== */}
+      {/* SHARED APPLICATION ROUTES                              */}
+      {/* ===================================================== */}
       <Route
         path="/"
         element={
@@ -157,41 +180,36 @@ const AppRoutes: React.FC = () => {
           </ProtectedRoute>
         }
       >
-        {/* These routes are accessible by multiple roles */}
         <Route path="students" element={<StudentsList />} />
         <Route path="students/:id" element={<StudentDetails />} />
         <Route path="students/edit/:id" element={<EditStudent />} />
         <Route path="students/register" element={<RegisterStudent />} />
-        
+
         <Route path="teachers" element={<TeachersList />} />
         <Route path="teachers/add" element={<AddTeacher />} />
         <Route path="teachers/:id" element={<ViewTeacher />} />
         <Route path="teachers/edit/:id" element={<AddTeacher />} />
-        
+
         <Route path="subjects" element={<SubjectsManagement />} />
-        
+
         <Route path="payments" element={<PaymentsList />} />
         <Route path="payments/record" element={<RecordPayment />} />
-        
+
         <Route path="fees" element={<FeesList />} />
         <Route path="fees/:id" element={<FeeDetail />} />
         <Route path="fees/edit/:id" element={<FeeEdit />} />
         <Route path="fees/create" element={<CreateFee />} />
-        
+
         <Route path="classes" element={<ClassesList />} />
         <Route path="parents/create" element={<ParentManagement />} />
         <Route path="branches" element={<BranchesList />} />
         <Route path="reports" element={<ReportsDashboard />} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
-        
-        {/* Use DashboardRouter to redirect to the correct dashboard based on role */}
+
         <Route index element={<DashboardRouter />} />
       </Route>
 
-      {/* ============================================ */}
-      {/* CATCH ALL - 404 */}
-      {/* ============================================ */}
       <Route path="*" element={<Navigate to="/404" replace />} />
     </Routes>
   );

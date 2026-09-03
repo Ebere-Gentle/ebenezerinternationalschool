@@ -254,23 +254,32 @@ serve(async (req: Request) => {
       }
     }
 
-    // --- GENERATE ADMISSION NUMBER ---
-    let admissionNumber = await generateAdmissionNumber(
+    // ============================================
+    // 🎯 FIXED: GENERATE IDENTIFIERS CORRECTLY
+    // ============================================
+    
+    // Generate Student ID in the format: {branchCode}/{sessionYear}/{classCode}/{sequence}
+    // Example: EISO/2025-2026/01/020
+    const studentId = await generateStudentId(
       supabaseAdmin, 
       branch_id, 
       branchCode,
       activeSessionId,
-      sessionName
+      sessionName,
+      class_id || effectiveClassId
     );
+    console.log('✅ Student ID:', studentId);
 
-    if (!admissionNumber) {
-      const timestamp = Date.now().toString().slice(-6);
-      admissionNumber = `${branchCode}/${sessionName || '2025-2026'}/${timestamp}`;
-    }
-    console.log('✅ Admission number:', admissionNumber);
+    // Generate Admission Number in the format: {branchCode}/000XXX
+    // Example: EISO/000020
+    const admissionNumber = await generateAdmissionNumber(
+      supabaseAdmin, 
+      branch_id, 
+      branchCode
+    );
+    console.log('✅ Admission Number:', admissionNumber);
 
-    // --- GENERATE OTHER IDs ---
-    const studentId = await generateStudentId(supabaseAdmin, branch_id, branchCode);
+    // --- GENERATE USER ID ---
     const userId = await generateUserId(supabaseAdmin, branch_id);
 
     // --- VALID ENUM VALUES ---
@@ -331,8 +340,8 @@ serve(async (req: Request) => {
     const studentData = {
       id: authUserId,
       user_id: authUserId,
-      student_id: studentId,
-      admission_number: admissionNumber,
+      student_id: studentId,        // ← Now uses the session-based format
+      admission_number: admissionNumber,  // ← Now uses EISO/000XXX format
       admission_date: admission_date || today,
       first_name: first_name || 'Student',
       middle_name: middle_name || null,
@@ -511,61 +520,104 @@ function generateSecurePassword(): string {
   return password;
 }
 
+// ============================================
+// 🎯 UPDATED: Generate Admission Number in EISO/000XXX format
+// ============================================
 async function generateAdmissionNumber(
   supabaseAdmin: any, 
   branchId: string,
-  branchCode: string,
-  sessionId: string | null,
-  sessionName: string
+  branchCode: string
 ): Promise<string> {
   try {
-    const sessionYear = sessionName || '2025-2026';
-    
-    const { count, error } = await supabaseAdmin
-      .from('students')
-      .select('id', { count: 'exact', head: true })
-      .eq('branch_id', branchId)
-      .eq('session_id', sessionId)
-      .like('admission_number', `${branchCode}/${sessionYear}/%`);
-
-    if (error) {
-      const { count: totalCount } = await supabaseAdmin
-        .from('students')
-        .select('id', { count: 'exact', head: true })
-        .eq('branch_id', branchId);
-      
-      const sequence = (totalCount || 0) + 1;
-      return `${branchCode}/${sessionYear}/${String(sequence).padStart(3, '0')}`;
-    }
-
-    const sequence = (count || 0) + 1;
-    return `${branchCode}/${sessionYear}/${String(sequence).padStart(3, '0')}`;
-  } catch (error) {
-    console.error('Error generating admission number:', error);
-    const timestamp = Date.now().toString().slice(-6);
-    const sessionYear = sessionName || '2025-2026';
-    return `${branchCode}/${sessionYear}/${timestamp}`;
-  }
-}
-
-async function generateStudentId(supabaseAdmin: any, branchId: string, branchCode: string): Promise<string> {
-  try {
-    const year = new Date().getFullYear();
+    // Count all students in this branch
     const { count, error } = await supabaseAdmin
       .from('students')
       .select('id', { count: 'exact', head: true })
       .eq('branch_id', branchId);
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error counting students:', error);
+      // Fallback: use timestamp
+      const timestamp = Date.now().toString().slice(-6);
+      return `${branchCode}/${String(timestamp).padStart(6, '0')}`;
+    }
+
+    // Next sequence number
     const sequence = (count || 0) + 1;
-    return `${branchCode}/EBE/${year}/${String(sequence).padStart(6, '0')}`;
+    
+    // Format: EISO/000001, EISO/000002, etc.
+    return `${branchCode}/${String(sequence).padStart(6, '0')}`;
   } catch (error) {
-    console.error('Error generating student ID:', error);
-    const year = new Date().getFullYear();
-    return `${branchCode}/EBE/${year}/${String(Math.floor(Math.random() * 100000)).padStart(6, '0')}`;
+    console.error('Error generating admission number:', error);
+    const timestamp = Date.now().toString().slice(-6);
+    return `${branchCode}/${String(timestamp).padStart(6, '0')}`;
   }
 }
 
+// ============================================
+// 🎯 UPDATED: Generate Student ID in session-based format
+// ============================================
+async function generateStudentId(
+  supabaseAdmin: any, 
+  branchId: string,
+  branchCode: string,
+  sessionId: string | null,
+  sessionName: string,
+  classId: string | null
+): Promise<string> {
+  try {
+    // Get class code from class_id
+    let classCode = '01'; // Default class code
+    if (classId) {
+      const { data: classData, error: classError } = await supabaseAdmin
+        .from('classes')
+        .select('code')
+        .eq('id', classId)
+        .single();
+
+      if (!classError && classData?.code) {
+        // Extract numeric part from class code (e.g., "NUR-01" -> "01")
+        const codeMatch = classData.code.match(/(\d+)/);
+        if (codeMatch) {
+          classCode = codeMatch[1].padStart(2, '0');
+        }
+      }
+    }
+
+    // Use session name or current year
+    const sessionYear = sessionName || '2025-2026';
+
+    // Count students with same branch, session, and class
+    const { count, error } = await supabaseAdmin
+      .from('students')
+      .select('id', { count: 'exact', head: true })
+      .eq('branch_id', branchId)
+      .eq('session_id', sessionId)
+      .eq('class_id', classId);
+
+    if (error) {
+      console.error('Error counting students:', error);
+      // Fallback: use timestamp
+      const timestamp = Date.now().toString().slice(-3);
+      return `${branchCode}/${sessionYear}/${classCode}/${timestamp}`;
+    }
+
+    // Next sequence number
+    const sequence = (count || 0) + 1;
+    
+    // Format: EISO/2025-2026/01/020
+    return `${branchCode}/${sessionYear}/${classCode}/${String(sequence).padStart(3, '0')}`;
+  } catch (error) {
+    console.error('Error generating student ID:', error);
+    const timestamp = Date.now().toString().slice(-3);
+    const sessionYear = sessionName || '2025-2026';
+    return `${branchCode}/${sessionYear}/01/${timestamp}`;
+  }
+}
+
+// ============================================
+// 🎯 KEEP: Generate User ID (unchanged)
+// ============================================
 async function generateUserId(supabaseAdmin: any, branchId: string): Promise<string> {
   try {
     const year = new Date().getFullYear();

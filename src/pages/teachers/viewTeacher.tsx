@@ -1,3 +1,5 @@
+// src/pages/teachers/ViewTeacher.tsx — UPDATED WITH STAFF NUMBER FORMAT
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -45,7 +47,6 @@ const ViewTeacher: React.FC = () => {
       }
 
       try {
-        // Get branch_id
         let branchId = user.branch_id;
         
         if (!branchId) {
@@ -77,7 +78,6 @@ const ViewTeacher: React.FC = () => {
     fetchBranchAndTeacher();
   }, [id, user]);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = () => {
       setShowExportDropdown(false);
@@ -162,7 +162,7 @@ const ViewTeacher: React.FC = () => {
 
     try {
       const fields = [
-        'employee_number', 'first_name', 'last_name', 
+        'staff_number', 'first_name', 'last_name', 
         'email', 'phone_number', 'department', 'position',
         'status', 'salary', 'gender', 'date_of_birth',
         'highest_qualification', 'trcn_number', 'years_of_experience'
@@ -245,7 +245,7 @@ const ViewTeacher: React.FC = () => {
           <div class="header">
             <h1>Teacher Profile</h1>
             <p><strong>${teacher.first_name} ${teacher.last_name}</strong></p>
-            <p>${teacher.employee_number || 'No ID'} • ${teacher.department?.toUpperCase() || 'No Department'}</p>
+            <p>${teacher.staff_number || 'No Staff Number'} • ${teacher.department?.toUpperCase() || 'No Department'}</p>
             <p>
               <span class="status-badge status-${teacher.status || 'active'}">
                 ${teacher.status?.replace('_', ' ').toUpperCase() || 'Active'}
@@ -272,7 +272,7 @@ const ViewTeacher: React.FC = () => {
           
           <div class="section">
             <h2>Professional Information</h2>
-            <div class="field"><span class="field-label">Employee ID:</span><span class="field-value">${teacher.employee_number || 'N/A'}</span></div>
+            <div class="field"><span class="field-label">Staff Number:</span><span class="field-value">${teacher.staff_number || 'N/A'}</span></div>
             <div class="field"><span class="field-label">Department:</span><span class="field-value">${teacher.department?.toUpperCase() || 'N/A'}</span></div>
             <div class="field"><span class="field-label">Position:</span><span class="field-value">${teacher.position || 'N/A'}</span></div>
             <div class="field"><span class="field-label">Specialization:</span><span class="field-value">${teacher.specialization || 'N/A'}</span></div>
@@ -342,7 +342,6 @@ const ViewTeacher: React.FC = () => {
     }
   };
 
-  // Show loading spinner during initial load
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -351,7 +350,6 @@ const ViewTeacher: React.FC = () => {
     );
   }
 
-  // Show error state with loading spinner (no error message)
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -364,9 +362,7 @@ const ViewTeacher: React.FC = () => {
     return (
       <div className="text-center py-12">
         <Loader2 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-        
         <p className="text-gray-500 dark:text-gray-400 mt-1">Please wait while we fetch the teacher profile.</p>
-      
       </div>
     );
   }
@@ -387,7 +383,7 @@ const ViewTeacher: React.FC = () => {
               Teacher Profile
             </h1>
             <p className="text-gray-500 dark:text-gray-400 mt-1">
-              {teacher.employee_number || 'No ID'} • {teacher.department?.toUpperCase() || 'No Department'}
+              {teacher.staff_number || 'No Staff Number'} • {teacher.department?.toUpperCase() || 'No Department'}
             </p>
           </div>
         </div>
@@ -546,8 +542,8 @@ const ViewTeacher: React.FC = () => {
           </h3>
           <div className="space-y-3">
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
-              <span className="text-gray-600 dark:text-gray-300">Employee ID</span>
-              <span className="font-medium text-gray-900 dark:text-white">{teacher.employee_number || 'N/A'}</span>
+              <span className="text-gray-600 dark:text-gray-300">Staff Number</span>
+              <span className="font-medium text-gray-900 dark:text-white">{teacher.staff_number || 'N/A'}</span>
             </div>
             <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700">
               <span className="text-gray-600 dark:text-gray-300">Department</span>

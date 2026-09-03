@@ -65,6 +65,7 @@ interface AcademicSession {
 interface SchoolClass {
   id: string;
   name: string;
+  code?: string | null;
   branch_id?: string | null;
   level?: number | null;
 }
@@ -121,7 +122,7 @@ const ACTION_CLASSES: Record<Action, string> = {
 };
 
 /*
- * CORRECTED CLASS PROGRESSION:
+ * CLASS PROGRESSION:
  * 
  * KG Silver → KG Gold → Nursery 1 → Nursery 2 → Transition → 
  * Grade 1 → Grade 2 → Grade 3 → Grade 4 → Grade 5 → 
@@ -139,12 +140,12 @@ const CLASS_PROGRESSION = [
   { stage: 80, patterns: ['grade 3'] },
   { stage: 90, patterns: ['grade 4'] },
   { stage: 100, patterns: ['grade 5'] },
-  { stage: 110, patterns: ['jss1'] },
-  { stage: 120, patterns: ['jss2'] },
-  { stage: 130, patterns: ['jss3'] },
-  { stage: 140, patterns: ['ss1'] },
-  { stage: 150, patterns: ['ss2'] },
-  { stage: 160, patterns: ['ss3'] },
+  { stage: 110, patterns: ['jss1', 'jss 1'] },
+  { stage: 120, patterns: ['jss2', 'jss 2'] },
+  { stage: 130, patterns: ['jss3', 'jss 3'] },
+  { stage: 140, patterns: ['ss1', 'ss 1'] },
+  { stage: 150, patterns: ['ss2', 'ss 2'] },
+  { stage: 160, patterns: ['ss3', 'ss 3'] },
 ];
 
 /* ============================================================
@@ -183,7 +184,12 @@ const getBaseClassName = (className?: string | null): string => {
 
 const isGraduatingClass = (className?: string | null): boolean => {
   const normalized = normalizeClassName(className);
-  return normalized === 'ss3' || normalized === 'ss3 science' || normalized === 'ss3 arts' || normalized === 'ss3 commercial';
+  return /^ss\s*3(?:\s+(?:science|arts|commercial))?$/.test(normalized);
+};
+
+const isGraduateClass = (className?: string | null): boolean => {
+  const normalized = normalizeClassName(className);
+  return /^(graduate|graduated|graduates|graduated students)$/.test(normalized);
 };
 
 const getSessionYear = (sessionName?: string | null): number | null => {
@@ -193,9 +199,7 @@ const getSessionYear = (sessionName?: string | null): number | null => {
 };
 
 const isValidSessionName = (sessionName?: string | null): boolean => {
-  const start = getSessionYear(sessionName);
-  if (start === null) return false;
-  return start >= 2025 && start <= 2040;
+  return getSessionYear(sessionName) !== null;
 };
 
 const compareSessionNames = (a: string, b: string): number => {
@@ -236,6 +240,7 @@ const StudentPromotion: React.FC = () => {
   const [globalClassId, setGlobalClassId] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [graduateClassId, setGraduateClassId] = useState<string | null>(null);
 
   /* ==========================================================
      AUTH / BRANCH
@@ -311,7 +316,7 @@ const StudentPromotion: React.FC = () => {
           .eq('branch_id', currentBranchId),
         supabase
           .from('classes')
-          .select(`id, name, branch_id, level`)
+          .select(`id, name, code, branch_id, level`)
           .eq('branch_id', currentBranchId),
         supabase
           .from('students')
@@ -351,7 +356,25 @@ const StudentPromotion: React.FC = () => {
 
       setSessions(validSessions);
       setClasses(loadedClasses);
-      setStudents(loadedStudents);
+
+      // Find Graduate class
+      const gradClass = loadedClasses.find(
+        (c) => c.name.toLowerCase() === 'graduate' || c.name.toLowerCase() === 'graduated'
+      );
+      if (gradClass) {
+        console.log('✅ Found Graduate class:', gradClass.id, gradClass.name);
+        setGraduateClassId(gradClass.id);
+      } else {
+        console.warn('⚠️ No Graduate class found');
+        setGraduateClassId(null);
+      }
+
+      // Filter out students already in Graduate class
+      const activeStudents = loadedStudents.filter(
+        (s) => s.class_id !== gradClass?.id
+      );
+      setStudents(activeStudents);
+      console.log(`✅ ${activeStudents.length} active students (excluding Graduate class)`);
 
       // Auto-select current session
       const currentSession =
@@ -410,6 +433,32 @@ const StudentPromotion: React.FC = () => {
     loadData();
   }, [loadData]);
 
+  const loadPromotionsForSession = useCallback(async (sessionId: string) => {
+    if (!sessionId) {
+      setExistingPromotions([]);
+      return;
+    }
+
+    try {
+      const currentBranchId = branchId || (await resolveBranchId());
+      if (!currentBranchId) return;
+
+      const { data, error: promotionError } = await supabase
+        .from('student_promotions')
+        .select('id, student_id, branch_id, from_session_id, from_class_id, to_session_id, to_class_id, action, reason, remarks, status')
+        .eq('branch_id', currentBranchId)
+        .eq('from_session_id', sessionId)
+        .neq('status', 'cancelled');
+
+      if (promotionError) throw promotionError;
+      setExistingPromotions((data || []) as ExistingPromotion[]);
+    } catch (err: any) {
+      console.error('❌ Failed to load promotions for session:', err);
+      setExistingPromotions([]);
+      setError(err?.message || 'Unable to load saved promotion decisions.');
+    }
+  }, [branchId, resolveBranchId]);
+
   /* ==========================================================
      MAPS
   ========================================================== */
@@ -438,7 +487,7 @@ const StudentPromotion: React.FC = () => {
         if (itemStage !== stage) return false;
         if (!currentStream) return true;
         const itemStream = getStream(item.name);
-        return !itemStream || itemStream === currentStream;
+        return itemStream === currentStream;
       });
 
       if (!candidates.length) return null;
@@ -463,7 +512,17 @@ const StudentPromotion: React.FC = () => {
       
       // If student is in SS3, they should graduate
       if (isGraduatingClass(current.name)) {
+        // Return the Graduate class if it exists
+        if (graduateClassId) {
+          const gradClass = classMap.get(graduateClassId);
+          if (gradClass) return gradClass;
+        }
         return null; // No next class, they graduate
+      }
+
+      // If student is already in Graduate class, stay there
+      if (isGraduateClass(current.name)) {
+        return current;
       }
 
       const currentStage = getAcademicStage(current.name);
@@ -471,7 +530,7 @@ const StudentPromotion: React.FC = () => {
 
       return findClassForStage(currentStage + 10, current);
     },
-    [classMap, findClassForStage]
+    [classMap, findClassForStage, graduateClassId]
   );
 
   const getPreviousClass = useCallback(
@@ -479,6 +538,11 @@ const StudentPromotion: React.FC = () => {
       if (!classId) return null;
       const current = classMap.get(classId);
       if (!current) return null;
+
+      // If student is in Graduate class, they can't be demoted
+      if (isGraduateClass(current.name)) {
+        return null;
+      }
 
       const currentStage = getAcademicStage(current.name);
       if (currentStage === null) return null;
@@ -511,7 +575,7 @@ const StudentPromotion: React.FC = () => {
   );
 
   /* ==========================================================
-     DEFAULT DECISION — FIXED FOR SS3 GRADUATION
+     DEFAULT DECISION
   ========================================================== */
 
   const createDefaultDecision = useCallback(
@@ -531,12 +595,23 @@ const StudentPromotion: React.FC = () => {
 
       const currentClass = classMap.get(student.class_id || '');
       
+      // If student is already in Graduate class, keep them there
+      if (isGraduateClass(currentClass?.name)) {
+        console.log(`   Student already in Graduate class`);
+        return {
+          action: 'pending',
+          toClassId: student.class_id || null,
+          reason: 'Already graduated',
+          remarks: 'Student is already in the Graduate class.',
+        };
+      }
+
       // SS3 students should default to GRADUATE
       if (isGraduatingClass(currentClass?.name)) {
         console.log(`   Student in graduating class: ${currentClass?.name} -> GRADUATE`);
         return {
           action: 'graduate',
-          toClassId: null,
+          toClassId: graduateClassId || null,
           reason: 'Completed SS3',
           remarks: 'Student has completed secondary education.',
         };
@@ -561,11 +636,11 @@ const StudentPromotion: React.FC = () => {
         remarks: '',
       };
     },
-    [promotionMap, classMap, getNextClass]
+    [promotionMap, classMap, getNextClass, graduateClassId]
   );
 
   /* ==========================================================
-     STUDENT ROWS — FIXED FOR SS3
+     STUDENT ROWS
   ========================================================== */
 
   const studentRows = useMemo<StudentRow[]>(() => {
@@ -575,15 +650,15 @@ const StudentPromotion: React.FC = () => {
       const nextClass = getNextClass(student.class_id);
       let decision = decisions[student.id] || createDefaultDecision(student);
 
-      // ✅ FIX: If student is in graduating class, ensure decision is 'graduate'
-      if (isGraduatingClass(currentClass?.name) && decision.action === 'promote') {
-        console.log(`   Auto-fixing ${student.first_name} ${student.last_name}: promote → graduate`);
-        decision = { ...decision, action: 'graduate', toClassId: null };
-        // Update the decision in state
-        setDecisions(prev => ({
-          ...prev,
-          [student.id]: decision
-        }));
+      // If student is in graduating class, ensure decision is 'graduate'
+      if (isGraduatingClass(currentClass?.name) && decision.action !== 'graduate') {
+        console.log(`   Auto-fixing ${student.first_name} ${student.last_name}: ${decision.action} → graduate`);
+        decision = { ...decision, action: 'graduate', toClassId: graduateClassId || null };
+      }
+
+      // If student is already in Graduate class, keep them pending
+      if (isGraduateClass(currentClass?.name)) {
+        decision = { ...decision, action: 'pending', toClassId: student.class_id || null };
       }
 
       let suggestedClassName = nextClass?.name || 'No matching next class';
@@ -591,7 +666,12 @@ const StudentPromotion: React.FC = () => {
       
       if (isGraduatingClass(currentClass?.name)) {
         suggestedClassName = '🎓 Graduate';
-        suggestedClassId = null;
+        suggestedClassId = graduateClassId || null;
+      }
+
+      if (isGraduateClass(currentClass?.name)) {
+        suggestedClassName = '✅ Graduate (Completed)';
+        suggestedClassId = student.class_id || null;
       }
 
       return {
@@ -603,7 +683,7 @@ const StudentPromotion: React.FC = () => {
         existingPromotion: promotionMap.get(student.id),
       };
     });
-  }, [students, classMap, getNextClass, decisions, createDefaultDecision, promotionMap]);
+  }, [students, classMap, getNextClass, decisions, createDefaultDecision, promotionMap, graduateClassId]);
 
   /* ==========================================================
      FILTERS
@@ -668,7 +748,7 @@ const StudentPromotion: React.FC = () => {
   };
 
   /* ==========================================================
-     ACTION CHANGE — FIXED FOR SS3
+     ACTION CHANGE
   ========================================================== */
 
   const handleActionChange = (student: StudentRow, action: Action) => {
@@ -681,9 +761,10 @@ const StudentPromotion: React.FC = () => {
       if (isGraduatingClass(student.className)) {
         console.log(`   Student ${getStudentName(student)} is in graduating class - setting to graduate`);
         finalAction = 'graduate';
-        toClassId = null;
+        toClassId = graduateClassId || null;
       } else {
-        toClassId = student.suggestedClassId;
+        const nextClass = getNextClass(student.class_id);
+        toClassId = nextClass?.id || null;
       }
     }
     if (action === 'demote') {
@@ -692,8 +773,11 @@ const StudentPromotion: React.FC = () => {
     if (action === 'repeat') {
       toClassId = student.class_id || null;
     }
-    if (action === 'withdraw' || action === 'graduate') {
+    if (action === 'withdraw') {
       toClassId = null;
+    }
+    if (action === 'graduate') {
+      toClassId = graduateClassId || null;
     }
 
     updateDecision(student.id, { action: finalAction, toClassId });
@@ -719,8 +803,10 @@ const StudentPromotion: React.FC = () => {
   const toggleAllFiltered = () => {
     setSelectedStudents((previous) => {
       const next = new Set(previous);
-      const allSelected = filteredStudents.length > 0 && filteredStudents.every((student) => next.has(student.id));
+      const selectableStudents = filteredStudents.filter((student) => student.existingPromotion?.status !== 'approved');
+      const allSelected = selectableStudents.length > 0 && selectableStudents.every((student) => next.has(student.id));
       filteredStudents.forEach((student) => {
+        if (student.existingPromotion?.status === 'approved') return;
         if (allSelected) next.delete(student.id);
         else next.add(student.id);
       });
@@ -758,9 +844,10 @@ const StudentPromotion: React.FC = () => {
           // If student is in graduating class, promote should be graduate
           if (isGraduatingClass(student.className)) {
             action = 'graduate';
-            toClassId = null;
+            toClassId = graduateClassId || null;
           } else {
-            toClassId = student.suggestedClassId;
+            const nextClass = getNextClass(student.class_id);
+            toClassId = nextClass?.id || null;
           }
         }
         if (globalAction === 'demote') {
@@ -769,8 +856,11 @@ const StudentPromotion: React.FC = () => {
         if (globalAction === 'repeat') {
           toClassId = student.class_id || null;
         }
-        if (globalAction === 'withdraw' || globalAction === 'graduate') {
+        if (globalAction === 'withdraw') {
           toClassId = null;
+        }
+        if (globalAction === 'graduate') {
+          toClassId = graduateClassId || null;
         }
 
         console.log(`   ${student.first_name} ${student.last_name}: ${action} -> ${toClassId || 'none'}`);
@@ -784,61 +874,54 @@ const StudentPromotion: React.FC = () => {
   };
 
   /* ==========================================================
-     SAVE DECISIONS — FIXED VALIDATION
+     SAVE DECISIONS
   ========================================================== */
 
   const savePendingDecisions = async () => {
-    console.log('💾 === SAVE PENDING DECISIONS STARTED ===');
-    console.log(`   Branch ID: ${branchId}`);
-    console.log(`   Selected Session: ${selectedSessionId}`);
-    console.log(`   Target Session: ${targetSessionId}`);
-    console.log(`   User ID: ${user?.id}`);
-
     if (!branchId || !selectedSessionId) {
-      console.error('❌ Missing branch or session');
-      setError('Current academic session could not be determined.');
-      return;
-    }
-    if (!targetSessionId) {
-      console.error('❌ Missing target session');
-      setError('Please select the target academic session.');
+      setError('Please select a current academic session.');
       return;
     }
 
     const rowsToSave = studentRows.filter(
-      (student) => selectedStudents.has(student.id) && student.decision.action !== 'pending'
+      (student) =>
+        selectedStudents.has(student.id) &&
+        student.decision.action !== 'pending' &&
+        student.existingPromotion?.status !== 'approved'
     );
 
-    console.log(`   Found ${rowsToSave.length} students to save`);
-
     if (!rowsToSave.length) {
-      console.warn('⚠️ No students to save');
-      setError('Select students with decisions before saving.');
+      setError('Select students with decisions that have not already been approved.');
       return;
     }
 
-    // ✅ FIX: Validate only promote, demote, repeat need a target class
-    // Graduate and Withdraw are allowed with null toClassId
-    const invalid = rowsToSave.find(
-      (student) => {
-        // If action is promote AND student is in graduating class, they should be graduate instead
-        if (student.decision.action === 'promote' && isGraduatingClass(student.className)) {
-          console.log(`   ⚠️ Student ${student.id} is in graduating class but has action 'promote' - auto-fixing to 'graduate'`);
-          // Auto-fix: change to graduate
-          updateDecision(student.id, { action: 'graduate', toClassId: null });
-          return false;
-        }
-        
-        // Only these actions require a target class
-        const needsTargetClass = ['promote', 'demote', 'repeat'].includes(student.decision.action);
-        const hasTargetClass = !!student.decision.toClassId;
-        
-        return needsTargetClass && !hasTargetClass;
-      }
+    const requiresTargetSession = rowsToSave.some((student) =>
+      ['promote', 'demote', 'repeat', 'graduate'].includes(student.decision.action)
     );
-    
+
+    if (requiresTargetSession && !targetSessionId) {
+      setError('Please select the target academic session.');
+      return;
+    }
+
+    const graduationStudents = rowsToSave.filter(
+      (student) => student.decision.action === 'graduate' || isGraduatingClass(student.className)
+    );
+
+    if (graduationStudents.length > 0 && !graduateClassId) {
+      setError('No Graduate class was found. Create a Graduate class before saving graduation decisions.');
+      return;
+    }
+
+    const invalid = rowsToSave.find((student) => {
+      const action = isGraduatingClass(student.className) ? 'graduate' : student.decision.action;
+      if (['promote', 'demote', 'repeat'].includes(action)) {
+        return !student.decision.toClassId;
+      }
+      return false;
+    });
+
     if (invalid) {
-      console.error(`❌ Student ${invalid.id} has no target class for ${invalid.decision.action}`);
       setError(`${getStudentName(invalid)} has no valid target class for ${invalid.decision.action}.`);
       return;
     }
@@ -852,19 +935,14 @@ const StudentPromotion: React.FC = () => {
 
     try {
       for (const student of rowsToSave) {
-        // ✅ FIX: If student is in graduating class and action is promote, change to graduate
-        let decision = student.decision;
-        if (decision.action === 'promote' && isGraduatingClass(student.className)) {
-          console.log(`   Auto-fixing ${getStudentName(student)}: promote → graduate`);
-          decision = { ...decision, action: 'graduate', toClassId: null };
-          // Update the decision in state
-          updateDecision(student.id, { action: 'graduate', toClassId: null });
-        }
+        let action = student.decision.action;
+        let toClassId = student.decision.toClassId;
 
-        console.log(`   Processing student: ${student.first_name} ${student.last_name} (${student.id})`);
-        console.log(`      Action: ${decision.action}`);
-        console.log(`      To Class ID: ${decision.toClassId}`);
-        console.log(`      From Class ID: ${student.class_id}`);
+        if (isGraduatingClass(student.className)) {
+          action = 'graduate';
+          toClassId = graduateClassId;
+          updateDecision(student.id, { action, toClassId });
+        }
 
         const existing = existingPromotions.find(
           (promotion) =>
@@ -873,18 +951,18 @@ const StudentPromotion: React.FC = () => {
             promotion.status !== 'cancelled'
         );
 
-        const isTerminal = decision.action === 'withdraw' || decision.action === 'graduate';
+        if (existing?.status === 'approved') continue;
 
         const payload = {
           student_id: student.id,
           branch_id: branchId,
           from_session_id: selectedSessionId,
           from_class_id: student.class_id,
-          to_session_id: isTerminal ? null : targetSessionId,
-          to_class_id: isTerminal ? null : decision.toClassId,
-          action: decision.action,
-          reason: decision.reason || null,
-          remarks: decision.remarks || null,
+          to_session_id: action === 'withdraw' ? null : targetSessionId,
+          to_class_id: action === 'withdraw' ? null : toClassId,
+          action,
+          reason: student.decision.reason || null,
+          remarks: student.decision.remarks || null,
           status: 'pending' as const,
           created_by: user?.id || null,
           metadata: {
@@ -897,260 +975,169 @@ const StudentPromotion: React.FC = () => {
           },
         };
 
-        console.log(`      Payload:`, payload);
+        const result = existing
+          ? await supabase.from('student_promotions').update(payload).eq('id', existing.id)
+          : await supabase.from('student_promotions').insert(payload);
 
-        if (existing) {
-          console.log(`      Updating existing promotion: ${existing.id}`);
-          const { data: updateData, error: updateError } = await supabase
-            .from('student_promotions')
-            .update(payload)
-            .eq('id', existing.id)
-            .select();
-
-          if (updateError) {
-            console.error(`      ❌ Update error for ${student.id}:`, updateError);
-            failedCount++;
-            continue;
-          }
-          console.log(`      ✅ Update successful:`, updateData);
-        } else {
-          console.log(`      Creating new promotion`);
-          const { data: insertData, error: insertError } = await supabase
-            .from('student_promotions')
-            .insert(payload)
-            .select();
-
-          if (insertError) {
-            console.error(`      ❌ Insert error for ${student.id}:`, insertError);
-            failedCount++;
-            continue;
-          }
-          console.log(`      ✅ Insert successful:`, insertData);
+        if (result.error) {
+          console.error(`❌ Failed to save promotion for ${student.id}:`, result.error);
+          failedCount++;
+          continue;
         }
+
         savedCount++;
       }
 
-      console.log(`✅ Saved ${savedCount} promotion decisions, ${failedCount} failed`);
-      
       if (savedCount > 0) {
-        setSuccess(`${savedCount} promotion decision(s) saved as pending.${failedCount > 0 ? ` ${failedCount} failed.` : ''}`);
-        await loadData();
+        setSuccess(`${savedCount} decision(s) saved as pending.${failedCount ? ` ${failedCount} failed.` : ''}`);
+        await loadPromotionsForSession(selectedSessionId);
       } else {
-        setError(`Failed to save any promotions. ${failedCount} failed.`);
+        setError(`No decisions were saved.${failedCount ? ` ${failedCount} failed.` : ''}`);
       }
     } catch (err: any) {
       console.error('❌ Save error:', err);
       setError(err?.message || 'Unable to save promotion decisions.');
     } finally {
       setSaving(false);
-      console.log('💾 === SAVE PENDING DECISIONS COMPLETED ===');
     }
   };
 
   /* ==========================================================
-     FINALIZE PROMOTIONS — WITH FULL DEBUG
+     FINALIZE PROMOTIONS
   ========================================================== */
 
   const finalizePromotions = async () => {
-    console.log('🚀 === FINALIZE PROMOTIONS STARTED ===');
-    console.log(`   Branch ID: ${branchId}`);
-    console.log(`   Selected Session: ${selectedSessionId}`);
-    console.log(`   User ID: ${user?.id}`);
-
     if (!branchId || !selectedSessionId) {
-      console.error('❌ Missing branch or session');
-      setError('Current academic session could not be determined.');
+      setError('Please select a current academic session.');
       return;
     }
 
-    // Get all pending promotions for this session
     const pending = existingPromotions.filter(
       (promotion) =>
         promotion.from_session_id === selectedSessionId &&
         promotion.status === 'pending'
     );
 
-    console.log(`   Found ${pending.length} pending promotions`);
-
     if (!pending.length) {
-      console.warn('⚠️ No pending promotions found');
-      setError('There are no pending promotion decisions to finalize. Save the decisions first.');
+      setError('There are no pending promotion decisions to approve. Save the decisions first.');
       return;
     }
 
-    // Log each pending promotion
-    pending.forEach((p, i) => {
-      console.log(`   Pending ${i+1}: Student ${p.student_id}, Action: ${p.action}, From: ${p.from_class_id}, To: ${p.to_class_id}`);
-    });
+    const invalidGraduation = pending.find(
+      (promotion) => promotion.action === 'graduate' && !(promotion.to_class_id || graduateClassId)
+    );
+
+    if (invalidGraduation) {
+      setError(`Graduate class is missing for ${invalidGraduation.student_id}.`);
+      return;
+    }
 
     setFinalizing(true);
     setError('');
     setSuccess('');
 
+    let approvedCount = 0;
+    const failed: string[] = [];
+
     try {
-      const ids = pending.map((promotion) => promotion.id);
-      console.log(`   Promotion IDs to approve:`, ids);
+      for (const promotion of pending) {
+        const now = new Date().toISOString();
+        const { data: studentBefore, error: studentFetchError } = await supabase
+          .from('students')
+          .select('class_id, current_status')
+          .eq('id', promotion.student_id)
+          .maybeSingle();
 
-      // FIRST: Try the RPC function
-      let rpcSuccess = false;
-      try {
-        console.log('   Attempting RPC: approve_student_promotions');
-        const { data: rpcData, error: rpcError } = await supabase.rpc('approve_student_promotions', {
-          p_promotion_ids: ids,
-          p_approved_by: user?.id || null,
-        });
-        
-        if (rpcError) {
-          console.warn('   ⚠️ RPC failed:', rpcError);
-        } else {
-          console.log('   ✅ RPC succeeded:', rpcData);
-          rpcSuccess = true;
+        if (studentFetchError || !studentBefore) {
+          console.error('❌ Could not load student before approval:', studentFetchError);
+          failed.push(promotion.student_id);
+          continue;
         }
-      } catch (err) {
-        console.warn('   ⚠️ RPC exception:', err);
-      }
 
-      // If RPC failed, do manual updates
-      let updatedCount = 0;
-      let failedIds: string[] = [];
+        let studentUpdate: Record<string, unknown> = { updated_at: now };
+        const targetClassId = promotion.to_class_id || (promotion.action === 'graduate' ? graduateClassId : null);
 
-      if (!rpcSuccess) {
-        console.log('   📝 Falling back to manual updates...');
-
-        for (const promotion of pending) {
-          console.log(`   Processing promotion ${promotion.id} for student ${promotion.student_id}`);
-
-          // Update the promotion status
-          console.log(`     Updating promotion status to 'approved'...`);
-          const { data: updateData, error: updateError } = await supabase
-            .from('student_promotions')
-            .update({
-              status: 'approved',
-              approved_by: user?.id || null,
-              approved_at: new Date().toISOString(),
-            })
-            .eq('id', promotion.id)
-            .select();
-
-          if (updateError) {
-            console.error(`     ❌ Failed to approve promotion ${promotion.id}:`, updateError);
-            failedIds.push(promotion.id);
+        switch (promotion.action) {
+          case 'promote':
+          case 'demote':
+            if (!targetClassId) {
+              failed.push(promotion.student_id);
+              continue;
+            }
+            studentUpdate.class_id = targetClassId;
+            break;
+          case 'repeat':
+            break;
+          case 'withdraw':
+            studentUpdate.current_status = 'withdrawn';
+            break;
+          case 'graduate':
+            if (!targetClassId) {
+              failed.push(promotion.student_id);
+              continue;
+            }
+            studentUpdate.class_id = targetClassId;
+            studentUpdate.current_status = 'graduated';
+            break;
+          default:
+            failed.push(promotion.student_id);
             continue;
-          }
-          console.log(`     ✅ Promotion ${promotion.id} status updated:`, updateData);
-
-          // Now update the student based on the action
-          console.log(`     Updating student ${promotion.student_id} for action: ${promotion.action}`);
-
-          if (promotion.action === 'promote' && promotion.to_class_id) {
-            console.log(`       Moving student to class: ${promotion.to_class_id}`);
-            const { data: studentData, error: studentUpdateError } = await supabase
-              .from('students')
-              .update({
-                class_id: promotion.to_class_id,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', promotion.student_id)
-              .select();
-
-            if (studentUpdateError) {
-              console.error(`       ❌ Failed to update student class:`, studentUpdateError);
-            } else {
-              console.log(`       ✅ Student class updated:`, studentData);
-            }
-          } else if (promotion.action === 'repeat') {
-            console.log(`       Student stays in same class`);
-            const { data: studentData, error: studentUpdateError } = await supabase
-              .from('students')
-              .update({
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', promotion.student_id)
-              .select();
-
-            if (studentUpdateError) {
-              console.error(`       ❌ Failed to update student:`, studentUpdateError);
-            } else {
-              console.log(`       ✅ Student updated:`, studentData);
-            }
-          } else if (promotion.action === 'withdraw') {
-            console.log(`       Withdrawing student`);
-            const { data: studentData, error: studentUpdateError } = await supabase
-              .from('students')
-              .update({
-                current_status: 'withdrawn',
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', promotion.student_id)
-              .select();
-
-            if (studentUpdateError) {
-              console.error(`       ❌ Failed to withdraw student:`, studentUpdateError);
-            } else {
-              console.log(`       ✅ Student withdrawn:`, studentData);
-            }
-          } else if (promotion.action === 'graduate') {
-            console.log(`       Graduating student`);
-            const { data: studentData, error: studentUpdateError } = await supabase
-              .from('students')
-              .update({
-                current_status: 'graduated',
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', promotion.student_id)
-              .select();
-
-            if (studentUpdateError) {
-              console.error(`       ❌ Failed to graduate student:`, studentUpdateError);
-            } else {
-              console.log(`       ✅ Student graduated:`, studentData);
-            }
-          } else if (promotion.action === 'demote' && promotion.to_class_id) {
-            console.log(`       Demoting student to class: ${promotion.to_class_id}`);
-            const { data: studentData, error: studentUpdateError } = await supabase
-              .from('students')
-              .update({
-                class_id: promotion.to_class_id,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', promotion.student_id)
-              .select();
-
-            if (studentUpdateError) {
-              console.error(`       ❌ Failed to demote student:`, studentUpdateError);
-            } else {
-              console.log(`       ✅ Student demoted:`, studentData);
-            }
-          }
-
-          updatedCount++;
         }
 
-        console.log(`   Manual updates complete: ${updatedCount} succeeded, ${failedIds.length} failed`);
+        // Change the student first. The promotion is only marked approved after
+        // the student update succeeds. If approval fails, attempt to roll back.
+        const { error: studentUpdateError } = await supabase
+          .from('students')
+          .update(studentUpdate)
+          .eq('id', promotion.student_id);
+
+        if (studentUpdateError) {
+          console.error(`❌ Student update failed for ${promotion.student_id}:`, studentUpdateError);
+          failed.push(promotion.student_id);
+          continue;
+        }
+
+        const { error: approvalError } = await supabase
+          .from('student_promotions')
+          .update({
+            status: 'approved',
+            approved_by: user?.id || null,
+            approved_at: now,
+          })
+          .eq('id', promotion.id)
+          .eq('status', 'pending');
+
+        if (approvalError) {
+          console.error(`❌ Approval failed for ${promotion.id}:`, approvalError);
+
+          const rollback: Record<string, unknown> = {
+            class_id: studentBefore.class_id,
+            current_status: studentBefore.current_status,
+            updated_at: new Date().toISOString(),
+          };
+          await supabase.from('students').update(rollback).eq('id', promotion.student_id);
+
+          failed.push(promotion.student_id);
+          continue;
+        }
+
+        approvedCount++;
       }
 
-      const totalApproved = rpcSuccess ? pending.length : updatedCount;
-
-      if (totalApproved === 0) {
-        throw new Error(`Failed to approve any promotions.`);
-      }
-
+      await loadPromotionsForSession(selectedSessionId);
+      setSelectedStudents(new Set());
       setShowReviewModal(false);
 
-      if (failedIds.length > 0) {
-        setSuccess(`${totalApproved} promotion(s) approved successfully. ${failedIds.length} failed.`);
+      if (failed.length) {
+        setSuccess(`${approvedCount} decision(s) approved. ${failed.length} student(s) could not be completed and remain unapproved.`);
       } else {
-        setSuccess(`${totalApproved} promotion decision(s) approved successfully.`);
+        setSuccess(`${approvedCount} decision(s) approved successfully.`);
       }
-
-      console.log(`✅ Finalization complete: ${totalApproved} approved`);
-      await loadData();
     } catch (err: any) {
       console.error('❌ Finalizing promotions failed:', err);
       setError(err?.message || 'Unable to finalize promotion decisions.');
     } finally {
       setFinalizing(false);
-      console.log('🚀 === FINALIZE PROMOTIONS COMPLETED ===');
     }
   };
 
@@ -1253,12 +1240,22 @@ const StudentPromotion: React.FC = () => {
             </label>
             <select
               value={selectedSessionId}
-              onChange={(e) => {
-                console.log('📌 Session changed to:', e.target.value);
-                setSelectedSessionId(e.target.value);
-                setExistingPromotions([]);
+              onChange={async (e) => {
+                const sessionId = e.target.value;
+                setSelectedSessionId(sessionId);
                 setDecisions({});
                 setSelectedStudents(new Set());
+                setError('');
+                setSuccess('');
+
+                const session = sessions.find((item) => item.id === sessionId);
+                const currentYear = getSessionYear(session?.session_name);
+                const nextSession = sessions.find((item) => {
+                  const year = getSessionYear(item.session_name);
+                  return item.term_number === 1 && currentYear !== null && year === currentYear + 1;
+                });
+                setTargetSessionId(nextSession?.id || '');
+                await loadPromotionsForSession(sessionId);
               }}
               className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2.5 text-sm"
             >
@@ -1477,6 +1474,7 @@ const StudentPromotion: React.FC = () => {
                         type="checkbox"
                         checked={selectedStudents.has(student.id)}
                         onChange={() => toggleStudent(student.id)}
+                        disabled={student.existingPromotion?.status === 'approved' || (student.decision.action === 'pending' && !student.existingPromotion)}
                       />
                     </td>
                     <td className="px-4 py-4">
@@ -1486,7 +1484,11 @@ const StudentPromotion: React.FC = () => {
                     </td>
                     <td className="px-4 py-4 text-sm text-gray-500">{student.student_id || '—'}</td>
                     <td className="px-4 py-4">
-                      <span className="inline-flex px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-300">
+                      <span className={`inline-flex px-2.5 py-1 rounded-full text-sm ${
+                        isGraduateClass(student.className) 
+                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                      }`}>
                         {student.className}
                       </span>
                     </td>
@@ -1494,7 +1496,9 @@ const StudentPromotion: React.FC = () => {
                       <span
                         className={`inline-flex px-2.5 py-1 rounded-full text-sm font-medium ${
                           student.suggestedClassId
-                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400'
+                            ? isGraduateClass(student.suggestedClassName)
+                              ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
+                              : 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400'
                             : student.decision.action === 'graduate'
                             ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
                             : 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400'
@@ -1508,6 +1512,7 @@ const StudentPromotion: React.FC = () => {
                         value={student.decision.action}
                         onChange={(e) => handleActionChange(student, e.target.value as Action)}
                         className={`rounded-lg border px-3 py-2 text-sm font-medium ${ACTION_CLASSES[student.decision.action]}`}
+                        disabled={isGraduateClass(student.className) || student.existingPromotion?.status === 'approved'}
                       >
                         {Object.entries(ACTION_LABELS).map(([value, label]) => (
                           <option key={value} value={value}>
@@ -1536,6 +1541,7 @@ const StudentPromotion: React.FC = () => {
                         type="button"
                         onClick={() => openIndividualEditor(student)}
                         className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
+                        disabled={isGraduateClass(student.className) || student.existingPromotion?.status === 'approved'}
                       >
                         Edit
                         <ChevronDown className="w-4 h-4" />
@@ -1611,6 +1617,7 @@ const StudentPromotion: React.FC = () => {
                 <select
                   value={editingStudent.decision.action}
                   onChange={(e) => handleActionChange(editingStudent, e.target.value as Action)}
+                  disabled={editingStudent.existingPromotion?.status === 'approved'}
                   className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2.5"
                 >
                   {Object.entries(ACTION_LABELS).map(([value, label]) => (
@@ -1633,6 +1640,7 @@ const StudentPromotion: React.FC = () => {
                     );
                   }}
                   className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 px-3 py-2.5"
+                  disabled={editingStudent.existingPromotion?.status === 'approved'}
                 >
                   <option value="">No target (Graduate/Withdraw)</option>
                   {sortedClasses.map((classItem) => (
@@ -1688,7 +1696,7 @@ const StudentPromotion: React.FC = () => {
                 Close
               </button>
               <button type="button" onClick={closeIndividualEditor} className="px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700">
-                Save Decision
+                Done
               </button>
             </div>
           </div>
@@ -1789,7 +1797,7 @@ const StudentPromotion: React.FC = () => {
               <button
                 type="button"
                 onClick={finalizePromotions}
-                disabled={finalizing}
+                disabled={finalizing || saving || !existingPromotions.some((promotion) => promotion.from_session_id === selectedSessionId && promotion.status === 'pending')}
                 className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 disabled:opacity-50"
               >
                 {finalizing && <Loader2 className="w-4 h-4 animate-spin" />}

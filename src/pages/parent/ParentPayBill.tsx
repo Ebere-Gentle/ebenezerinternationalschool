@@ -1,4 +1,5 @@
-// src/pages/parent/ParentPayBill.tsx — FULLY FIXED VERSION
+// src/pages/parent/ParentPayBill.tsx — MODIFIED TO MATCH STUDENTPAYBILL
+// Removed Paystack, kept Bank Transfer + Remita Coming Soon
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -43,14 +44,23 @@ import {
   Gift,
   Tag,
   Sparkles,
+  QrCode,
+  ShieldCheck,
+  ShieldAlert,
+  Lock,
+  Verified,
+  ExternalLink,
+  Key,
   ListChecks
 } from 'lucide-react';
 
 import { useAuth } from '../../hooks/useAuth';
 import { usePaymentData } from '../../hooks/usePaymentData';
 import { supabase } from '../../config/supabase/client';
-import { paystackService, type PaymentGateway } from '../../services/paystack';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import schoolLogoImg from '../../assets/school-logo.png';
+import remitaSoonImg from '../../assets/remitasoon.png';
+import transferSuccessImg from  '../../assets/transfer.png';
 
 // ============================================
 // TYPES
@@ -72,6 +82,7 @@ interface PaymentRecord {
   id: string;
   payment_id: string;
   receipt_number: string;
+  receipt_code?: string;
   amount_paid: number;
   payment_date: string;
   payment_method: string;
@@ -85,6 +96,16 @@ interface PaymentRecord {
   gateway_response?: any;
   academic_session?: string;
   academic_term?: string;
+  verification_token?: string;
+  receipt_signature?: string;
+  receipt_barcode_payload?: string;
+  receipt_qr_payload?: string;
+  receipt_security_status?: string;
+  receipt_revoked_at?: string;
+  branch_code?: string;
+  remitaSoonImg ?: string;
+  term_id?: string;
+  session_id?: string;
 }
 
 interface WaiverBreakdownItem {
@@ -96,13 +117,31 @@ interface WaiverBreakdownItem {
   final_amount?: number;
 }
 
-type PaymentMethodType = 'paystack' | 'bank_transfer';
-
-declare global {
-  interface Window {
-    PaystackPop: any;
-  }
+interface ReceiptSecurityData {
+  signature: string;
+  barcodePayload: string;
+  qrPayload: string;
+  verificationUrl: string;
+  receiptNumber: string;
+  verificationToken: string;
 }
+
+interface BankAccount {
+  id: string;
+  label: string;
+  bank_name: string;
+  account_number: string;
+  account_name: string;
+  sort_code?: string;
+  remitaSoonImg ?: string;
+  currency?: string;
+  support_phone?: string;
+  support_email?: string;
+  payment_instructions?: string;
+  is_active?: boolean;
+}
+
+type PaymentMethodType = 'remita' | 'bank_transfer';
 
 // ============================================
 // UTILITY FUNCTIONS
@@ -123,61 +162,179 @@ const generatePaymentId = (): string => {
   return `PAY-${timestamp}-${random}`;
 };
 
-const getErrorType = (payment: any): 'cancelled' | 'network' | 'gateway' | 'bank' | 'unknown' => {
-  if (!payment) return 'unknown';
-  
-  const reason = (payment.failure_reason || payment.metadata?.failure_reason || '').toLowerCase();
-  const gatewayResponse = payment.gateway_response || payment.metadata?.gateway_response || {};
-  
-  if (reason.includes('cancelled') || reason.includes('canceled')) return 'cancelled';
-  if (reason.includes('network') || reason.includes('timeout')) return 'network';
-  if (reason.includes('gateway') || reason.includes('paystack')) return 'gateway';
-  if (reason.includes('bank') || reason.includes('transfer')) return 'bank';
-  if (gatewayResponse?.status === 'cancelled') return 'cancelled';
-  if (gatewayResponse?.status === 'failed') return 'gateway';
-  
-  return 'unknown';
+const generateAlphanumeric = (length: number): string => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
 };
 
-const getErrorTitle = (errorType: string): string => {
-  const titles: Record<string, string> = {
-    cancelled: 'Payment Cancelled',
-    network: 'Network Error',
-    gateway: 'Gateway Error',
-    bank: 'Bank Transfer Issue',
-    unknown: 'Payment Failed'
-  };
-  return titles[errorType] || titles.unknown;
+const generateBranchReceiptCode = (branchCode: string, session: string, sequence: number): string => {
+  const alphanumeric = generateAlphanumeric(6);
+  return `${branchCode}/${session}/${alphanumeric}`;
 };
 
-const getErrorDescription = (errorType: string, payment: any): string => {
-  const descriptions: Record<string, string> = {
-    cancelled: 'You cancelled the payment process. No charges were made to your account.',
-    network: 'A network error occurred while processing your payment. Please check your internet connection and try again.',
-    gateway: 'There was an issue with the payment gateway. Please try again or use bank transfer.',
-    bank: 'There was an issue with your bank transfer. Please verify the account details and try again.',
-    unknown: 'An unexpected error occurred. Please try again or contact support.'
-  };
-  return descriptions[errorType] || descriptions.unknown;
+const generateVerificationToken = (): string => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let token = 'EIS-VFY-';
+  for (let i = 0; i < 12; i++) {
+    token += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return token;
 };
 
-const getCategoryBadge = (category: string) => {
-  const colors: Record<string, string> = {
-    tuition: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    boarding: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-    transportation: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-    uniform: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-    books: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-    sports: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-    extra_curricular: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
-    other: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400',
-    '': 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400',
-  };
-  return colors[category] || colors.other;
+const createReceiptSignature = async (paymentId: string): Promise<ReceiptSecurityData | null> => {
+  try {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+
+    if (!accessToken) {
+      const verificationToken = generateVerificationToken();
+      const signature = `EIS-SIG-${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
+      const barcodePayload = `EIS|${paymentId}|${signature}`;
+      const qrPayload = JSON.stringify({
+        v: 2,
+        token: verificationToken,
+        receipt: paymentId,
+        signature: signature,
+      });
+      
+      return {
+        signature,
+        barcodePayload,
+        qrPayload,
+        verificationUrl: `${supabaseUrl}/functions/v1/verify-receipt`,
+        receiptNumber: paymentId,
+        verificationToken,
+      };
+    }
+
+    const response = await fetch(
+      `${supabaseUrl}/functions/v1/create-receipt-signature`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ paymentId }),
+      }
+    );
+
+    if (!response.ok) {
+      const verificationToken = generateVerificationToken();
+      return {
+        signature: `EIS-SIG-${Date.now()}`,
+        barcodePayload: `EIS|${paymentId}|fallback`,
+        qrPayload: JSON.stringify({ v: 1, receipt: paymentId }),
+        verificationUrl: `${supabaseUrl}/functions/v1/verify-receipt`,
+        receiptNumber: paymentId,
+        verificationToken,
+      };
+    }
+
+    const data = await response.json();
+    
+    if (!data.success) {
+      return null;
+    }
+
+    return {
+      signature: data.signature,
+      barcodePayload: data.barcodePayload,
+      qrPayload: data.qrPayload,
+      verificationUrl: data.verificationUrl,
+      receiptNumber: data.receiptNumber,
+      verificationToken: data.verificationToken || generateVerificationToken(),
+    };
+  } catch (error) {
+    const verificationToken = generateVerificationToken();
+    return {
+      signature: `EIS-SIG-${Date.now()}`,
+      barcodePayload: `EIS|${paymentId}|fallback-${Date.now()}`,
+      qrPayload: JSON.stringify({ v: 1, receipt: paymentId }),
+      verificationUrl: `${import.meta.env.VITE_SUPABASE_URL || ''}/functions/v1/verify-receipt`,
+      receiptNumber: paymentId,
+      verificationToken,
+    };
+  }
 };
 
 // ============================================
-// FEE BREAKDOWN DISPLAY COMPONENT — WITH WAIVER SUPPORT
+// NORMALIZE BANK ACCOUNTS
+// ============================================
+const normalizeBankAccounts = (gatewayRows: any[]): BankAccount[] => {
+  const accounts: BankAccount[] = [];
+  const seen = new Set<string>();
+
+  const add = (raw: any, fallbackIndex?: number) => {
+    if (!raw || typeof raw !== 'object') return;
+    const accountNumber = String(
+      raw.account_number ?? raw.bank_account_number ?? raw.accountNumber ?? ''
+    ).trim();
+    if (!accountNumber) return;
+
+    const bankName = String(raw.bank_name ?? raw.bankName ?? raw.bank ?? '').trim();
+    const accountName = String(
+      raw.account_name ?? raw.bank_account_name ?? raw.accountName ?? ''
+    ).trim();
+    const index = raw.account_index ?? raw.accountIndex ?? fallbackIndex ?? accounts.length + 1;
+    const id = String(raw.id ?? raw.key ?? raw.gateway_key ?? `bank_transfer_${index}`);
+    const dedupeKey = `${bankName}|${accountNumber}|${accountName}`;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+
+    accounts.push({
+      id,
+      label: String(raw.label ?? raw.name ?? `Bank Account ${index}`),
+      bank_name: bankName || 'Bank',
+      account_number: accountNumber,
+      account_name: accountName || 'School Account',
+      sort_code: raw.sort_code ?? raw.sortCode,
+      currency: raw.currency || 'NGN',
+      support_phone: raw.support_phone ?? raw.supportPhone,
+      support_email: raw.support_email ?? raw.supportEmail,
+      payment_instructions: raw.payment_instructions ?? raw.paymentInstructions,
+      is_active: raw.is_active !== false,
+    });
+  };
+
+  const walkMetadata = (metadata: any) => {
+    if (!metadata || typeof metadata !== 'object') return;
+
+    const arrays = [
+      metadata.bank_accounts,
+      metadata.bankAccounts,
+      metadata.bank_transfer_accounts,
+      metadata.bankTransferAccounts,
+      metadata.accounts,
+    ];
+    arrays.forEach((arr: any) => {
+      if (Array.isArray(arr)) arr.forEach((item, i) => add(item, i + 1));
+    });
+
+    Object.entries(metadata).forEach(([key, value]) => {
+      if (/^bank_transfer_\d+$/i.test(key) || /^bank_account_\d+$/i.test(key)) {
+        if (Array.isArray(value)) value.forEach((item, i) => add(item, i + 1));
+        else add(value, Number(key.match(/\d+$/)?.[0]) || undefined);
+      }
+    });
+  };
+
+  gatewayRows.forEach((row, rowIndex) => {
+    if (!row) return;
+    walkMetadata(row.metadata);
+    add(row, rowIndex + 1);
+  });
+
+  return accounts.filter(account => account.is_active !== false);
+};
+
+// ============================================
+// FEE BREAKDOWN DISPLAY
 // ============================================
 const FeeBreakdownDisplay: React.FC<{
   breakdown: any[];
@@ -192,7 +349,6 @@ const FeeBreakdownDisplay: React.FC<{
   
   const safeBreakdown = Array.isArray(breakdown) ? breakdown : [];
   
-  // Extract waiver details from assignment
   const discountAmount = assignment?.discount_amount || 0;
   const waiverInfo = assignment?.metadata?.waiver_applied || null;
   const waiverItems: WaiverBreakdownItem[] = assignment?.waiver_breakdown_items || [];
@@ -265,7 +421,6 @@ const FeeBreakdownDisplay: React.FC<{
         {displayItems.map((item: any, index: number) => {
           const origAmt = item.original_amount || item.amount || 0;
           
-          // Check if this item has a specific waiver applied
           const matchedWaiverItem = waiverItems.find(
             w => w.item_name?.toLowerCase() === (item.item || item.item_name || '').toLowerCase()
           );
@@ -307,11 +462,6 @@ const FeeBreakdownDisplay: React.FC<{
                       {item.is_mandatory !== false && !isItemWaived && (
                         <span className="text-[8px] sm:text-[10px] px-1.5 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full flex-shrink-0">
                           Required
-                        </span>
-                      )}
-                      {item.is_optional && (
-                        <span className="text-[8px] sm:text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full flex-shrink-0">
-                          Optional
                         </span>
                       )}
                     </div>
@@ -378,7 +528,6 @@ const FeeBreakdownDisplay: React.FC<{
         </button>
       )}
 
-      {/* Summary Footer with Waiver Details */}
       <div className="mt-3 pt-3 border-t border-blue-200/70 dark:border-blue-800/70 space-y-1.5">
         <div className="flex justify-between items-center text-xs text-gray-600 dark:text-gray-300">
           <span>Subtotal (Base Items)</span>
@@ -403,7 +552,6 @@ const FeeBreakdownDisplay: React.FC<{
           </span>
         </div>
 
-        {/* Waiver Breakdown Items */}
         {waiverItems.length > 0 && discountAmount > 0 && (
           <div className="mt-2 pt-2 border-t border-purple-200 dark:border-purple-800">
             <p className="text-[10px] font-medium text-purple-600 dark:text-purple-400 mb-1.5 flex items-center gap-1">
@@ -435,7 +583,7 @@ const FeeBreakdownDisplay: React.FC<{
 };
 
 // ============================================
-// SUCCESS RECEIPT MODAL
+// SUCCESS RECEIPT MODAL - WITH SCHOOL LOGO & ACCOUNT DETAILS
 // ============================================
 const SuccessReceiptModal: React.FC<{
   isOpen: boolean;
@@ -458,49 +606,525 @@ const SuccessReceiptModal: React.FC<{
   onClose,
   formatCurrencyFn
 }) => {
+  const [barcodeRef, setBarcodeRef] = useState<SVGSVGElement | null>(null);
+  const receiptRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (barcodeRef && data) {
+      try {
+        const barcodeData = data.barcodePayload || data.receipt_barcode_payload || `EIS|${data.receipt_number}|${data.signature || 'N/A'}`;
+        JsBarcode(barcodeRef, barcodeData, {
+          format: 'CODE128',
+          width: 1.5,
+          height: 60,
+          displayValue: true,
+          fontSize: 14,
+          font: 'monospace',
+          textMargin: 10,
+          margin: 10,
+          background: '#ffffff',
+          lineColor: '#000000',
+        });
+      } catch (error) {
+        console.error('Error generating barcode:', error);
+      }
+    }
+  }, [barcodeRef, data]);
+
   if (!isOpen || !data) return null;
 
-  const handlePrint = () => window.print();
+  const generateReceiptHTML = () => {
+    const now = new Date();
+    const formattedDate = now.toLocaleDateString('en-NG', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    const formattedTime = now.toLocaleTimeString('en-NG', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true
+    });
+
+    const metadata = data.metadata || {};
+    const accountDetails = {
+      bankName: metadata.bank_name || data.bank_name || 'N/A',
+      accountNumber: metadata.bank_account_number || data.bank_account_number || 'N/A',
+      accountName: metadata.bank_account_name || data.bank_account_name || 'N/A',
+      bankAccountId: metadata.bank_account_id || data.bank_account_id || 'N/A',
+      sortCode: metadata.sort_code || data.sort_code || 'N/A',
+    };
+
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Payment Receipt - ${data.receipt_number || 'N/A'}</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              font-family: 'Arial', 'Helvetica', sans-serif; 
+              padding: 40px 20px; 
+              max-width: 900px; 
+              margin: 0 auto; 
+              background: #f0f2f5;
+              color: #1a1a2e;
+            }
+            .receipt-container { 
+              border: 2px solid #1a56db; 
+              padding: 40px 35px; 
+              border-radius: 16px; 
+              background: #ffffff;
+              box-shadow: 0 8px 40px rgba(0,0,0,0.1);
+              position: relative;
+            }
+            .header { 
+              text-align: center; 
+              border-bottom: 3px solid #1a56db; 
+              padding-bottom: 20px; 
+              margin-bottom: 25px; 
+            }
+            .header .logo-container {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 15px;
+              margin-bottom: 8px;
+            }
+            .header .logo-container img {
+              max-height: 70px;
+              width: auto;
+              object-fit: contain;
+            }
+            .header h1 { 
+              margin: 0; 
+              color: #1a56db; 
+              font-size: 26px;
+              font-weight: 800;
+              letter-spacing: 1px;
+            }
+            .header .subtitle {
+              color: #6b7280;
+              font-size: 14px;
+              margin-top: 2px;
+              letter-spacing: 2px;
+            }
+            .header .school-address {
+              color: #9ca3af;
+              font-size: 11px;
+              margin-top: 2px;
+            }
+            .status-badge {
+              display: inline-block;
+              padding: 4px 20px;
+              border-radius: 20px;
+              font-size: 12px;
+              font-weight: 600;
+              background: #f59e0b;
+              color: #ffffff;
+              margin-top: 8px;
+            }
+            .status-badge.completed {
+              background: #10b981;
+            }
+            .receipt-meta {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              flex-wrap: wrap;
+              gap: 10px;
+              background: #f8fafc;
+              padding: 12px 16px;
+              border-radius: 8px;
+              margin-bottom: 20px;
+              border: 1px solid #e5e7eb;
+            }
+            .receipt-meta .meta-item {
+              font-size: 12px;
+              color: #6b7280;
+            }
+            .receipt-meta .meta-item strong {
+              color: #1a1a2e;
+            }
+            .details-grid { 
+              display: grid; 
+              grid-template-columns: 1fr 1fr; 
+              gap: 12px 20px; 
+              margin: 20px 0;
+              padding: 20px;
+              background: #f9fafb;
+              border-radius: 8px;
+              border: 1px solid #e5e7eb;
+            }
+            .details-grid .label {
+              color: #6b7280;
+              font-size: 10px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+              font-weight: 600;
+            }
+            .details-grid .value {
+              color: #1a1a2e;
+              font-size: 13px;
+              font-weight: 500;
+            }
+            .details-grid .value.mono {
+              font-family: 'Courier New', monospace;
+              font-size: 12px;
+            }
+            .details-grid .full-width {
+              grid-column: 1 / -1;
+            }
+            .amount-section {
+              text-align: center;
+              padding: 24px;
+              margin: 20px 0;
+              background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+              border-radius: 12px;
+              border: 2px solid #a7f3d0;
+            }
+            .amount-section .amount-label {
+              color: #6b7280;
+              font-size: 12px;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            }
+            .amount-section .amount-value {
+              font-size: 36px;
+              font-weight: 800;
+              color: #059669;
+              margin-top: 4px;
+            }
+            .account-details {
+              background: #f0f9ff;
+              border: 1px solid #bae6fd;
+              border-radius: 8px;
+              padding: 16px;
+              margin: 16px 0;
+            }
+            .account-details .account-title {
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+              color: #0369a1;
+              font-weight: 600;
+              margin-bottom: 8px;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+            }
+            .account-details .account-row {
+              display: flex;
+              justify-content: space-between;
+              padding: 4px 0;
+              font-size: 13px;
+              border-bottom: 1px dashed #e0f2fe;
+            }
+            .account-details .account-row:last-child {
+              border-bottom: none;
+            }
+            .account-details .account-row .ac-label {
+              color: #6b7280;
+            }
+            .account-details .account-row .ac-value {
+              color: #1a1a2e;
+              font-weight: 500;
+            }
+            .account-details .account-row .ac-value.mono {
+              font-family: 'Courier New', monospace;
+              font-weight: 600;
+              color: #0369a1;
+            }
+            .qr-section {
+              text-align: center;
+              margin: 20px 0;
+              padding: 20px;
+              background: #f9fafb;
+              border-radius: 8px;
+              border: 1px solid #e5e7eb;
+            }
+            .qr-section .qr-label {
+              font-size: 11px;
+              color: #6b7280;
+              margin-bottom: 8px;
+            }
+            .qr-section img {
+              max-width: 150px;
+              height: auto;
+            }
+            .footer { 
+              text-align: center; 
+              border-top: 2px solid #e5e7eb; 
+              padding-top: 20px; 
+              margin-top: 25px; 
+              font-size: 11px; 
+              color: #9ca3af;
+            }
+            .footer .thank-you {
+              color: #1a56db;
+              font-weight: 600;
+              font-size: 16px;
+            }
+            .watermark {
+              position: fixed;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%) rotate(-30deg);
+              font-size: 100px;
+              color: rgba(26, 86, 219, 0.03);
+              font-weight: 900;
+              pointer-events: none;
+              z-index: 0;
+              letter-spacing: 10px;
+            }
+            @media print {
+              body { padding: 0; background: #fff; }
+              .receipt-container { border: none; box-shadow: none; border-radius: 0; padding: 30px; }
+              .no-print { display: none !important; }
+              .details-grid { background: #f9fafb; }
+              .amount-section { background: linear-gradient(135deg, #ecfdf5, #d1fae5); }
+            }
+            @media (max-width: 600px) {
+              .details-grid { grid-template-columns: 1fr; gap: 8px; }
+              .receipt-container { padding: 20px 15px; }
+              .header h1 { font-size: 20px; }
+              .amount-section .amount-value { font-size: 28px; }
+              .header .logo-container img { max-height: 50px; }
+              .header .logo-container { flex-direction: column; gap: 8px; }
+              .receipt-meta { flex-direction: column; align-items: flex-start; }
+              .account-details .account-row { flex-direction: column; gap: 2px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="watermark">EIS</div>
+          <div class="receipt-container">
+            <div class="header">
+              <div class="logo-container">
+                <img src="${schoolLogoImg}" alt="School Logo" />
+                <div>
+                  <h1>Ebenezer International School</h1>
+                  <div class="subtitle">OFFICIAL PAYMENT RECEIPT</div>
+                </div>
+              </div>
+         
+              <div class="status-badge ${data.status === 'completed' ? 'completed' : ''}">
+                ${data.status === 'completed' ? '✅ PAID' : '⏳ PENDING VERIFICATION'}
+              </div>
+            </div>
+
+            <div class="receipt-meta">
+              <span class="meta-item">📄 Receipt #: <strong>${data.receipt_number || 'N/A'}</strong></span>
+              <span class="meta-item">📅 Date: <strong>${formattedDate}</strong></span>
+              <span class="meta-item">⏰ Time: <strong>${formattedTime}</strong></span>
+            </div>
+
+            <div class="details-grid">
+              <div>
+                <div class="label">Payment ID</div>
+                <div class="value mono">${data.payment_id || data.id || 'N/A'}</div>
+              </div>
+              <div>
+                <div class="label">Receipt Code</div>
+                <div class="value mono">${data.receipt_code || 'N/A'}</div>
+              </div>
+              <div>
+                <div class="label">Student Name</div>
+                <div class="value">${data.student_name || 'N/A'}</div>
+              </div>
+              <div>
+                <div class="label">Student ID</div>
+                <div class="value mono">${data.student_id || 'N/A'}</div>
+              </div>
+              <div>
+                <div class="label">Class</div>
+                <div class="value">${data.class_name || 'N/A'}</div>
+              </div>
+              <div>
+                <div class="label">Fee Type</div>
+                <div class="value">${data.fee_name || 'N/A'}</div>
+              </div>
+              <div>
+                <div class="label">Payment Method</div>
+                <div class="value" style="text-transform:capitalize;">${data.payment_method || 'N/A'}</div>
+              </div>
+              <div>
+                <div class="label">Transaction Reference</div>
+                <div class="value mono">${data.transaction_reference || data.reference || 'N/A'}</div>
+              </div>
+            </div>
+
+            ${isBankTransfer && (data.bank_name || data.bank_account_number) ? `
+            <div class="account-details">
+              <div class="account-title">🏦 Bank Account Details</div>
+              <div class="account-row">
+                <span class="ac-label">Bank Name</span>
+                <span class="ac-value">${data.bank_name || 'N/A'}</span>
+              </div>
+              <div class="account-row">
+                <span class="ac-label">Account Name</span>
+                <span class="ac-value">${data.bank_account_name || 'N/A'}</span>
+              </div>
+              <div class="account-row">
+                <span class="ac-label">Account Number</span>
+                <span class="ac-value mono">${data.bank_account_number || 'N/A'}</span>
+              </div>
+              ${data.sort_code ? `
+              <div class="account-row">
+                <span class="ac-label">Sort Code</span>
+                <span class="ac-value mono">${data.sort_code}</span>
+              </div>
+              ` : ''}
+              <div class="account-row">
+                <span class="ac-label">Transaction Reference</span>
+                <span class="ac-value mono">${data.transaction_reference || data.reference || 'N/A'}</span>
+              </div>
+              <div class="account-row">
+                <span class="ac-label">Payment Date</span>
+                <span class="ac-value">${formattedDate} at ${formattedTime}</span>
+              </div>
+            </div>
+            ` : ''}
+
+            <div class="amount-section">
+              <div class="amount-label">Amount Paid</div>
+              <div class="amount-value">${formatCurrencyFn(data.amount || 0)}</div>
+              <div style="font-size:13px;color:#6b7280;margin-top:4px;">
+                ${data.status === 'completed' ? '✅ Payment Confirmed' : '⏳ Awaiting Verification'}
+              </div>
+            </div>
+
+            ${data.qrPayload ? `
+            <div class="qr-section">
+              <div class="qr-label">🔐 Scan to Verify</div>
+              <img src="data:image/png;base64,${data.qrImage}" alt="QR Code" />
+            </div>
+            ` : ''}
+
+            <div style="margin:20px 0;padding:15px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;text-align:center;">
+              <div style="font-size:13px;color:#166534;">
+                ${isBankTransfer 
+                  ? '📤 Your bank transfer has been submitted. You will receive a confirmation once verified.'
+                  : '✅ Your payment has been successfully processed.'}
+              </div>
+            </div>
+
+            <div class="footer">
+              <div class="thank-you">Thank you for your payment!</div>
+              <div style="margin-top:8px;">This is a system-generated receipt. For inquiries, contact support.</div>
+              <div style="margin-top:4px;font-size:10px;color:#d1d5db;">Generated: ${formattedDate} at ${formattedTime}</div>
+            </div>
+          </div>
+          <div style="text-align:center;padding:10px;font-size:10px;color:#9ca3af;margin-top:10px;">
+            Ebenezer International School • Payment Receipt • v2.0
+          </div>
+        </body>
+      </html>
+    `;
+  };
+
+  const handlePrint = () => {
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (printWindow) {
+      const html = generateReceiptHTML();
+      printWindow.document.write(html);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+      }, 500);
+    } else {
+      window.print();
+    }
+  };
 
   const handleDownload = () => {
-    const receiptText = `
-========================================
-        EBENEZER INTERNATIONAL SCHOOL
-              PAYMENT RECEIPT
-========================================
+    try {
+      const html = generateReceiptHTML();
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `receipt_${data.receipt_number || 'payment'}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Receipt downloaded as HTML');
+    } catch (error) {
+      console.error('Download error:', error);
+      toast.error('Failed to download receipt');
+    }
+  };
 
-Payment ID: ${data.payment_id || data.id || 'N/A'}
-Receipt Number: ${data.receipt_number || 'N/A'}
-Date: ${dayjs(data.payment_date || new Date()).format('MMMM D, YYYY h:mm A')}
+  const handleDownloadPNG = async () => {
+    try {
+      toast.loading('Generating image...');
+      
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = generateReceiptHTML();
+      tempDiv.style.position = 'absolute';
+      tempDiv.style.left = '-9999px';
+      tempDiv.style.top = '0';
+      tempDiv.style.width = '900px';
+      tempDiv.style.padding = '20px';
+      tempDiv.style.background = '#ffffff';
+      document.body.appendChild(tempDiv);
 
-Student: ${data.student_name || 'N/A'}
-Student ID: ${data.student_id || 'N/A'}
-Class: ${data.class_name || 'N/A'}
+      const html2canvas = (window as any).html2canvas;
+      if (html2canvas) {
+        const canvas = await html2canvas(tempDiv, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          width: 900,
+          height: tempDiv.scrollHeight,
+        });
+        
+        const link = document.createElement('a');
+        link.download = `receipt_${data.receipt_number || 'payment'}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        toast.dismiss();
+        toast.success('Receipt downloaded as PNG');
+      } else {
+        toast.dismiss();
+        handleDownload();
+        toast('HTML receipt downloaded. Open in browser to save as PDF.');
+      }
+      
+      document.body.removeChild(tempDiv);
+    } catch (error) {
+      console.error('PNG download error:', error);
+      toast.dismiss();
+      toast.error('Failed to download as PNG. Use HTML download instead.');
+      handleDownload();
+    }
+  };
 
-----------------------------------------
-Fee: ${data.fee_name || 'N/A'}
-Amount: ${formatCurrencyFn(data.amount || 0)}
-Payment Method: ${data.payment_method || 'N/A'}
-Reference: ${data.reference || data.transaction_reference || 'N/A'}
-
-----------------------------------------
-Status: ${data.status || 'Completed'}
-${isBankTransfer ? 'Bank Transfer Reference: ' + (data.transaction_reference || 'N/A') : ''}
-
-========================================
-Thank you for your payment!
-    `;
-
-    const blob = new Blob([receiptText], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `receipt_${data.receipt_number || 'payment'}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast.success('Receipt downloaded');
+  const handleDownloadPDF = () => {
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (printWindow) {
+      const html = generateReceiptHTML();
+      const printHtml = html.replace('</body>', `
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 1000);
+          };
+        <\/script>
+      </body>`);
+      printWindow.document.write(printHtml);
+      printWindow.document.close();
+      printWindow.focus();
+      toast.success('Print dialog opened. Save as PDF.');
+    } else {
+      toast.error('Please allow popups to print.');
+    }
   };
 
   return (
@@ -509,22 +1133,36 @@ Thank you for your payment!
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
-        className="bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto"
+        className="bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
       >
-        <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-3 sm:p-4 flex items-center justify-between">
+        <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-3 sm:p-4 flex items-center justify-between no-print">
           <h3 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             <Receipt className="w-4 h-4 sm:w-5 sm:h-5 text-green-500" />
             Payment Receipt
           </h3>
-          <button onClick={onClose} className="p-1.5 sm:p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all">
+          <button onClick={onClose} className="p-1.5 sm:p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all no-print">
             <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
 
-        <div className="p-4 sm:p-6 space-y-4" id="receipt-content">
+        <div ref={receiptRef} className="p-4 sm:p-6 space-y-4" id="receipt-content">
+          <div className="text-center border-b border-gray-200 dark:border-gray-700 pb-4">
+            <div className="flex items-center justify-center gap-3 mb-2">
+              <img src={schoolLogoImg} alt="School Logo" className="w-12 h-12 sm:w-16 sm:h-16 object-contain" />
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-blue-700 dark:text-blue-400">Ebenezer International School</h2>
+                <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400">Official Payment Receipt</p>
+              </div>
+            </div>
+          </div>
+
           <div className="text-center">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-3">
-              <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-green-600 dark:text-green-400" />
+            <div className="flex items-center justify-center mx-auto mb-3">
+              {isBankTransfer ? (
+                <img src={transferSuccessImg} alt="Bank Transfer" className="w-16 h-16 sm:w-20 sm:h-20 object-contain" />
+              ) : (
+                <img src={transferSuccessImg} alt="Payment Success" className="w-16 h-16 sm:w-20 sm:h-20 object-contain" />
+              )}
             </div>
             <h4 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white">
               {isBankTransfer ? 'Payment Submitted!' : 'Payment Successful!'}
@@ -536,61 +1174,117 @@ Thank you for your payment!
             </p>
           </div>
 
-          <div className="text-center border-b border-gray-200 dark:border-gray-700 pb-3">
-            <h5 className="text-sm font-bold text-gray-900 dark:text-white">Ebenezer International School</h5>
-            <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Official Payment Receipt</p>
-          </div>
-
-          <div className="space-y-1.5 text-xs sm:text-sm">
-            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 text-xs sm:text-sm bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3 sm:p-4">
+            <div className="flex flex-col">
               <span className="text-gray-500 dark:text-gray-400">Payment ID</span>
-              <span className="font-medium text-gray-900 dark:text-white font-mono text-[10px]">{data.payment_id || data.id || 'N/A'}</span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
-              <span className="text-gray-500 dark:text-gray-400">Receipt Number</span>
-              <span className="font-medium text-gray-900 dark:text-white">{data.receipt_number || 'N/A'}</span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
-              <span className="text-gray-500 dark:text-gray-400">Date</span>
-              <span className="font-medium text-gray-900 dark:text-white">
-                {dayjs(data.payment_date || new Date()).format('MMMM D, YYYY h:mm A')}
+              <span className="font-medium text-gray-900 dark:text-white font-mono text-[10px] sm:text-xs truncate">
+                {data.payment_id || data.id || 'N/A'}
               </span>
             </div>
-            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
+            <div className="flex flex-col">
+              <span className="text-gray-500 dark:text-gray-400">Receipt Number</span>
+              <span className="font-medium text-gray-900 dark:text-white font-mono text-[10px] sm:text-xs truncate">
+                {data.receipt_number || 'N/A'}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-gray-500 dark:text-gray-400">Date</span>
+              <span className="font-medium text-gray-900 dark:text-white">
+                {dayjs(data.payment_date || new Date()).format('MMM D, YYYY h:mm A')}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-gray-500 dark:text-gray-400">Status</span>
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                isBankTransfer 
+                  ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                  : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+              }`}>
+                {isBankTransfer ? 'Pending Verification' : 'Completed'}
+              </span>
+            </div>
+            <div className="flex flex-col col-span-2">
               <span className="text-gray-500 dark:text-gray-400">Student</span>
               <span className="font-medium text-gray-900 dark:text-white">{data.student_name || 'N/A'}</span>
             </div>
-            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
-              <span className="text-gray-500 dark:text-gray-400">Student ID</span>
-              <span className="font-medium text-gray-900 dark:text-white">{data.student_id || 'N/A'}</span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
-              <span className="text-gray-500 dark:text-gray-400">Class</span>
-              <span className="font-medium text-gray-900 dark:text-white">{data.class_name || 'N/A'}</span>
-            </div>
-            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
+            <div className="flex flex-col">
               <span className="text-gray-500 dark:text-gray-400">Fee</span>
               <span className="font-medium text-gray-900 dark:text-white">{data.fee_name || 'N/A'}</span>
             </div>
-            <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
+            <div className="flex flex-col">
               <span className="text-gray-500 dark:text-gray-400">Payment Method</span>
               <span className="font-medium text-gray-900 dark:text-white capitalize">{data.payment_method || 'N/A'}</span>
             </div>
             {data.transaction_reference && (
-              <div className="flex justify-between py-1 border-b border-gray-100 dark:border-gray-700">
+              <div className="flex flex-col col-span-2">
                 <span className="text-gray-500 dark:text-gray-400">Transaction Ref</span>
-                <span className="font-medium text-gray-900 dark:text-white font-mono text-[10px] sm:text-xs truncate max-w-[150px]">
+                <span className="font-medium text-gray-900 dark:text-white font-mono text-[10px] sm:text-xs truncate">
                   {data.transaction_reference}
                 </span>
               </div>
             )}
-            <div className="flex justify-between py-2 border-t-2 border-gray-300 dark:border-gray-600 mt-2">
-              <span className="font-semibold text-gray-900 dark:text-white">Amount Paid</span>
-              <span className="font-bold text-lg text-green-600 dark:text-green-400">
-                {formatCurrencyFn(data.amount || 0)}
-              </span>
-            </div>
           </div>
+
+          {isBankTransfer && (data.bank_name || data.bank_account_number) && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 sm:p-4 border border-blue-200 dark:border-blue-800">
+              <h5 className="text-xs sm:text-sm font-semibold text-blue-700 dark:text-blue-300 flex items-center gap-2 mb-2">
+                <Building2 className="w-4 h-4" />
+                Bank Account Details
+              </h5>
+              <div className="grid grid-cols-2 gap-1 sm:gap-2 text-xs sm:text-sm">
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">Bank</span>
+                  <p className="font-medium text-gray-900 dark:text-white">{data.bank_name || 'N/A'}</p>
+                </div>
+                <div>
+                  <span className="text-gray-500 dark:text-gray-400">Account Name</span>
+                  <p className="font-medium text-gray-900 dark:text-white">{data.bank_account_name || 'N/A'}</p>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-gray-500 dark:text-gray-400">Account Number</span>
+                  <p className="font-medium text-gray-900 dark:text-white font-mono">{data.bank_account_number || 'N/A'}</p>
+                </div>
+                {data.sort_code && (
+                  <div className="col-span-2">
+                    <span className="text-gray-500 dark:text-gray-400">Sort Code</span>
+                    <p className="font-medium text-gray-900 dark:text-white font-mono">{data.sort_code}</p>
+                  </div>
+                )}
+                <div className="col-span-2">
+                  <span className="text-gray-500 dark:text-gray-400">Transaction Reference</span>
+                  <p className="font-medium text-gray-900 dark:text-white font-mono text-[10px] sm:text-xs truncate">
+                    {data.transaction_reference || data.reference || 'N/A'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="col-span-2 pt-2 border-t border-gray-200 dark:border-gray-600">
+            <span className="text-gray-500 dark:text-gray-400">Amount Paid</span>
+            <p className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400">
+              {formatCurrencyFn(data.amount || 0)}
+            </p>
+          </div>
+
+          {data.qrPayload && (
+            <div className="qr-section text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <QrCode className="w-4 h-4 text-gray-500" />
+                <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Scan to Verify</p>
+              </div>
+              <div className="inline-block bg-white dark:bg-gray-900 p-2 rounded-lg border border-gray-200 dark:border-gray-600">
+                <QRCodeCanvas
+                  value={data.qrPayload}
+                  size={150}
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                  level="H"
+                  includeMargin={true}
+                />
+              </div>
+            </div>
+          )}
 
           <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-3">
             <div className="flex justify-between text-xs sm:text-sm mb-1">
@@ -608,44 +1302,53 @@ Thank you for your payment!
             </p>
           </div>
 
-          <div className="text-center">
-            <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${
-              isBankTransfer 
-                ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-            }`}>
-              {isBankTransfer ? (
-                <>
-                  <Clock className="w-3 h-3" />
-                  Pending Verification
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-3 h-3" />
-                  Completed
-                </>
-              )}
-            </span>
-            {isBankTransfer && (
-              <p className="text-[10px] sm:text-xs text-gray-400 dark:text-gray-500 mt-1">
-                Your payment will be verified within 24-48 hours
-              </p>
-            )}
+          <div className="text-center border-t border-gray-200 dark:border-gray-700 pt-3">
+            <p className="text-[10px] sm:text-xs text-gray-400 dark:text-gray-500">
+              {isBankTransfer 
+                ? 'This payment is pending verification. You will receive a confirmation once approved.'
+                : 'Thank you for your payment.'}
+            </p>
           </div>
 
-          <div className="flex flex-col xs:flex-row gap-2">
-            <button onClick={handlePrint} className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-sm flex items-center justify-center gap-2">
+          <div className="flex flex-wrap gap-2 no-print">
+            <button 
+              onClick={handlePrint} 
+              className="flex-1 min-w-[80px] px-3 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-sm flex items-center justify-center gap-2"
+            >
               <Printer className="w-4 h-4" />
               Print
             </button>
-            <button onClick={handleDownload} className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-sm flex items-center justify-center gap-2">
+            <button 
+              onClick={handleDownloadPNG} 
+              className="flex-1 min-w-[80px] px-3 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-sm flex items-center justify-center gap-2"
+            >
               <Download className="w-4 h-4" />
-              Download
+              PNG
             </button>
-            <button onClick={onClose} className="flex-1 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg font-medium hover:opacity-90 transition-all text-sm">
+            <button 
+              onClick={handleDownloadPDF} 
+              className="flex-1 min-w-[80px] px-3 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-sm flex items-center justify-center gap-2"
+            >
+              <File className="w-4 h-4" />
+              PDF
+            </button>
+            <button 
+              onClick={handleDownload} 
+              className="flex-1 min-w-[80px] px-3 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-sm flex items-center justify-center gap-2"
+            >
+              <FileText className="w-4 h-4" />
+              HTML
+            </button>
+            <button 
+              onClick={onClose} 
+              className="flex-1 min-w-[80px] px-3 py-2 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg font-medium hover:opacity-90 transition-all text-sm"
+            >
               Done
             </button>
           </div>
+          <p className="text-[10px] text-center text-gray-400 dark:text-gray-500 no-print">
+            Download as PNG (image), PDF, or HTML (open in browser)
+          </p>
         </div>
       </motion.div>
     </div>
@@ -749,31 +1452,251 @@ const ImageUploadPreview: React.FC<{
 };
 
 // ============================================
+// FAILURE MODAL
+// ============================================
+const FailureModal: React.FC<{
+  isOpen: boolean;
+  title: string;
+  message: string;
+  details?: string;
+  onRetry: () => void;
+  onCancel: () => void;
+}> = ({ isOpen, title, message, details, onRetry, onCancel }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4">
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        className="bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl max-w-md w-full p-4 sm:p-6 text-center"
+      >
+        <div className="flex items-center justify-center mb-3 sm:mb-4">
+          <img src={failedImg} alt="Payment Failed" className="w-16 h-16 sm:w-20 sm:h-20 object-contain" />
+        </div>
+        <h3 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white">{title || 'Payment Failed'}</h3>
+        <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-2">
+          {message || 'There was an issue processing your payment. Please try again.'}
+        </p>
+        {details && (
+          <p className="text-[10px] sm:text-xs text-gray-400 mt-1">{details}</p>
+        )}
+        <div className="flex flex-col xs:flex-row gap-2 sm:gap-3 mt-4">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg sm:rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onRetry}
+            className="flex-1 px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg sm:rounded-xl font-medium hover:opacity-90 transition-all text-sm"
+          >
+            Retry
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+// ============================================
+// REMITA COMING SOON MODAL
+// ============================================
+const RemitaComingSoonModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+}> = ({ isOpen, onClose }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4">
+      <motion.div
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.9, opacity: 0 }}
+        className="bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl max-w-md w-full p-6 sm:p-8 text-center"
+      >
+        <div className="flex items-center justify-center mb-4">
+          <img 
+            src={remitaSoonImg} 
+            alt="Remita Coming Soon" 
+            className="w-48 h-48 sm:w-56 sm:h-56 md:w-64 md:h-64 object-contain"
+          />
+        </div>
+        <h3 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white mb-2">
+          Remita Coming Soon!
+        </h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+          We're excited to announce that Remita payment integration is currently in development.
+        </p>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mb-6">
+          Soon you'll be able to make payments directly through Remita. Please use bank transfer in the meantime.
+        </p>
+        <button
+          onClick={onClose}
+          className="px-6 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-lg font-medium hover:opacity-90 transition-all"
+        >
+          Got it
+        </button>
+      </motion.div>
+    </div>
+  );
+};
+
+// ============================================
+// GET ERROR TYPE
+// ============================================
+const getErrorType = (payment: any): 'cancelled' | 'network' | 'gateway' | 'bank' | 'unknown' => {
+  if (!payment) return 'unknown';
+  
+  const reason = (payment.failure_reason || payment.metadata?.failure_reason || '').toLowerCase();
+  const gatewayResponse = payment.gateway_response || payment.metadata?.gateway_response || {};
+  
+  if (reason.includes('cancelled') || reason.includes('canceled')) return 'cancelled';
+  if (reason.includes('network') || reason.includes('timeout')) return 'network';
+  if (reason.includes('gateway') || reason.includes('paystack')) return 'gateway';
+  if (reason.includes('bank') || reason.includes('transfer')) return 'bank';
+  if (gatewayResponse?.status === 'cancelled') return 'cancelled';
+  if (gatewayResponse?.status === 'failed') return 'gateway';
+  
+  return 'unknown';
+};
+
+const getErrorTitle = (errorType: string): string => {
+  const titles: Record<string, string> = {
+    cancelled: 'Payment Cancelled',
+    network: 'Network Error',
+    gateway: 'Gateway Error',
+    bank: 'Bank Transfer Issue',
+    unknown: 'Payment Failed'
+  };
+  return titles[errorType] || titles.unknown;
+};
+
+const getErrorDescription = (errorType: string, payment: any): string => {
+  const descriptions: Record<string, string> = {
+    cancelled: 'You cancelled the payment process. No charges were made to your account.',
+    network: 'A network error occurred while processing your payment. Please check your internet connection and try again.',
+    gateway: 'There was an issue with the payment gateway. Please try again or use bank transfer.',
+    bank: 'There was an issue with your bank transfer. Please verify the account details and try again.',
+    unknown: 'An unexpected error occurred. Please try again or contact support.'
+  };
+  return descriptions[errorType] || descriptions.unknown;
+};
+
+const getCategoryBadge = (category: string) => {
+  const colors: Record<string, string> = {
+    tuition: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+    boarding: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+    transportation: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    uniform: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    books: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+    sports: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    extra_curricular: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
+    other: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400',
+    '': 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-400',
+  };
+  return colors[category] || colors.other;
+};
+
+// ============================================
+// UPLOAD PAYMENT PROOF FUNCTION
+// ============================================
+const uploadPaymentProof = async (file: File, studentId: string, reference: string): Promise<{ path: string; url: string } | null> => {
+  try {
+    if (!file) {
+      console.error('No file provided for upload');
+      toast.error('No file selected');
+      return null;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size must be less than 5MB');
+      return null;
+    }
+
+    const validTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+    if (!validTypes.includes(file.type)) {
+      toast.error('Please upload a JPEG, PNG, or PDF file');
+      return null;
+    }
+
+    const timestamp = Date.now();
+    const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const fileName = `proof_${reference}_${timestamp}.${fileExt}`;
+    const filePath = `payments/${studentId}/${fileName}`;
+
+    console.log('📤 Uploading file:', { fileName, filePath, fileSize: file.size, fileType: file.type });
+
+    const { data, error } = await supabase.storage
+      .from('payment-proofs')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type,
+      });
+
+    if (error) {
+      console.error('❌ Upload error:', error);
+      if (error.message?.includes('bucket') || error.message?.includes('not found')) {
+        toast.error('Storage bucket not configured. Please contact support.');
+      } else {
+        toast.error(`Upload failed: ${error.message}`);
+      }
+      return null;
+    }
+
+    console.log('✅ File uploaded successfully:', data);
+
+    const { data: urlData } = supabase.storage
+      .from('payment-proofs')
+      .getPublicUrl(filePath);
+
+    if (!urlData?.publicUrl) {
+      console.error('❌ Failed to get public URL');
+      toast.error('Failed to get file URL');
+      return null;
+    }
+
+    console.log('✅ Public URL:', urlData.publicUrl);
+
+    return { path: filePath, url: urlData.publicUrl };
+  } catch (error: any) {
+    console.error('❌ Error uploading payment proof:', error);
+    toast.error(error.message || 'Failed to upload payment proof');
+    return null;
+  }
+};
+
+// ============================================
 // MAIN PARENTPAYBILL COMPONENT
 // ============================================
 const ParentPayBill: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   
-  // State
   const [loading, setLoading] = useState(true);
   const [children, setChildren] = useState<Student[]>([]);
   const [selectedChild, setSelectedChild] = useState<Student | null>(null);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [selectedAssignment, setSelectedAssignment] = useState<any | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('paystack');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('bank_transfer');
   const [amount, setAmount] = useState(0);
   const [processing, setProcessing] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false);
   const [showFailure, setShowFailure] = useState(false);
   const [failureReason, setFailureReason] = useState('');
   const [failureDetails, setFailureDetails] = useState('');
-  const [paymentGateway, setPaymentGateway] = useState<PaymentGateway | null>(null);
+  const [paymentGateway, setPaymentGateway] = useState<any | null>(null);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [selectedBankAccount, setSelectedBankAccount] = useState<BankAccount | null>(null);
   const [copied, setCopied] = useState(false);
   const [gatewayLoading, setGatewayLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [filterStatus, setFilterStatus] = useState<'all' | 'unpaid' | 'paid' | 'overdue' | 'pending' | 'cancelled' | 'failed'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'unpaid' | 'paid' | 'overdue' | 'pending' | 'cancelled' | 'failed' | 'waived'>('all');
   const [expandedFee, setExpandedFee] = useState<string | null>(null);
   const [selectedFailedPayment, setSelectedFailedPayment] = useState<any | null>(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
@@ -785,49 +1708,27 @@ const ParentPayBill: React.FC = () => {
   const [studentId, setStudentId] = useState<string | null>(null);
   const [branchId, setBranchId] = useState<string | null>(null);
   
-  // Breakdown state
   const [breakdownData, setBreakdownData] = useState<Record<string, any>>({});
   const [loadingBreakdown, setLoadingBreakdown] = useState<Record<string, boolean>>({});
   
-  // Bank Transfer Proof Upload
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [transactionReference, setTransactionReference] = useState('');
   const [showBankTransferSuccess, setShowBankTransferSuccess] = useState(false);
   const [bankTransferData, setBankTransferData] = useState<any | null>(null);
-  const [wasCancelledByUser, setWasCancelledByUser] = useState(false);
-
-  // Paystack lifecycle refs: onClose can fire immediately after callback.
-  // Never let a late onClose overwrite a successful/failed terminal result.
-  const paystackTerminalRef = useRef<'none' | 'success' | 'failed' | 'cancelled' | 'network'>('none');
-  const paystackCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const paystackCallbackReceivedRef = useRef(false);
-  const paystackPopupOpenRef = useRef(false);
   const [fileName, setFileName] = useState<string | null>(null);
   
-  // Refs
+  const [showRemitaModal, setShowRemitaModal] = useState(false);
+  
   const pendingReferenceRef = useRef<string | null>(null);
   const pendingAmountRef = useRef<number>(0);
   const pendingAssignmentIdRef = useRef<string | null>(null);
-  const pendingStudentIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // IMPORTANT: declare this BEFORE any callback that uses it.
-  // Paystack callbacks/onClose use this to clear the current transaction refs.
-  function clearPaystackRefs(): void {
-    pendingReferenceRef.current = null;
-    pendingAmountRef.current = 0;
-    pendingAssignmentIdRef.current = null;
-    pendingStudentIdRef.current = null;
-    paystackPopupOpenRef.current = false;
-  }
-
-  // User info for audit
   const [userIP, setUserIP] = useState<string>('Not recorded');
   const [userAgent, setUserAgent] = useState<string>('Not recorded');
 
-  // Use shared payment data hook
   const {
     assignments,
     refresh: refreshPaymentData,
@@ -835,16 +1736,16 @@ const ParentPayBill: React.FC = () => {
     autoFetch: !!studentId && !!branchId,
   });
 
-  // Effects
+  // ============================================
+  // EFFECTS
+  // ============================================
   useEffect(() => {
     setUserAgent(navigator.userAgent);
     const getIP = async () => {
       try {
         const response = await fetch('https://api.ipify.org?format=json');
         const data = await response.json();
-        if (data.ip) {
-          setUserIP(data.ip);
-        }
+        if (data.ip) setUserIP(data.ip);
       } catch (error) {
         console.log('Could not fetch IP:', error);
       }
@@ -860,59 +1761,21 @@ const ParentPayBill: React.FC = () => {
   }, [selectedChild]);
 
   useEffect(() => {
-    if (user?.id) {
-      fetchChildren();
-    }
-  }, [user]);
-
-  useEffect(() => {
     if (selectedChild?.id) {
       setStudentId(selectedChild.id);
       fetchPayments(selectedChild.id);
     }
   }, [selectedChild]);
 
+  useEffect(() => {
+    if (user?.id) {
+      fetchChildren();
+    }
+  }, [user]);
+
   // ============================================
   // DATA FETCHING FUNCTIONS
   // ============================================
-  
-  const fetchPaymentGateway = async (branchId: string) => {
-    setGatewayLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('payment_gateways')
-        .select('*')
-        .eq('branch_id', branchId)
-        .eq('is_active', true)
-        .single();
-
-      if (error) {
-        console.error('Payment gateway fetch error:', error);
-        toast.error('Payment gateway not configured. Please contact school administration.');
-        setPaymentGateway(null);
-        setGatewayLoading(false);
-        return;
-      }
-
-      if (!data) {
-        toast.error('Payment method not configured for this branch.');
-        setPaymentGateway(null);
-        setGatewayLoading(false);
-        return;
-      }
-
-      setPaymentGateway(data);
-      await paystackService.initialize(branchId);
-      
-    } catch (error) {
-      console.error('Error fetching payment gateway:', error);
-      toast.error('Failed to load payment configuration');
-      setPaymentGateway(null);
-    } finally {
-      setGatewayLoading(false);
-    }
-  };
-
   const fetchChildren = async () => {
     setLoading(true);
     try {
@@ -973,14 +1836,53 @@ const ParentPayBill: React.FC = () => {
     }
   };
 
+  const fetchPaymentGateway = async (branchId: string) => {
+    setGatewayLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('payment_gateways')
+        .select('*')
+        .eq('branch_id', branchId)
+        .eq('is_active', true);
+
+      if (error) {
+        console.error('Payment gateway fetch error:', error);
+        setPaymentGateway(null);
+        setBankAccounts([]);
+        setSelectedBankAccount(null);
+        return;
+      }
+
+      const rows = Array.isArray(data) ? data : data ? [data] : [];
+      const primary = rows.find((row: any) => row?.paystack_public_key) || rows[0] || null;
+      const accounts = normalizeBankAccounts(rows);
+
+      setPaymentGateway(primary);
+      setBankAccounts(accounts);
+      setSelectedBankAccount(prev => {
+        if (prev && accounts.some(account => account.id === prev.id)) return prev;
+        return accounts[0] || null;
+      });
+
+      if (!primary?.paystack_public_key && accounts.length > 0) {
+        setPaymentMethod('bank_transfer');
+      }
+    } catch (error) {
+      console.error('Error fetching payment gateway:', error);
+      setPaymentGateway(null);
+      setBankAccounts([]);
+      setSelectedBankAccount(null);
+    } finally {
+      setGatewayLoading(false);
+    }
+  };
+
   const fetchPayments = async (studentId: string) => {
     try {
-      console.log('Fetching payments for student:', studentId);
       const { data, error } = await supabase
         .from('payments')
         .select('*')
         .eq('student_id', studentId)
-        .in('status', ['success', 'completed', 'approved', 'paid', 'pending', 'processing', 'failed', 'cancelled'])
         .order('payment_date', { ascending: false });
 
       if (error) {
@@ -988,17 +1890,13 @@ const ParentPayBill: React.FC = () => {
         return;
       }
 
-      console.log('Payments fetched:', data);
       setPayments(data || []);
     } catch (error: any) {
       console.error('Error fetching payments:', error);
     }
   };
 
-  // ============================================
-  // FETCH FEE BREAKDOWN AND DETAILS
-  // ============================================
-  const fetchBreakdownForAssignment = useCallback(async (assignmentId: string, feeId: string, templateId?: string) => {
+  const fetchBreakdownForAssignment = useCallback(async (assignmentId: string, feeId: string) => {
     if (breakdownData[assignmentId]) return;
     if (loadingBreakdown[assignmentId]) return;
     
@@ -1009,13 +1907,13 @@ const ParentPayBill: React.FC = () => {
       let feeDetails: any = {};
       
       if (feeId) {
-        const { data: feeData, error: feeError } = await supabase
+        const { data: feeData } = await supabase
           .from('fees')
           .select('metadata, fee_template_id, term, session, payment_frequency, category, amount, due_date, name')
           .eq('id', feeId)
-          .single();
+          .maybeSingle();
 
-        if (!feeError && feeData) {
+        if (feeData) {
           feeDetails = {
             term: feeData.term,
             session: feeData.session,
@@ -1023,41 +1921,12 @@ const ParentPayBill: React.FC = () => {
             category: feeData.category,
             amount: feeData.amount,
             due_date: feeData.due_date,
-            name: feeData.name
+            name: feeData.name,
           };
           
           const feeBreakdown = feeData.metadata?.fee_breakdown;
-          
-          if (feeBreakdown) {
-            if (feeBreakdown.items && Array.isArray(feeBreakdown.items)) {
-              breakdown = feeBreakdown.items;
-            } else if (Array.isArray(feeBreakdown)) {
-              breakdown = feeBreakdown;
-            } else if (typeof feeBreakdown === 'object') {
-              const possibleArrays = Object.values(feeBreakdown).filter(val => Array.isArray(val));
-              if (possibleArrays.length > 0) {
-                breakdown = possibleArrays[0];
-              }
-            }
-          }
-          
-          if (breakdown.length === 0 && feeData.fee_template_id) {
-            const { data: templateData, error: templateError } = await supabase
-              .from('fee_templates')
-              .select('metadata')
-              .eq('id', feeData.fee_template_id)
-              .single();
-
-            if (!templateError && templateData?.metadata) {
-              const templateBreakdown = templateData.metadata.fee_breakdown;
-              if (templateBreakdown) {
-                if (templateBreakdown.items && Array.isArray(templateBreakdown.items)) {
-                  breakdown = templateBreakdown.items;
-                } else if (Array.isArray(templateBreakdown)) {
-                  breakdown = templateBreakdown;
-                }
-              }
-            }
+          if (feeBreakdown?.items && Array.isArray(feeBreakdown.items)) {
+            breakdown = feeBreakdown.items;
           }
         }
       }
@@ -1073,19 +1942,23 @@ const ParentPayBill: React.FC = () => {
       }));
     } catch (error) {
       console.error('Error fetching fee breakdown:', error);
-      setBreakdownData(prev => ({ ...prev, [assignmentId]: [] }));
     } finally {
       setLoadingBreakdown(prev => ({ ...prev, [assignmentId]: false }));
     }
   }, [breakdownData, loadingBreakdown]);
 
   // ============================================
-  // PAYMENT HANDLERS
+  // GENERATE REFERENCE
   // ============================================
   const generateReference = () => {
-    return paystackService.generateReference();
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return `EIS-${timestamp}-${random}`;
   };
 
+  // ============================================
+  // COPY TO CLIPBOARD
+  // ============================================
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -1093,14 +1966,15 @@ const ParentPayBill: React.FC = () => {
     toast.success('Copied to clipboard');
   };
 
+  // ============================================
+  // FILE HANDLING
+  // ============================================
   const handleFileChange = (file: File | null) => {
     setUploadedFile(file);
     setFileName(file?.name || null);
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setUploadPreview(reader.result as string);
-      };
+      reader.onloadend = () => setUploadPreview(reader.result as string);
       reader.readAsDataURL(file);
     } else {
       setUploadPreview(null);
@@ -1112,11 +1986,12 @@ const ParentPayBill: React.FC = () => {
     setUploadedFile(null);
     setUploadPreview(null);
     setFileName(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // ============================================
+  // REFRESH DATA
+  // ============================================
   const refreshData = async () => {
     if (!selectedChild) return;
     setRefreshing(true);
@@ -1135,70 +2010,95 @@ const ParentPayBill: React.FC = () => {
   };
 
   // ============================================
-  // FIXED: Get payment status from payments (source of truth)
+  // GET PAYMENT STATUS FOR ASSIGNMENT
   // ============================================
   const getPaymentStatusForAssignment = (assignment: any) => {
-    // Get all payments for this assignment
-    const assignmentPayments = payments.filter(p => p.assignment_id === assignment.id);
-    
-    // Calculate total paid from payments (source of truth)
-    const totalPaidFromPayments = assignmentPayments
-      .filter(p => ['success', 'completed', 'approved', 'paid'].includes(String(p.status).toLowerCase()))
-      .reduce((sum, p) => sum + (p.amount_paid || 0), 0);
-    
-    // Get balance from assignment or calculate
-    const balance = assignment.balance || Math.max(0, assignment.amount_due - totalPaidFromPayments);
-    
-    // Check for cancelled or failed payments
-    const hasCancelled = assignmentPayments.some(p => p.status === 'cancelled' || p.status === 'canceled');
-    const hasFailed = assignmentPayments.some(p => p.status === 'failed' || p.status === 'rejected');
-    const hasPending = assignmentPayments.some(p => p.status === 'pending' || p.status === 'processing');
-    
-    // Determine status based on payments
+    const assignmentPayments = payments.filter(
+      p => p.assignment_id === assignment.id
+    );
+
+    const completedPayments = assignmentPayments.filter(
+      p => p.status === 'completed' || p.status === 'success'
+    );
+
+    const pendingPayments = assignmentPayments.filter(
+      p => p.status === 'pending' || p.status === 'processing'
+    );
+
+    const failedPayments = assignmentPayments.filter(
+      p => p.status === 'failed' || p.status === 'rejected'
+    );
+
+    const cancelledPayments = assignmentPayments.filter(
+      p => p.status === 'cancelled' || p.status === 'canceled'
+    );
+
+    const totalPaidFromPayments = completedPayments.reduce(
+      (sum, p) => sum + Number(p.amount_paid || p.amount || 0),
+      0
+    );
+
+    const amountDue = Number(
+      assignment.amount_due ??
+      assignment.original_amount ??
+      assignment.amount ??
+      0
+    );
+
+    const storedBalance = Number(assignment.balance || 0);
+    const calculatedBalance = Math.max(0, amountDue - totalPaidFromPayments);
+    const balance = completedPayments.length > 0 ? calculatedBalance : storedBalance || calculatedBalance;
+
     let status = assignment.payment_status || 'unpaid';
     let label = 'Unpaid';
     let badgeColor = 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
     let isPayable = false;
     let icon = Clock;
 
-    if (hasPending) {
+    if (pendingPayments.length > 0) {
       status = 'pending';
       label = 'Pending';
       badgeColor = 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
       isPayable = false;
       icon = Clock;
-    } else if (hasCancelled) {
+    } else if (cancelledPayments.length > 0) {
       status = 'cancelled';
       label = 'Cancelled';
       badgeColor = 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300';
       isPayable = true;
       icon = X;
-    } else if (hasFailed) {
+    } else if (failedPayments.length > 0) {
       status = 'failed';
       label = 'Failed';
       badgeColor = 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400';
       isPayable = true;
       icon = AlertTriangle;
-    } else if (assignment.payment_status === 'waived') {
+    } else if (
+      assignment.payment_status === 'waived' ||
+      (Number(assignment.discount_amount || 0) >= amountDue && amountDue > 0)
+    ) {
       status = 'waived';
       label = 'Exempted';
       badgeColor = 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400';
       isPayable = false;
       icon = Shield;
-    } else if (balance === 0 || assignment.payment_status === 'paid') {
+    } else if (balance <= 0) {
       status = 'paid';
       label = 'Paid';
       badgeColor = 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
       isPayable = false;
       icon = CheckCircle;
-    } else if (assignment.payment_status === 'overdue' || (assignment.due_date && new Date(assignment.due_date) < new Date() && balance > 0)) {
+    } else if (
+      assignment.due_date &&
+      new Date(assignment.due_date) < new Date() &&
+      balance > 0
+    ) {
       status = 'overdue';
       label = 'Overdue';
       badgeColor = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
       isPayable = true;
       icon = AlertCircle;
     } else if (balance > 0 && totalPaidFromPayments > 0) {
-      // Partial payment detected
       status = 'partial';
       label = 'Partial';
       badgeColor = 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
@@ -1212,110 +2112,76 @@ const ParentPayBill: React.FC = () => {
       icon = Clock;
     }
 
-    return { status, label, badgeColor, isPayable, icon, balance, totalPaidFromPayments };
+    return {
+      status,
+      label,
+      badgeColor,
+      isPayable,
+      icon,
+      balance,
+      amountDue,
+      totalPaidFromPayments,
+      completedPayments,
+      pendingPayments,
+      failedPayments,
+      cancelledPayments,
+    };
   };
 
-  const handlePayNow = (assignment: any) => {
-    if (!paymentGateway && !gatewayLoading) {
-      toast.error('Payment configuration not loaded. Please try again.');
-      return;
-    }
-    
-    const status = getPaymentStatusForAssignment(assignment);
-    
-    if (status.status === 'cancelled' || status.status === 'failed') {
-      setSelectedAssignment(assignment);
-      setAmount(assignment.balance || 0);
-      setShowPaymentModal(true);
-      handleFileRemove();
-      setTransactionReference('');
-      return;
-    }
-    
-    if (!status.isPayable) {
-      if (status.status === 'paid') {
-        toast.success('✅ This fee is already paid');
-      } else if (status.status === 'pending') {
-        toast.info('⏳ Payment is awaiting confirmation');
-      } else if (status.status === 'waived') {
-        toast.info('🛡️ This fee is exempted');
-      }
-      return;
-    }
-    
-    setSelectedAssignment(assignment);
-    setAmount(assignment.balance || 0);
-    setShowPaymentModal(true);
-    handleFileRemove();
-    setTransactionReference('');
-  };
-
-  const viewErrorDetails = (payment: any) => {
-    setSelectedFailedPayment(payment);
-    const errorType = getErrorType(payment);
-    setPaymentErrorType(errorType);
-    setShowErrorModal(true);
-  };
-
-  const uploadPaymentProof = async (file: File, paymentId: string): Promise<{ path: string; url: string } | null> => {
-    try {
-      const fileExt = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-      const fileName = `proof_${paymentId}_${Date.now()}.${fileExt}`;
-      const filePath = `payments/${selectedChild?.id}/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('payment-proofs')
-        .upload(filePath, file, {
-          cacheControl: '3600',
-          upsert: false,
-        });
-
-      if (uploadError) {
-        console.error('Upload error:', uploadError);
-        throw uploadError;
-      }
-
-      const { data: urlData } = supabase.storage
-        .from('payment-proofs')
-        .getPublicUrl(filePath);
-
-      return { path: filePath, url: urlData.publicUrl };
-    } catch (error) {
-      console.error('Error uploading payment proof:', error);
-      return null;
-    }
-  };
-
+  // ============================================
+  // SAVE PAYMENT RECORD
+  // ============================================
   const savePaymentRecord = async (params: {
     assignmentId: string;
     amount: number;
+    amountPaid?: number;
     reference: string;
-    status: 'pending' | 'success' | 'failed';
+    status: 'pending' | 'success' | 'failed' | 'cancelled';
     failureReason?: string;
     gatewayReference?: string;
     paymentMethod?: string;
     paymentProofUrl?: string;
     paymentProofPath?: string;
     transactionReference?: string;
+    bankAccount?: BankAccount | null;
+    branchCode?: string;
+    academicSession?: string;
+    academicTerm?: string;
   }) => {
     try {
       const paymentId = generatePaymentId();
       const receiptNumber = `RCP-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const receiptCode = params.branchCode 
+        ? generateBranchReceiptCode(params.branchCode, params.academicSession || '2026/2027', Date.now())
+        : `EISO/${params.academicSession || '2026/2027'}/${generateAlphanumeric(6)}`;
+
+      const paidAmount = params.amountPaid !== undefined 
+        ? params.amountPaid 
+        : (params.status === 'success' ? params.amount : 0);
+
+      let balanceAmount = params.amount;
+      if (params.status === 'success') {
+        balanceAmount = 0;
+      } else if (params.status === 'pending') {
+        balanceAmount = params.amount - paidAmount;
+      } else {
+        balanceAmount = params.amount;
+      }
 
       const paymentData = {
         payment_id: paymentId,
         receipt_number: receiptNumber,
+        receipt_code: receiptCode,
         student_id: selectedChild?.id,
         assignment_id: params.assignmentId,
         fee_id: selectedAssignment?.fee_id,
         amount: params.amount,
-        // CRITICAL: cancelled/pending/failed transactions are NOT money received.
-        // Only a successful/completed payment gets amount_paid.
-        amount_paid: params.status === 'success' ? params.amount : 0,
-        balance: params.status === 'success' ? 0 : params.amount,
-        payment_method: params.paymentMethod || 'paystack',
+        amount_paid: paidAmount,
+        balance: Math.max(0, balanceAmount),
+        payment_method: params.paymentMethod || 'bank_transfer',
         payment_date: new Date().toISOString(),
-        status: params.status === 'success' ? 'completed' : params.status === 'pending' ? 'pending' : 'failed',
+        status: params.status === 'success' ? 'completed' : params.status === 'pending' ? 'pending' : params.status === 'cancelled' ? 'cancelled' : 'failed',
+        payment_status: params.status === 'success' ? 'completed' : params.status === 'pending' ? 'pending' : params.status === 'cancelled' ? 'cancelled' : 'failed',
         transaction_reference: params.reference,
         gateway_reference: params.gatewayReference || params.reference,
         failure_reason: params.failureReason || null,
@@ -1324,22 +2190,48 @@ const ParentPayBill: React.FC = () => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         payment_proof_url: params.paymentProofUrl || null,
-        payment_proof_path: params.paymentProofPath || null,
-        gateway_response: params.status === 'success' ? { success: true } : { failed: true, reason: params.failureReason },
+        academic_session: params.academicSession || null,
+        academic_term: params.academicTerm || null,
+        branch_code: params.branchCode || 'EISO',
+        gateway_response:
+          params.status === 'success'
+            ? { success: true, amount: paidAmount }
+            : params.status === 'pending'
+              ? { pending: true, reason: params.failureReason || null, amount: paidAmount }
+              : { failed: true, reason: params.failureReason || 'Payment failed', amount: paidAmount },
+        receipt_security_status: params.status === 'success' ? 'AUTHENTIC' : 'PENDING',
+        receipt_security_version: 2,
         metadata: {
           student_name: `${selectedChild?.first_name} ${selectedChild?.last_name}`,
           student_id: selectedChild?.id,
           fee_name: selectedAssignment?.fee_name,
           fee_id: selectedAssignment?.fee_id,
-          payment_method: params.paymentMethod || 'paystack',
+          payment_method: params.paymentMethod || 'bank_transfer',
           assignment_id: params.assignmentId,
           reference: params.reference,
           transaction_reference: params.transactionReference || null,
           ip_address: userIP,
           user_agent: userAgent,
+          receipt_code: receiptCode,
+          bank_account_id: params.bankAccount?.id || null,
+          bank_name: params.bankAccount?.bank_name || null,
+          bank_account_number: params.bankAccount?.account_number || null,
+          bank_account_name: params.bankAccount?.account_name || null,
+          sort_code: params.bankAccount?.sort_code || null,
+          amount: params.amount,
+          amount_paid: paidAmount,
+          balance: Math.max(0, balanceAmount),
+          status: params.status,
           parent_id: user?.id,
         }
       };
+
+      console.log('💾 Saving payment record:', {
+        amount: params.amount,
+        amount_paid: paidAmount,
+        status: params.status,
+        reference: params.reference
+      });
 
       const { data, error } = await supabase
         .from('payments')
@@ -1352,8 +2244,28 @@ const ParentPayBill: React.FC = () => {
         throw error;
       }
 
-      if (params.status === 'success') {
-        await updateAssignmentAfterPayment(params.assignmentId, params.amount);
+      if (params.status === 'success' && data) {
+        const securityData = await createReceiptSignature(data.id);
+        if (securityData) {
+          await supabase
+            .from('payments')
+            .update({
+              receipt_signature: securityData.signature,
+              receipt_barcode_payload: securityData.barcodePayload,
+              receipt_qr_payload: securityData.qrPayload,
+              receipt_security_status: 'AUTHENTIC',
+              verification_token: securityData.verificationToken,
+            })
+            .eq('id', data.id);
+          
+          const { data: updatedPayment } = await supabase
+            .from('payments')
+            .select('*')
+            .eq('id', data.id)
+            .single();
+          
+          return updatedPayment || data;
+        }
       }
 
       return data;
@@ -1363,21 +2275,43 @@ const ParentPayBill: React.FC = () => {
     }
   };
 
+  // ============================================
+  // UPDATE ASSIGNMENT AFTER PAYMENT
+  // ============================================
   const updateAssignmentAfterPayment = async (assignmentId: string, amountPaid: number) => {
     try {
-      const { data: assignment } = await supabase
+      const { data: assignment, error: fetchError } = await supabase
         .from('student_fee_assignments')
-        .select('amount_paid, balance, amount_due')
+        .select('amount_paid, balance, amount_due, payment_status')
         .eq('id', assignmentId)
         .single();
 
-      if (!assignment) return;
+      if (fetchError) {
+        console.error('Error fetching assignment:', fetchError);
+        throw fetchError;
+      }
 
-      const newPaid = (assignment.amount_paid || 0) + amountPaid;
-      const newBalance = Math.max(0, (assignment.balance || 0) - amountPaid);
+      if (!assignment) {
+        console.error('Assignment not found:', assignmentId);
+        return;
+      }
+
+      const currentPaid = Number(assignment.amount_paid || 0);
+      const newPaid = currentPaid + amountPaid;
+      const currentBalance = Number(assignment.balance || 0);
+      const newBalance = Math.max(0, currentBalance - amountPaid);
       const newStatus = newBalance <= 0 ? 'paid' : 'partial';
 
-      await supabase
+      console.log(`Updating assignment ${assignmentId}:`, {
+        currentPaid,
+        amountPaid,
+        newPaid,
+        currentBalance,
+        newBalance,
+        newStatus
+      });
+
+      const { error: updateError } = await supabase
         .from('student_fee_assignments')
         .update({
           amount_paid: newPaid,
@@ -1387,294 +2321,46 @@ const ParentPayBill: React.FC = () => {
         })
         .eq('id', assignmentId);
 
+      if (updateError) {
+        console.error('Error updating assignment:', updateError);
+        throw updateError;
+      }
+
+      console.log(`✅ Assignment updated: paid=${newPaid}, balance=${newBalance}, status=${newStatus}`);
+      return { newPaid, newBalance, newStatus };
     } catch (error) {
-      console.error('Error updating assignment:', error);
+      console.error('Error updating assignment after payment:', error);
       throw error;
     }
   };
 
-  const handlePaymentSuccess = useCallback(async (reference: string) => {
-    const assignmentId = pendingAssignmentIdRef.current;
-    const amount = pendingAmountRef.current;
-    
-    if (!reference || !assignmentId) {
-      toast.error('Missing payment information');
-      return;
-    }
-    
-    try {
-      const { data: paymentRecord } = await supabase
-        .from('payments')
-        .select('*')
-        .eq('transaction_reference', reference)
-        .single();
-
-      await supabase
-        .from('payments')
-        .update({
-          status: 'completed',
-          approved_by: user?.id,
-          approved_at: new Date().toISOString(),
-          gateway_reference: reference,
-          updated_at: new Date().toISOString(),
-          gateway_response: { success: true, reference },
-        })
-        .eq('transaction_reference', reference);
-
-      await updateAssignmentAfterPayment(assignmentId, amount);
-      
-      await refreshPaymentData();
-      if (selectedChild?.id) {
-        await fetchPayments(selectedChild.id);
-      }
-      
-      const successData = {
-        id: paymentRecord?.payment_id || paymentRecord?.id,
-        payment_id: paymentRecord?.payment_id,
-        receipt_number: paymentRecord?.receipt_number,
-        amount: amount,
-        payment_date: paymentRecord?.payment_date || new Date().toISOString(),
-        payment_method: 'paystack',
-        reference: reference,
-        transaction_reference: reference,
-        student_name: `${selectedChild?.first_name} ${selectedChild?.last_name}`,
-        student_id: selectedChild?.student_id || selectedChild?.admission_number,
-        class_name: selectedChild?.class_name,
-        fee_name: selectedAssignment?.fee_name,
-        status: 'completed',
-      };
-      
-      setSuccessPaymentData(successData);
-      setShowSuccessReceipt(true);
-      setShowPaymentModal(false);
-      
-      toast.success(`Payment of ${formatCurrency(amount)} completed successfully!`);
-      setProcessing(false);
-      
-      paystackTerminalRef.current = 'success';
-      clearPaystackRefs();
-      
-    } catch (error) {
-      console.error('Error updating payment:', error);
-      toast.error('Payment succeeded but failed to update records. Please contact support.');
-      setProcessing(false);
-    }
-  }, [selectedChild, user, selectedAssignment, refreshPaymentData, clearPaystackRefs]);
-
-  const handlePaymentFailure = useCallback(async (reference: string, message?: string) => {
-    if (!reference) return;
-    
-    try {
-      await supabase
-        .from('payments')
-        .update({
-          status: 'failed',
-          failure_reason: message || 'Payment failed',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('transaction_reference', reference);
-      
-      setFailureReason(message || 'Payment failed. Please try again.');
-      setShowFailure(true);
-      setProcessing(false);
-      paystackTerminalRef.current = 'failed';
-      clearPaystackRefs();
-    } catch (error) {
-      console.error('Error updating failed payment:', error);
-    }
-  }, []);
-
-  const paystackCallback = useCallback((response: any) => {
-    const reference = pendingReferenceRef.current;
-    if (!reference) return;
-
-    paystackCallbackReceivedRef.current = true;
-
-    // Paystack success is terminal. Mark it before awaiting DB work so a
-    // subsequent onClose event cannot turn the payment into cancelled/pending.
-    if (response?.status === 'success') {
-      paystackTerminalRef.current = 'success';
-      if (paystackCloseTimerRef.current) {
-        clearTimeout(paystackCloseTimerRef.current);
-        paystackCloseTimerRef.current = null;
-      }
-      void handlePaymentSuccess(reference);
-      return;
-    }
-
-    // A genuine Paystack callback with a non-success status is a failed payment,
-    // not a pending payment.
-    paystackTerminalRef.current = 'failed';
-    if (paystackCloseTimerRef.current) {
-      clearTimeout(paystackCloseTimerRef.current);
-      paystackCloseTimerRef.current = null;
-    }
-    void handlePaymentFailure(reference, response?.message || 'Payment failed');
-  }, [handlePaymentSuccess, handlePaymentFailure]);
-
-  const paystackOnClose = useCallback(() => {
-    const reference = pendingReferenceRef.current;
-    if (!reference) {
-      setProcessing(false);
-      return;
-    }
-
-    // Do NOT immediately mark pending/cancelled. Paystack can call onClose
-    // immediately after callback(), creating a race with the async success handler.
-    if (paystackTerminalRef.current !== 'none' || paystackCallbackReceivedRef.current) {
-      setProcessing(false);
-      return;
-    }
-
-    if (paystackCloseTimerRef.current) {
-      clearTimeout(paystackCloseTimerRef.current);
-    }
-
-    paystackCloseTimerRef.current = setTimeout(async () => {
-      const currentReference = pendingReferenceRef.current;
-      if (!currentReference || currentReference !== reference) return;
-
-      // Re-check the database before deciding this was a cancellation.
-      const { data: payment, error } = await supabase
-        .from('payments')
-        .select('status')
-        .eq('transaction_reference', reference)
-        .maybeSingle();
-
-      if (error) {
-        // Network/database failure: leave the record as pending because we
-        // cannot prove whether the payment was actually cancelled.
-        paystackTerminalRef.current = 'network';
-        setFailureReason('Network error while checking the Paystack payment. Please refresh or try again.');
-        setShowFailure(true);
-        setProcessing(false);
-        return;
-      }
-
-      if (payment?.status === 'completed' || payment?.status === 'success') {
-        paystackTerminalRef.current = 'success';
-        setProcessing(false);
-        clearPaystackRefs();
-        return;
-      }
-
-      if (payment?.status === 'failed' || payment?.status === 'rejected' || payment?.status === 'cancelled') {
-        setProcessing(false);
-        clearPaystackRefs();
-        return;
-      }
-
-      // The user closed Paystack without receiving a callback. This is the
-      // ONLY normal path where we convert the temporary pending row to cancelled.
-      await supabase
-        .from('payments')
-        .update({
-          status: 'cancelled',
-          failure_reason: 'User closed the Paystack payment window before completion',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('transaction_reference', reference)
-        .eq('status', 'pending');
-
-      paystackTerminalRef.current = 'cancelled';
-      setFailureReason('Payment was cancelled. No successful payment was recorded.');
-      setShowFailure(true);
-      setProcessing(false);
-      clearPaystackRefs();
-    }, 2500);
-  }, []);
-
-  const handlePayWithPaystack = async () => {
-    if (!selectedAssignment || !selectedChild) {
-      toast.error('Missing payment information');
-      return;
-    }
-
-    if (!paymentGateway || !paymentGateway.paystack_public_key) {
-      toast.error('Paystack not configured. Please use bank transfer.');
-      return;
-    }
-
-    if (typeof window.PaystackPop === 'undefined') {
-      toast.error('Paystack is not loaded. Please refresh and try again.');
-      return;
-    }
-
-    setProcessing(true);
-    const reference = generateReference();
-
-    try {
-      // Reset lifecycle state for this transaction.
-      if (paystackCloseTimerRef.current) {
-        clearTimeout(paystackCloseTimerRef.current);
-        paystackCloseTimerRef.current = null;
-      }
-      paystackTerminalRef.current = 'none';
-      paystackCallbackReceivedRef.current = false;
-      paystackPopupOpenRef.current = true;
-
-      pendingReferenceRef.current = reference;
-      pendingAmountRef.current = amount;
-      pendingAssignmentIdRef.current = selectedAssignment.id;
-      pendingStudentIdRef.current = selectedChild.id;
-
-      await savePaymentRecord({
-        assignmentId: selectedAssignment.id,
-        amount: amount,
-        reference: reference,
-        status: 'pending',
-        gatewayReference: reference,
-        paymentMethod: 'paystack',
-      });
-
-      const handler = window.PaystackPop.setup({
-        key: paymentGateway.paystack_public_key,
-        email: selectedChild.email || user?.email || 'parent@example.com',
-        amount: Math.round(amount * 100),
-        ref: reference,
-        currency: 'NGN',
-        metadata: {
-          student_id: selectedChild.id,
-          student_name: `${selectedChild.first_name} ${selectedChild.last_name}`,
-          assignment_id: selectedAssignment.id,
-          fee_name: selectedAssignment.fee_name,
-          payment_type: 'fee_payment',
-          branch_id: selectedChild.branch_id,
-          parent_id: user?.id,
-        },
-        callback: paystackCallback,
-        onClose: paystackOnClose,
-      });
-
-      handler.openIframe();
-
-    } catch (error: any) {
-      console.error('Paystack payment error:', error);
-      await savePaymentRecord({
-        assignmentId: selectedAssignment.id,
-        amount: amount,
-        reference: reference,
-        status: 'failed',
-        failureReason: error.message || 'Payment processing failed',
-        gatewayReference: reference,
-        paymentMethod: 'paystack',
-      });
-      setFailureReason(error.message || 'Payment processing failed. Please try again or use bank transfer.');
-      setShowFailure(true);
-      setProcessing(false);
-      paystackTerminalRef.current = 'failed';
-      clearPaystackRefs();
-    }
+  // ============================================
+  // HANDLE REMITA PAYMENT (Coming Soon)
+  // ============================================
+  const handleRemitaPayment = async () => {
+    setShowRemitaModal(true);
+    setShowPaymentModal(false);
   };
 
+  // ============================================
+  // UPLOAD PAYMENT PROOF
+  // ============================================
+  const uploadPaymentProofFn = async (file: File, paymentId: string): Promise<{ path: string; url: string } | null> => {
+    if (!selectedChild) return null;
+    return uploadPaymentProof(file, selectedChild.id, paymentId);
+  };
+
+  // ============================================
+  // HANDLE BANK TRANSFER
+  // ============================================
   const handleBankTransfer = async () => {
     if (!selectedAssignment || !selectedChild) {
       toast.error('Missing payment information');
       return;
     }
 
-    if (!paymentGateway || !paymentGateway.bank_account_number) {
-      toast.error('Bank details not configured. Please use Paystack.');
+    if (!selectedBankAccount) {
+      toast.error('Please select a bank account.');
       return;
     }
 
@@ -1693,7 +2379,7 @@ const ParentPayBill: React.FC = () => {
     const reference = generateReference();
 
     try {
-      const uploadResult = await uploadPaymentProof(uploadedFile, reference);
+      const uploadResult = await uploadPaymentProofFn(uploadedFile, reference);
       
       if (!uploadResult) {
         toast.error('Failed to upload payment proof. Please try again.');
@@ -1702,9 +2388,22 @@ const ParentPayBill: React.FC = () => {
         return;
       }
 
+      let branchCode = 'EISO';
+      if (selectedChild.branch_id) {
+        const { data: branchData } = await supabase
+          .from('branches')
+          .select('branch_code')
+          .eq('id', selectedChild.branch_id)
+          .single();
+        if (branchData?.branch_code) {
+          branchCode = branchData.branch_code;
+        }
+      }
+
       const paymentRecord = await savePaymentRecord({
         assignmentId: selectedAssignment.id,
         amount: amount,
+        amountPaid: amount,
         reference: reference,
         status: 'pending',
         paymentMethod: 'bank_transfer',
@@ -1712,7 +2411,14 @@ const ParentPayBill: React.FC = () => {
         paymentProofUrl: uploadResult.url,
         paymentProofPath: uploadResult.path,
         transactionReference: transactionReference,
+        bankAccount: selectedBankAccount,
+        branchCode: branchCode,
+        academicSession: selectedAssignment.session,
+        academicTerm: selectedAssignment.term,
       });
+
+      // ✅ CRITICAL: Update the assignment balance immediately for bank transfers
+      await updateAssignmentAfterPayment(selectedAssignment.id, amount);
 
       setUploadedFile(null);
       setUploadPreview(null);
@@ -1728,6 +2434,7 @@ const ParentPayBill: React.FC = () => {
         id: paymentRecord?.payment_id || paymentRecord?.id,
         payment_id: paymentRecord?.payment_id,
         receipt_number: paymentRecord?.receipt_number,
+        receipt_code: paymentRecord?.receipt_code,
         amount: amount,
         payment_date: paymentRecord?.payment_date || new Date().toISOString(),
         payment_method: 'bank_transfer',
@@ -1738,9 +2445,19 @@ const ParentPayBill: React.FC = () => {
         class_name: selectedChild?.class_name,
         fee_name: selectedAssignment?.fee_name,
         status: 'pending',
-        bank_name: paymentGateway.bank_name,
-        bank_account_number: paymentGateway.bank_account_number,
-        bank_account_name: paymentGateway.bank_account_name,
+        bank_name: selectedBankAccount.bank_name,
+        bank_account_number: selectedBankAccount.account_number,
+        bank_account_name: selectedBankAccount.account_name,
+        bank_account_id: selectedBankAccount.id,
+        sort_code: selectedBankAccount.sort_code,
+        metadata: {
+          bank_name: selectedBankAccount.bank_name,
+          bank_account_number: selectedBankAccount.account_number,
+          bank_account_name: selectedBankAccount.account_name,
+          bank_account_id: selectedBankAccount.id,
+          sort_code: selectedBankAccount.sort_code,
+          transaction_reference: transactionReference,
+        }
       };
       
       setBankTransferData(bankData);
@@ -1749,13 +2466,14 @@ const ParentPayBill: React.FC = () => {
       setShowPaymentModal(false);
       setProcessing(false);
       
-      toast.success('Payment submitted! Please wait for confirmation.');
+      toast.success('Payment submitted! Balance updated.');
 
     } catch (error: any) {
       console.error('Bank transfer error:', error);
       await savePaymentRecord({
         assignmentId: selectedAssignment.id,
         amount: amount,
+        amountPaid: 0,
         reference: reference,
         status: 'failed',
         failureReason: error.message || 'Bank transfer submission failed',
@@ -1769,6 +2487,61 @@ const ParentPayBill: React.FC = () => {
     }
   };
 
+  // ============================================
+  // HANDLE PAY NOW
+  // ============================================
+  const handlePayNow = (assignment: any) => {
+    if (!paymentGateway && !gatewayLoading) {
+      toast.error('Payment configuration not loaded. Please try again.');
+      return;
+    }
+    
+    const statusInfo = getPaymentStatusForAssignment(assignment);
+    
+    if (statusInfo.status === 'paid') {
+      toast.success('✅ This fee is already paid');
+      return;
+    }
+    
+    if (statusInfo.status === 'waived') {
+      toast.info('🛡️ This fee is exempted');
+      return;
+    }
+    
+    if (statusInfo.status === 'pending') {
+      toast.info('⏳ Payment is awaiting confirmation');
+      return;
+    }
+    
+    if (!statusInfo.isPayable || statusInfo.balance <= 0) {
+      toast.info('This fee is not payable at this time');
+      return;
+    }
+    
+    setSelectedAssignment(assignment);
+    setAmount(statusInfo.balance);
+    if (bankAccounts.length > 0) {
+      setSelectedBankAccount(prev => prev && bankAccounts.some(account => account.id === prev.id) ? prev : bankAccounts[0]);
+    }
+    setPaymentMethod('bank_transfer');
+    setShowPaymentModal(true);
+    handleFileRemove();
+    setTransactionReference('');
+  };
+
+  // ============================================
+  // VIEW ERROR DETAILS
+  // ============================================
+  const viewErrorDetails = (payment: any) => {
+    setSelectedFailedPayment(payment);
+    const errorType = getErrorType(payment);
+    setPaymentErrorType(errorType);
+    setShowErrorModal(true);
+  };
+
+  // ============================================
+  // HANDLE SUBMIT PAYMENT
+  // ============================================
   const handleSubmitPayment = async () => {
     if (!selectedAssignment) {
       toast.error('No fee selected');
@@ -1780,20 +2553,37 @@ const ParentPayBill: React.FC = () => {
       return;
     }
 
-    if (paymentMethod === 'paystack') {
-      if (!paymentGateway.paystack_public_key) {
-        toast.error('Paystack not configured for this branch. Please use bank transfer.');
-        return;
-      }
-      await handlePayWithPaystack();
+    if (paymentMethod === 'remita') {
+      handleRemitaPayment();
+      return;
     } else {
-      if (!paymentGateway.bank_account_number) {
-        toast.error('Bank details not configured for this branch. Please use Paystack.');
+      if (!selectedBankAccount) {
+        toast.error('Please select a bank account.');
         return;
       }
       await handleBankTransfer();
     }
   };
+
+  // ============================================
+  // RETRY PAYMENT HANDLER
+  // ============================================
+  const handleRetryPayment = useCallback((assignment: any) => {
+    setShowFailure(false);
+    setFailureReason('');
+    setFailureDetails('');
+    setSelectedFailedPayment(null);
+    
+    pendingReferenceRef.current = null;
+    pendingAmountRef.current = 0;
+    pendingAssignmentIdRef.current = null;
+    
+    setProcessing(false);
+    
+    refreshData().then(() => {
+      handlePayNow(assignment);
+    });
+  }, [refreshData]);
 
   const handleChildSelect = (child: Student) => {
     setSelectedChild(child);
@@ -1801,51 +2591,47 @@ const ParentPayBill: React.FC = () => {
   };
 
   // ============================================
-  // CALCULATIONS — FIXED to use payments
+  // CALCULATIONS
   // ============================================
-  const totalBalance = assignments.reduce((sum, a) => {
-    // Calculate paid from payments
-    const paid = payments
-      .filter(p =>
-        p.assignment_id === a.id &&
-        ['success', 'completed', 'approved', 'paid'].includes(String(p.status).toLowerCase())
-      )
-      .reduce((s, p) => s + (p.amount_paid || 0), 0);
-    return sum + Math.max(0, a.amount_due - paid);
+  const totalBalance = assignments.reduce((sum, assignment) => {
+    const statusInfo = getPaymentStatusForAssignment(assignment);
+    return sum + statusInfo.balance;
   }, 0);
-  
-  const totalPaid = assignments.reduce((sum, a) => {
-    return sum + payments
-      .filter(p =>
-        p.assignment_id === a.id &&
-        ['success', 'completed', 'approved', 'paid'].includes(String(p.status).toLowerCase())
-      )
-      .reduce((s, p) => s + (p.amount_paid || 0), 0);
+
+  const totalPaid = assignments.reduce((sum, assignment) => {
+    const statusInfo = getPaymentStatusForAssignment(assignment);
+    return sum + statusInfo.totalPaidFromPayments;
   }, 0);
-  
-  const totalDue = assignments.reduce((sum, a) => sum + a.amount_due, 0);
-  const completionRate = totalDue > 0 ? (totalPaid / totalDue) * 100 : 0;
-  
+
+  const totalDue = assignments.reduce(
+    (sum, a) => sum + Number(a.amount_due || 0),
+    0
+  );
+
+  const completionRate = totalDue > 0 ? Math.min(100, (totalPaid / totalDue) * 100) : 0;
+
   const paidFeesCount = assignments.filter(a => {
-    const paid = payments
-      .filter(p =>
-        p.assignment_id === a.id &&
-        ['success', 'completed', 'approved', 'paid'].includes(String(p.status).toLowerCase())
-      )
-      .reduce((s, p) => s + (p.amount_paid || 0), 0);
-    return paid >= a.amount_due;
+    const statusInfo = getPaymentStatusForAssignment(a);
+    return statusInfo.status === 'paid' || statusInfo.balance <= 0;
   }).length;
-  
+
   const totalFeesCount = assignments.length;
   const paidPercentage = totalFeesCount > 0 ? Math.round((paidFeesCount / totalFeesCount) * 100) : 0;
 
+  // ============================================
+  // FILTERING
+  // ============================================
   const filteredAssignments = assignments.filter(a => {
     const statusInfo = getPaymentStatusForAssignment(a);
+
     if (filterStatus === 'all') return true;
-    if (filterStatus === 'unpaid') return statusInfo.status === 'unpaid' || statusInfo.status === 'partial';
+    if (filterStatus === 'unpaid') {
+      return statusInfo.status === 'unpaid' || statusInfo.status === 'partial';
+    }
     if (filterStatus === 'paid') return statusInfo.status === 'paid';
     if (filterStatus === 'overdue') return statusInfo.status === 'overdue';
     if (filterStatus === 'pending') return statusInfo.status === 'pending';
+    if (filterStatus === 'waived') return statusInfo.status === 'waived';
     if (filterStatus === 'cancelled') return statusInfo.status === 'cancelled';
     if (filterStatus === 'failed') return statusInfo.status === 'failed';
     return true;
@@ -1864,22 +2650,13 @@ const ParentPayBill: React.FC = () => {
 
   if (children.length === 0) {
     return (
-      <div className="max-w-4xl mx-auto px-3 sm:px-4 py-8 sm:py-12">
-        <div className="text-center">
-          <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
-            <Users className="w-10 h-10 sm:w-12 sm:h-12 text-gray-400" />
-          </div>
-          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">No Children Found</h2>
-          <p className="text-sm sm:text-base text-gray-500 dark:text-gray-400 mt-2">
-            You don't have any children registered. Please contact the school administration.
-          </p>
-          <button
-            onClick={() => navigate('/parent/dashboard')}
-            className="mt-4 sm:mt-6 px-5 sm:px-6 py-2 sm:py-2.5 bg-blue-600 text-white rounded-lg sm:rounded-xl hover:bg-blue-700 transition-all text-sm sm:text-base"
-          >
-            Back to Dashboard
-          </button>
-        </div>
+      <div className="max-w-4xl mx-auto px-4 py-12 text-center">
+        <Users className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+        <h2 className="text-xl font-bold">No Children Found</h2>
+        <p className="text-gray-500 mt-2">You don't have any children registered. Please contact the school administration.</p>
+        <button onClick={() => navigate('/parent/dashboard')} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-xl">
+          Return Home
+        </button>
       </div>
     );
   }
@@ -2058,6 +2835,7 @@ const ParentPayBill: React.FC = () => {
                 <option value="paid">Paid</option>
                 <option value="overdue">Overdue</option>
                 <option value="pending">Pending</option>
+                <option value="waived">Waived</option>
                 <option value="cancelled">Cancelled</option>
                 <option value="failed">Failed</option>
               </select>
@@ -2169,7 +2947,7 @@ const ParentPayBill: React.FC = () => {
                             {statusInfo.label}
                           </span>
                         </div>
-                        {statusInfo.isPayable && (
+                        {statusInfo.isPayable && statusInfo.balance > 0 && (
                           <button
                             onClick={() => handlePayNow(assignment)}
                             disabled={processing || gatewayLoading}
@@ -2226,7 +3004,6 @@ const ParentPayBill: React.FC = () => {
                           exit={{ opacity: 0, height: 0 }}
                           className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-gray-200 dark:border-gray-700 space-y-3 sm:space-y-4"
                         >
-                          {/* Fee Details Grid */}
                           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3">
                             <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2.5 sm:p-3">
                               <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Assignment ID</p>
@@ -2256,7 +3033,6 @@ const ParentPayBill: React.FC = () => {
                             </div>
                           </div>
 
-                          {/* Fee Breakdown with Waiver Support */}
                           <FeeBreakdownDisplay
                             breakdown={breakdown}
                             totalAmount={assignment.amount_due || 0}
@@ -2267,7 +3043,6 @@ const ParentPayBill: React.FC = () => {
                             formatCurrencyFn={formatCurrency}
                           />
 
-                          {/* Payment History */}
                           {payments.filter(p => p.assignment_id === assignment.id).length > 0 && (
                             <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl p-3 sm:p-4 border border-gray-200 dark:border-gray-700">
                               <div className="flex items-center gap-2 mb-2">
@@ -2304,11 +3079,7 @@ const ParentPayBill: React.FC = () => {
                                             <Circle className="w-3.5 h-3.5 text-gray-300 flex-shrink-0" />
                                           )}
                                           <span className="font-medium text-gray-900 dark:text-white truncate">
-                                            {formatCurrency(
-                                              ['success', 'completed', 'approved', 'paid'].includes(String(payment.status).toLowerCase())
-                                                ? (payment.amount_paid || 0)
-                                                : 0
-                                            )}
+                                            {formatCurrency(payment.amount_paid || payment.amount || 0)}
                                           </span>
                                           <span className="text-gray-500 dark:text-gray-400 hidden xs:inline">
                                             • {dayjs(payment.payment_date).format('MMM D, YYYY')}
@@ -2390,40 +3161,41 @@ const ParentPayBill: React.FC = () => {
 
                 {/* Payment Method Selection */}
                 <div className="grid grid-cols-2 gap-2 sm:gap-3">
-                  {paymentGateway.paystack_public_key && (
-                    <motion.div
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border-2 cursor-pointer transition-all ${
-                        paymentMethod === 'paystack'
-                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
-                          : 'border-gray-200 dark:border-gray-700 hover:border-green-300'
-                      }`}
-                      onClick={() => {
-                        setPaymentMethod('paystack');
-                        handleFileRemove();
-                        setTransactionReference('');
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-purple-100 dark:bg-purple-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
-                          <CreditCard className="w-4 h-4 sm:w-5 sm:h-5 text-purple-600 dark:text-purple-400" />
-                        </div>
-                        <div className="min-w-0">
-                          <h4 className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white">Card</h4>
-                          <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">Paystack</p>
-                        </div>
+                  {/* Remita Option */}
+                  <motion.div
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`p-3 sm:p-4 rounded-xl sm:rounded-2xl border-2 cursor-pointer transition-all relative overflow-hidden ${
+                      paymentMethod === 'remita'
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-blue-300'
+                    }`}
+                    onClick={() => setPaymentMethod('remita')}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <CreditCard className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400" />
                       </div>
-                      {paymentMethod === 'paystack' && (
-                        <div className="mt-1.5 flex items-center gap-1 text-green-600">
-                          <CheckCircle className="w-3 h-3" />
-                          <span className="text-[10px] font-medium">Selected</span>
-                        </div>
-                      )}
-                    </motion.div>
-                  )}
+                      <div className="min-w-0">
+                        <h4 className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white">Remita</h4>
+                        <p className="text-[10px] sm:text-xs text-blue-500 font-medium">Coming Soon</p>
+                      </div>
+                    </div>
+                    {paymentMethod === 'remita' && (
+                      <div className="mt-1.5 flex items-center gap-1 text-blue-600">
+                        <CheckCircle className="w-3 h-3" />
+                        <span className="text-[10px] font-medium">Selected</span>
+                      </div>
+                    )}
+                    <div className="absolute -top-1 -right-1">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[8px] font-medium bg-blue-500 text-white shadow-lg">
+                        Soon
+                      </span>
+                    </div>
+                  </motion.div>
                   
-                  {paymentGateway.bank_account_number && (
+                  {/* Bank Transfer Option */}
+                  {bankAccounts.length > 0 && (
                     <motion.div
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
@@ -2435,8 +3207,8 @@ const ParentPayBill: React.FC = () => {
                       onClick={() => setPaymentMethod('bank_transfer')}
                     >
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
-                          <Building2 className="w-4 h-4 sm:w-5 sm:h-5 text-blue-600 dark:text-blue-400" />
+                        <div className="w-8 h-8 sm:w-10 sm:h-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <Building2 className="w-4 h-4 sm:w-5 sm:h-5 text-green-600 dark:text-green-400" />
                         </div>
                         <div className="min-w-0">
                           <h4 className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white">Bank</h4>
@@ -2453,8 +3225,59 @@ const ParentPayBill: React.FC = () => {
                   )}
                 </div>
 
-                {paymentMethod === 'bank_transfer' && paymentGateway.bank_account_number && (
+                {paymentMethod === 'remita' && (
+                  <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 rounded-xl p-4 sm:p-6 text-center border-2 border-blue-300 dark:border-blue-700">
+                    <img 
+                      src={remitaSoonImg} 
+                      alt="Remita Coming Soon" 
+                      className="w-32 h-32 sm:w-40 sm:h-40 md:w-48 md:h-48 mx-auto mb-3 object-contain"
+                    />
+                    <h4 className="text-sm sm:text-base font-bold text-blue-700 dark:text-blue-300 mb-1">
+                      Remita Integration Coming Soon!
+                    </h4>
+                    <p className="text-xs text-gray-600 dark:text-gray-400">
+                      We're working on integrating Remita for seamless payments.
+                      <br />
+                      Please use Bank Transfer in the meantime.
+                    </p>
+                  </div>
+                )}
+
+                {paymentMethod === 'bank_transfer' && bankAccounts.length > 0 && (
                   <div className="space-y-3 sm:space-y-4">
+                    {/* Bank Account Selection */}
+                    <div className="space-y-2">
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Select Bank Account
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {bankAccounts.map((account) => (
+                          <button
+                            key={account.id}
+                            type="button"
+                            onClick={() => setSelectedBankAccount(account)}
+                            className={`text-left p-3 rounded-xl border-2 transition-all ${
+                              selectedBankAccount?.id === account.id
+                                ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                                : 'border-gray-200 dark:border-gray-700 hover:border-green-300'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-semibold text-gray-900 dark:text-white">
+                                {account.label}
+                              </span>
+                              {selectedBankAccount?.id === account.id && (
+                                <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+                              )}
+                            </div>
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1">{account.bank_name}</p>
+                            <p className="text-xs font-mono font-semibold text-gray-900 dark:text-white mt-0.5">{account.account_number}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Bank Details Display */}
                     <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg sm:rounded-xl p-3 sm:p-4 space-y-1.5 sm:space-y-2 border border-gray-200 dark:border-gray-600">
                       <p className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
                         <Banknote className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-500" />
@@ -2463,27 +3286,34 @@ const ParentPayBill: React.FC = () => {
                       <div className="space-y-1 text-xs sm:text-sm">
                         <div className="flex flex-col xs:flex-row xs:justify-between items-start xs:items-center py-1 border-b border-gray-200 dark:border-gray-600 gap-0.5 xs:gap-0">
                           <span className="text-gray-500">Bank</span>
-                          <span className="font-medium text-gray-900 dark:text-white">{paymentGateway.bank_name}</span>
+                          <span className="font-medium text-gray-900 dark:text-white">{selectedBankAccount?.bank_name || '—'}</span>
                         </div>
                         <div className="flex flex-col xs:flex-row xs:justify-between items-start xs:items-center py-1 border-b border-gray-200 dark:border-gray-600 gap-0.5 xs:gap-0">
                           <span className="text-gray-500">Account Name</span>
-                          <span className="font-medium text-gray-900 dark:text-white">{paymentGateway.bank_account_name}</span>
+                          <span className="font-medium text-gray-900 dark:text-white">{selectedBankAccount?.account_name || '—'}</span>
                         </div>
                         <div className="flex flex-col xs:flex-row xs:justify-between items-start xs:items-center py-1 gap-0.5 xs:gap-0">
                           <span className="text-gray-500">Account Number</span>
                           <span className="font-medium text-gray-900 dark:text-white font-mono flex items-center gap-2">
-                            {paymentGateway.bank_account_number}
+                            {selectedBankAccount?.account_number || '—'}
                             <button
-                              onClick={() => copyToClipboard(paymentGateway.bank_account_number)}
+                              onClick={() => copyToClipboard(selectedBankAccount?.account_number || '')}
                               className="p-0.5 sm:p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-all"
                             >
                               {copied ? <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-green-500" /> : <Copy className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-gray-400" />}
                             </button>
                           </span>
                         </div>
+                        {selectedBankAccount?.sort_code && (
+                          <div className="flex flex-col xs:flex-row xs:justify-between items-start xs:items-center py-1 border-b border-gray-200 dark:border-gray-600 gap-0.5 xs:gap-0">
+                            <span className="text-gray-500">Sort Code</span>
+                            <span className="font-medium text-gray-900 dark:text-white font-mono">{selectedBankAccount.sort_code}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
+                    {/* Transaction Reference */}
                     <div>
                       <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Transaction Reference
@@ -2498,6 +3328,7 @@ const ParentPayBill: React.FC = () => {
                       <p className="text-[10px] sm:text-xs text-gray-400 mt-1">Enter the reference number from your bank transfer</p>
                     </div>
 
+                    {/* Upload Proof */}
                     <div>
                       <label className="block text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Upload Payment Proof
@@ -2550,30 +3381,25 @@ const ParentPayBill: React.FC = () => {
                       )}
                     </div>
 
-                    {paymentGateway.payment_instructions && (
+                    {(selectedBankAccount?.payment_instructions || paymentGateway.payment_instructions) && (
                       <div className="p-2 sm:p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                         <p className="text-[10px] sm:text-xs text-blue-700 dark:text-blue-300 whitespace-pre-line">
                           <Info className="w-3 h-3 inline mr-1" />
-                          {paymentGateway.payment_instructions}
+                          {selectedBankAccount?.payment_instructions || paymentGateway.payment_instructions}
                         </p>
                       </div>
                     )}
                   </div>
                 )}
 
-                {paymentMethod === 'paystack' && (
-                  <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-2.5 sm:p-3 border border-blue-200 dark:border-blue-800">
-                    <p className="text-[10px] sm:text-xs text-blue-700 dark:text-blue-300 flex items-center gap-1">
-                      <Shield className="w-3 h-3" />
-                      You will be redirected to Paystack secure payment page.
-                    </p>
-                  </div>
-                )}
-
                 <button
                   onClick={handleSubmitPayment}
                   disabled={processing || gatewayLoading || (paymentMethod === 'bank_transfer' && (!uploadedFile || !transactionReference))}
-                  className="w-full px-4 py-2.5 sm:py-3 bg-gradient-to-r from-green-500 to-emerald-500 text-white rounded-lg sm:rounded-xl font-medium hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm sm:text-base"
+                  className={`w-full px-4 py-2.5 sm:py-3 text-white rounded-lg sm:rounded-xl font-medium hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm sm:text-base ${
+                    paymentMethod === 'remita' 
+                      ? 'bg-gradient-to-r from-blue-500 to-blue-600' 
+                      : 'bg-gradient-to-r from-green-500 to-emerald-500'
+                  }`}
                 >
                   {processing || uploading ? (
                     <>
@@ -2585,26 +3411,22 @@ const ParentPayBill: React.FC = () => {
                       <Loader2 className="w-4 h-4 animate-spin" />
                       Loading...
                     </>
+                  ) : paymentMethod === 'remita' ? (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      Coming Soon
+                    </>
                   ) : (
                     <>
-                      {paymentMethod === 'paystack' ? (
-                        <>
-                          <CreditCard className="w-4 h-4" />
-                          Pay with Paystack
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-4 h-4" />
-                          Submit with Proof
-                        </>
-                      )}
+                      <Send className="w-4 h-4" />
+                      Submit with Proof
                     </>
                   )}
                 </button>
 
                 <p className="text-[10px] sm:text-xs text-center text-gray-400 dark:text-gray-500">
-                  {paymentMethod === 'paystack' 
-                    ? 'You will be redirected to complete payment securely'
+                  {paymentMethod === 'remita' 
+                    ? 'Remita integration is coming soon! Use bank transfer for now.'
                     : 'Upload proof of payment for verification'}
                 </p>
               </div>
@@ -2612,6 +3434,17 @@ const ParentPayBill: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* ============================================ */}
+      {/* REMITA COMING SOON MODAL */}
+      {/* ============================================ */}
+      <RemitaComingSoonModal
+        isOpen={showRemitaModal}
+        onClose={() => {
+          setShowRemitaModal(false);
+          setPaymentMethod('bank_transfer');
+        }}
+      />
 
       {/* ============================================ */}
       {/* SUCCESS RECEIPT MODAL */}
@@ -2627,7 +3460,6 @@ const ParentPayBill: React.FC = () => {
         onClose={() => {
           setShowSuccessReceipt(false);
           setShowBankTransferSuccess(false);
-          setShowSuccess(false);
           setSuccessPaymentData(null);
           setBankTransferData(null);
           refreshData();
@@ -2638,56 +3470,40 @@ const ParentPayBill: React.FC = () => {
       {/* ============================================ */}
       {/* FAILURE MODAL */}
       {/* ============================================ */}
-      <AnimatePresence>
-        {showFailure && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-3 sm:p-4">
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white dark:bg-gray-800 rounded-xl sm:rounded-2xl max-w-md w-full p-4 sm:p-6 text-center"
-            >
-              <div className="w-14 h-14 sm:w-16 sm:h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-3 sm:mb-4">
-                <X className="w-7 h-7 sm:w-8 sm:h-8 text-red-600 dark:text-red-400" />
-              </div>
-              <h3 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white">Payment Failed</h3>
-              <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-2">
-                {failureReason || 'There was an issue processing your payment. Please try again.'}
-              </p>
-              {failureDetails && (
-                <p className="text-[10px] sm:text-xs text-gray-400 mt-1">{failureDetails}</p>
-              )}
-              <div className="flex flex-col xs:flex-row gap-2 sm:gap-3 mt-4">
-                <button
-                  onClick={() => {
-                    setShowFailure(false);
-                    setFailureReason('');
-                    setFailureDetails('');
-                    handleFileRemove();
-                    setTransactionReference('');
-                  }}
-                  className="flex-1 px-4 py-2 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 rounded-lg sm:rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-all text-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    setShowFailure(false);
-                    setFailureReason('');
-                    setFailureDetails('');
-                    if (selectedAssignment) {
-                      setShowPaymentModal(true);
-                    }
-                  }}
-                  className="flex-1 px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-lg sm:rounded-xl font-medium hover:opacity-90 transition-all text-sm"
-                >
-                  Retry
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      <FailureModal
+        isOpen={showFailure}
+        title={failureReason || 'Payment Failed'}
+        message={failureReason || 'There was an issue processing your payment. Please try again.'}
+        details={failureDetails}
+        onRetry={() => {
+          if (selectedAssignment) {
+            handleRetryPayment(selectedAssignment);
+          } else {
+            const unpaidFee = assignments.find(a => {
+              const status = getPaymentStatusForAssignment(a);
+              return status.isPayable && status.balance > 0;
+            });
+            if (unpaidFee) {
+              handleRetryPayment(unpaidFee);
+            } else {
+              setShowFailure(false);
+              refreshData();
+            }
+          }
+        }}
+        onCancel={() => {
+          setShowFailure(false);
+          setFailureReason('');
+          setFailureDetails('');
+          handleFileRemove();
+          setTransactionReference('');
+          setProcessing(false);
+          pendingReferenceRef.current = null;
+          pendingAmountRef.current = 0;
+          pendingAssignmentIdRef.current = null;
+          refreshData();
+        }}
+      />
 
       {/* ============================================ */}
       {/* ERROR DETAILS MODAL */}
@@ -2758,13 +3574,7 @@ const ParentPayBill: React.FC = () => {
                   <p className="text-xs sm:text-sm font-medium text-gray-700 dark:text-gray-300">Payment Information</p>
                   <div className="grid grid-cols-2 gap-1 text-xs sm:text-sm">
                     <span className="text-gray-500">Amount</span>
-                    <span className="font-medium text-gray-900 dark:text-white">
-  {formatCurrency(
-    ['success', 'completed', 'approved', 'paid'].includes(String(selectedFailedPayment.status).toLowerCase())
-      ? (selectedFailedPayment.amount_paid || 0)
-      : 0
-  )}
-</span>
+                    <span className="font-medium text-gray-900 dark:text-white">{formatCurrency(selectedFailedPayment.amount_paid || 0)}</span>
                     <span className="text-gray-500">Date</span>
                     <span className="font-medium text-gray-900 dark:text-white">
                       {dayjs(selectedFailedPayment.payment_date).format('MMM D, YYYY')}
@@ -2790,7 +3600,7 @@ const ParentPayBill: React.FC = () => {
                       );
                       setSelectedFailedPayment(null);
                       if (assignment) {
-                        handlePayNow(assignment);
+                        handleRetryPayment(assignment);
                       } else {
                         toast.error('Payment record not found. Please refresh and try again.');
                         refreshData();

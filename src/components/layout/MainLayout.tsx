@@ -184,7 +184,8 @@ const navigation: NavigationItem[] = [
   { label: 'My Classes', icon: BookOpen, path: '/student/classes', roles: ['student'] },
   
   // Settings - Available to all roles
-  { label: 'Settings', icon: Settings, path: '/settings', roles: ['admin', 'super_admin', 'director', 'finance', 'teacher', 'parent', 'student', 'record_keeper'] },
+  { label: 'Settings', icon: Settings, path: '/settings', roles: ['admin', 'super_admin', 'director', 'finance', 'teacher', 'parent', 'student', 'record_keeper', 'admin_asst'] },
+  { label: 'Messages', icon: MessageSquare, path: '/user-messages', roles: ['teacher', 'parent', 'student', 'record_keeper', 'admin_asst'] },
 ];
 
 // Student, Parent, Admin Assistant dock navigation items (shown on mobile)
@@ -197,6 +198,7 @@ const getDockNavigation = (role: string): NavigationItem[] => {
       { label: 'Payment History', icon: Receipt, path: '/student/payments', roles: ['student'] },
       { label: 'My Classes', icon: BookOpen, path: '/student/classes', roles: ['student'] },
       { label: 'Settings', icon: Settings, path: '/settings', roles: ['student'] },
+      { label: 'Messages', icon: MessageSquare, path: '/user-messages', roles: ['student'] },
     ];
   }
   if (role === 'parent') {
@@ -206,6 +208,7 @@ const getDockNavigation = (role: string): NavigationItem[] => {
       { label: 'Pay Bill', icon: Wallet, path: '/parent/pay-bill', roles: ['parent'], badge: 'New' },
       { label: 'My Profile', icon: User, path: '/parent/profile', roles: ['parent'] },
       { label: 'Settings', icon: Settings, path: '/settings', roles: ['parent'] },
+      { label: 'Messages', icon: MessageSquare, path: '/user-messages', roles: ['parent'] },
     ];
   }
   if (role === 'record_keeper' || role === 'admin_asst') {
@@ -215,6 +218,7 @@ const getDockNavigation = (role: string): NavigationItem[] => {
       { label: 'Payment', icon: CreditCard, path: '/admin-asst/payment', roles: ['record_keeper'] },
       { label: 'Receipt Verification', icon: ShieldCheck, path: '/admin-asst/verify-receipt', roles: ['record_keeper', 'admin_asst'] },
       { label: 'Settings', icon: Settings, path: '/settings', roles: ['record_keeper'] },
+      { label: 'Messages', icon: MessageSquare, path: '/user-messages', roles: ['record_keeper', 'admin_asst'] },
     ];
   }
   return [];
@@ -241,6 +245,7 @@ const MainLayout = () => {
   const [isStudent, setIsStudent] = useState(false);
   const [canUploadProfile, setCanUploadProfile] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0);
   
   const { user, logout } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
@@ -248,6 +253,31 @@ const MainLayout = () => {
   const navigate = useNavigate();
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
+
+  const fetchUnreadMessages = useCallback(async () => {
+    if (!user?.id) { setUnreadMessages(0); return; }
+    try {
+      const { data, error } = await supabase
+        .from('conversation_participants')
+        .select('unread_count')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .eq('is_archived', false);
+      if (error) throw error;
+      setUnreadMessages((data || []).reduce((sum, row) => sum + Number(row.unread_count || 0), 0));
+    } catch (error) {
+      console.error('Error fetching unread messages:', error);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    fetchUnreadMessages();
+    const channel = supabase.channel(`sidebar-messages-${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversation_participants', filter: `user_id=eq.${user.id}` }, () => fetchUnreadMessages())
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [user?.id, fetchUnreadMessages]);
 
   // Check if user role for dock layout
   const userRole = user?.role || 'student';
@@ -1191,10 +1221,19 @@ const MainLayout = () => {
                         } ${!sidebarOpen ? 'justify-center' : ''}`}
                         title={!sidebarOpen ? item.label : ''}
                       >
-                        <item.icon className="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" />
+                        <div className="relative flex-shrink-0">
+                            <item.icon className="w-5 h-5 transition-transform group-hover:scale-110" />
+                            {item.label === 'Messages' && unreadMessages > 0 && (
+                              <span className="absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-bold text-white shadow-sm">
+                                {unreadMessages > 99 ? '99+' : unreadMessages}
+                              </span>
+                            )}
+                          </div>
                         {sidebarOpen && (
                           <>
-                            <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
+                            {!(item.label === 'Messages' && !isAdminRole) && (
+                              <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
+                            )}
                             {item.badge && !active && (
                               <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
                                 {item.badge}
@@ -1330,8 +1369,17 @@ const MainLayout = () => {
                             : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
                         }`}
                       >
-                        <item.icon className="w-5 h-5 flex-shrink-0" />
-                        <span className="text-sm font-medium">{item.label}</span>
+                        <div className="relative flex-shrink-0">
+                          <item.icon className="w-5 h-5" />
+                          {item.label === 'Messages' && unreadMessages > 0 && (
+                            <span className="absolute -top-2 -right-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[8px] font-bold text-white">
+                              {unreadMessages > 99 ? '99+' : unreadMessages}
+                            </span>
+                          )}
+                        </div>
+                        {!(item.label === 'Messages' && !isAdminRole) && (
+                          <span className="text-sm font-medium">{item.label}</span>
+                        )}
                         {item.badge && !active && (
                           <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
                             {item.badge}
@@ -1873,7 +1921,9 @@ const MainLayout = () => {
                           <item.icon className="w-5 h-5 flex-shrink-0" />
                           {sidebarOpen && (
                             <>
-                              <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
+                              {!(item.label === 'Messages' && !isAdminRole) && (
+                                <span className="text-sm font-medium flex-1 text-left">{item.label}</span>
+                              )}
                               <ChevronDown className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
                             </>
                           )}
@@ -1934,10 +1984,19 @@ const MainLayout = () => {
                         } ${!sidebarOpen ? 'justify-center' : ''}`}
                         title={!sidebarOpen ? item.label : ''}
                       >
-                        <item.icon className="w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110" />
+                        <div className="relative flex-shrink-0">
+                            <item.icon className="w-5 h-5 transition-transform group-hover:scale-110" />
+                            {item.label === 'Messages' && unreadMessages > 0 && (
+                              <span className="absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-bold text-white shadow-sm">
+                                {unreadMessages > 99 ? '99+' : unreadMessages}
+                              </span>
+                            )}
+                          </div>
                         {sidebarOpen && (
                           <>
-                            <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
+                            {!(item.label === 'Messages' && !isAdminRole) && (
+                              <span className="text-sm font-medium whitespace-nowrap">{item.label}</span>
+                            )}
                             {item.badge && !active && (
                               <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
                                 {item.badge}
@@ -2073,8 +2132,17 @@ const MainLayout = () => {
                             : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
                         }`}
                       >
-                        <item.icon className="w-5 h-5 flex-shrink-0" />
-                        <span className="text-sm font-medium">{item.label}</span>
+                        <div className="relative flex-shrink-0">
+                          <item.icon className="w-5 h-5" />
+                          {item.label === 'Messages' && unreadMessages > 0 && (
+                            <span className="absolute -top-2 -right-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[8px] font-bold text-white">
+                              {unreadMessages > 99 ? '99+' : unreadMessages}
+                            </span>
+                          )}
+                        </div>
+                        {!(item.label === 'Messages' && !isAdminRole) && (
+                          <span className="text-sm font-medium">{item.label}</span>
+                        )}
                         {item.badge && !active && (
                           <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
                             {item.badge}
