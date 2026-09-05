@@ -1,4 +1,4 @@
-// src/components/layout/MainLayout.tsx — Complete with Premium for Admin Only
+// src/components/layout/MainLayout.tsx
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
@@ -102,7 +102,9 @@ interface Notification {
   data?: any;
 }
 
-// COMPLETE NAVIGATION CONFIGURATION
+// ============================================================
+// COMPLETE NAVIGATION CONFIGURATION - CORRECT PATHS
+// ============================================================
 const navigation: NavigationItem[] = [
   // Admin Assistant (Record Keeper) Routes
   { label: 'Dashboard', icon: LayoutDashboard, path: '/admin-asst/dashboard', roles: ['record_keeper'] },
@@ -117,7 +119,9 @@ const navigation: NavigationItem[] = [
   { label: 'Receipt Verification', icon: ShieldCheck, path: '/verify-receipt', roles: ['record_keeper', 'admin_asst'] },
 
   // Admin Routes
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard', roles: ['admin', 'super_admin', 'director', 'finance'] },
+  { label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard', roles: ['admin', 'super_admin', 'director', 'finance'] },
+  
+  // Academic Section
   { label: 'Academic', icon: BookOpen, path: '#', roles: ['admin', 'super_admin', 'director'],
     children: [
       { label: 'Students', icon: Users, path: '/students', roles: ['admin', 'super_admin', 'director'] },
@@ -127,6 +131,50 @@ const navigation: NavigationItem[] = [
       { label: 'Timetable', icon: Calendar, path: '/timetable', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
+  
+  // ============================================================
+  // RESULTS SECTION - ADMIN
+  // ============================================================
+  { 
+    label: 'Results', 
+    icon: BarChart3, 
+    path: '#', 
+    roles: ['admin', 'super_admin', 'director'],
+    children: [
+      { 
+        label: 'Enter Test', 
+        icon: FileText, 
+        path: '/admin/results/enter-test', 
+        roles: ['admin', 'super_admin', 'director'] 
+      },
+      { 
+        label: 'Enter Exam', 
+        icon: ClipboardCheck, 
+        path: '/admin/results/enter-exam', 
+        roles: ['admin', 'super_admin', 'director'] 
+      },
+      { 
+        label: 'Enter CBT/Assignment', 
+        icon: BookOpen, 
+        path: '/admin/results/enter-cbt', 
+        roles: ['admin', 'super_admin', 'director'] 
+      },
+      { 
+        label: 'View Results', 
+        icon: BarChart3, 
+        path: '/admin/results/view', 
+        roles: ['admin', 'super_admin', 'director'] 
+      },
+      { 
+        label: 'Result Summary', 
+        icon: TrendingUp, 
+        path: '/admin/results/summary', 
+        roles: ['admin', 'super_admin', 'director'] 
+      },
+    ]
+  },
+
+  // Finance Section
   { label: 'Finance', icon: CreditCard, path: '#', roles: ['admin', 'super_admin', 'director', 'finance'],
     children: [
       { label: 'Payments', icon: CreditCard, path: '/payments', roles: ['admin', 'super_admin', 'director', 'finance'] },
@@ -135,6 +183,8 @@ const navigation: NavigationItem[] = [
       { label: 'Receipt Verification', icon: ShieldCheck, path: '/verify-receipt', roles: ['admin', 'super_admin', 'director', 'finance', 'admin_asst', 'record_keeper'] },
     ]
   },
+  
+  // Human Resources Section
   { label: 'Human Resources', icon: Users2, path: '#', roles: ['admin', 'super_admin', 'director'],
     children: [
       { label: 'Staff', icon: Briefcase, path: '/staff', roles: ['admin', 'super_admin', 'director'] },
@@ -143,6 +193,8 @@ const navigation: NavigationItem[] = [
       { label: 'Leave Requests', icon: ClipboardCheck, path: '/leave-requests', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
+  
+  // School Admin Section
   { label: 'School Admin', icon: Building2, path: '#', roles: ['admin', 'super_admin', 'director'],
     children: [
       { label: 'Branches', icon: Building2, path: '/branches', roles: ['admin', 'super_admin', 'director'] },
@@ -153,6 +205,8 @@ const navigation: NavigationItem[] = [
       { label: 'Backup', icon: Download, path: '/school-backup', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
+  
+  // Communication Section
   { label: 'Communication', icon: MessageSquare, path: '#', roles: ['admin', 'super_admin', 'director'],
     children: [
       { label: 'Announcements', icon: Megaphone, path: '/announcements', roles: ['admin', 'super_admin', 'director'] },
@@ -161,7 +215,9 @@ const navigation: NavigationItem[] = [
     ]
   },
   
-  // Teacher Routes
+  // ============================================================
+  // TEACHER ROUTES
+  // ============================================================
   { label: 'Dashboard', icon: LayoutDashboard, path: '/teacher/dashboard', roles: ['teacher'] },
   { label: 'My Classes', icon: GraduationCap, path: '/teacher/classes', roles: ['teacher'] },
   { label: 'Students', icon: Users, path: '/teacher/students', roles: ['teacher'] },
@@ -170,15 +226,135 @@ const navigation: NavigationItem[] = [
   { label: 'Grades', icon: TrendingUp, path: '/teacher/grades', roles: ['teacher'] },
   { label: 'Timetable', icon: Calendar, path: '/teacher/timetable', roles: ['teacher'] },
   
-  // Parent Routes
+  // ============================================================
+  // RESULTS SECTION - TEACHER
+  // ============================================================
+  { 
+    label: 'Results', 
+    icon: BarChart3, 
+    path: '#', 
+    roles: ['teacher'],
+    children: [
+      { 
+        label: 'Enter Test', 
+        icon: FileText, 
+        path: '/teacher/results/enter-test', 
+        roles: ['teacher'] 
+      },
+      { 
+        label: 'Enter Exam', 
+        icon: ClipboardCheck, 
+        path: '/teacher/results/enter-exam', 
+        roles: ['teacher'] 
+      },
+      { 
+        label: 'Enter CBT/Assignment', 
+        icon: BookOpen, 
+        path: '/teacher/results/enter-cbt', 
+        roles: ['teacher'] 
+      },
+      { 
+        label: 'View Results', 
+        icon: BarChart3, 
+        path: '/teacher/results/view', 
+        roles: ['teacher'] 
+      },
+      { 
+        label: 'Result Summary', 
+        icon: TrendingUp, 
+        path: '/teacher/results/summary', 
+        roles: ['teacher'] 
+      },
+    ]
+  },
+  
+  // ============================================================
+  // PARENT ROUTES
+  // ============================================================
   { label: 'Dashboard', icon: LayoutDashboard, path: '/parent/dashboard', roles: ['parent'] },
   { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'] },
+  
+  // ============================================================
+  // RESULTS SECTION - PARENT
+  // ============================================================
+  { 
+    label: 'Results', 
+    icon: BarChart3, 
+    path: '#', 
+    roles: ['parent'],
+    children: [
+      { 
+        label: 'View Test Results', 
+        icon: FileText, 
+        path: '/parent/results/test', 
+        roles: ['parent'] 
+      },
+      { 
+        label: 'View Exam Results', 
+        icon: ClipboardCheck, 
+        path: '/parent/results/exam', 
+        roles: ['parent'] 
+      },
+      { 
+        label: 'View CBT Results', 
+        icon: BookOpen, 
+        path: '/parent/results/cbt', 
+        roles: ['parent'] 
+      },
+      { 
+        label: 'Result Summary', 
+        icon: TrendingUp, 
+        path: '/parent/results/summary', 
+        roles: ['parent'] 
+      },
+    ]
+  },
+  
   { label: 'Pay Bill', icon: Wallet, path: '/parent/pay-bill', roles: ['parent'], badge: 'New' },
   { label: 'My Profile', icon: User, path: '/parent/profile', roles: ['parent'] },
   
-  // Student Routes
+  // ============================================================
+  // STUDENT ROUTES
+  // ============================================================
   { label: 'Dashboard', icon: LayoutDashboard, path: '/student/dashboard', roles: ['student'] },
   { label: 'My Profile', icon: User, path: '/student/profile', roles: ['student'] },
+  
+  // ============================================================
+  // RESULTS SECTION - STUDENT
+  // ============================================================
+  { 
+    label: 'Results', 
+    icon: BarChart3, 
+    path: '#', 
+    roles: ['student'],
+    children: [
+      { 
+        label: 'View Test Results', 
+        icon: FileText, 
+        path: '/student/results/test', 
+        roles: ['student'] 
+      },
+      { 
+        label: 'View Exam Results', 
+        icon: ClipboardCheck, 
+        path: '/student/results/exam', 
+        roles: ['student'] 
+      },
+      { 
+        label: 'View CBT Results', 
+        icon: BookOpen, 
+        path: '/student/results/cbt', 
+        roles: ['student'] 
+      },
+      { 
+        label: 'Result Summary', 
+        icon: TrendingUp, 
+        path: '/student/results/summary', 
+        roles: ['student'] 
+      },
+    ]
+  },
+  
   { label: 'Pay Bill', icon: Wallet, path: '/student/paybill', roles: ['student'], badge: 'New' },
   { label: 'Payment History', icon: Receipt, path: '/student/payments', roles: ['student'] },
   { label: 'My Classes', icon: BookOpen, path: '/student/classes', roles: ['student'] },
@@ -194,6 +370,7 @@ const getDockNavigation = (role: string): NavigationItem[] => {
     return [
       { label: 'Dashboard', icon: LayoutDashboard, path: '/student/dashboard', roles: ['student'] },
       { label: 'My Profile', icon: User, path: '/student/profile', roles: ['student'] },
+      { label: 'Results', icon: BarChart3, path: '/student/results/test', roles: ['student'] },
       { label: 'Pay Bill', icon: Wallet, path: '/student/paybill', roles: ['student'], badge: 'New' },
       { label: 'Payment History', icon: Receipt, path: '/student/payments', roles: ['student'] },
       { label: 'My Classes', icon: BookOpen, path: '/student/classes', roles: ['student'] },
@@ -205,6 +382,7 @@ const getDockNavigation = (role: string): NavigationItem[] => {
     return [
       { label: 'Dashboard', icon: LayoutDashboard, path: '/parent/dashboard', roles: ['parent'] },
       { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'] },
+      { label: 'Results', icon: BarChart3, path: '/parent/results/test', roles: ['parent'] },
       { label: 'Pay Bill', icon: Wallet, path: '/parent/pay-bill', roles: ['parent'], badge: 'New' },
       { label: 'My Profile', icon: User, path: '/parent/profile', roles: ['parent'] },
       { label: 'Settings', icon: Settings, path: '/settings', roles: ['parent'] },
@@ -746,8 +924,7 @@ const MainLayout = () => {
         tableName = 'users';
       }
       
-      const { data: existingUser, error: checkError } = await supabase
-        .from(tableName)
+      const { data: existingUser, error: checkError } = await supabase        .from(tableName)
         .select('id')
         .eq('id', user.id)
         .single();
