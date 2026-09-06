@@ -42,7 +42,7 @@ import UserMessagePage from './pages/communication/UsersMessagePage';
 import AdminAsst from './pages/adminAsst';
 import AdminAsstProfile from './pages/adminAsst/AdminAsstProfile';
 import AdminAsstPayment from './pages/adminAsst/AdminAsstPayment';
-import AttendanceHub from './pages/modules/AttendanceHub';
+import AttendanceManagement from './pages/academic/AttendanceManagement';
 import { AdminEnterTest, AdminEnterExam, AdminEnterCBT, AdminViewResults, AdminResultSummary } from './pages/admin/results';
 import { TeacherEnterTest, TeacherEnterExam, TeacherEnterCBT, TeacherViewResults, TeacherResultSummary } from './pages/teacher/results';
 import { StudentViewTest, StudentViewExam, StudentViewCBT, StudentResultSummary } from './pages/student/results';
@@ -62,7 +62,7 @@ const AppRoutes: React.FC = () => (
       <Route index element={<Navigate to="/admin/dashboard" replace />} />
       <Route path="messages" element={<MessagePage />} />
       <Route path="messages/:conversationId" element={<MessagePage />} />
-      <Route path="attendance" element={<AttendanceHub />} />
+      <Route path="attendance" element={<AttendanceManagement />} />
       <Route path="results/enter-test" element={<AdminEnterTest />} />
       <Route path="results/enter-exam" element={<AdminEnterExam />} />
       <Route path="results/enter-cbt" element={<AdminEnterCBT />} />
@@ -96,7 +96,7 @@ const AppRoutes: React.FC = () => (
       <Route path="profile" element={<StudentProfile />} />
       <Route path="payments" element={<StudentPayments />} />
       <Route path="paybill" element={<StudentPayBill />} />
-      <Route path="attendance" element={<AttendanceHub />} />
+      <Route path="attendance" element={<AttendanceManagement />} />
       <Route path="results/test" element={<StudentViewTest />} />
       <Route path="results/exam" element={<StudentViewExam />} />
       <Route path="results/cbt" element={<StudentViewCBT />} />
@@ -106,7 +106,7 @@ const AppRoutes: React.FC = () => (
     <Route path="/teacher" element={<ProtectedRoute allowedRoles={['teacher']}><MainLayout /></ProtectedRoute>}>
       <Route path="dashboard" element={<TeacherDashboard />} />
       <Route index element={<Navigate to="/teacher/dashboard" replace />} />
-      <Route path="attendance" element={<AttendanceHub />} />
+      <Route path="attendance" element={<AttendanceManagement />} />
       <Route path="results/enter-test" element={<TeacherEnterTest />} />
       <Route path="results/enter-exam" element={<TeacherEnterExam />} />
       <Route path="results/enter-cbt" element={<TeacherEnterCBT />} />
@@ -130,7 +130,7 @@ const AppRoutes: React.FC = () => (
     </Route>
 
     <Route path="/attendance" element={<ProtectedRoute allowedRoles={[...ATTENDANCE_ADMIN_ROLES, 'teacher']}><MainLayout /></ProtectedRoute>}>
-      <Route index element={<AttendanceHub />} />
+      <Route index element={<AttendanceManagement />} />
     </Route>
 
     <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
