@@ -4,10 +4,12 @@ import { useAuth } from '../../hooks/useAuth';
 
 type UserRole =
   | 'admin'
+  | 'branch_admin'
   | 'teacher'
   | 'student'
   | 'parent'
   | 'director'
+  | 'principal'
   | 'finance'
   | 'super_admin'
   | 'record_keeper'
@@ -31,6 +33,8 @@ const normalizeRole = (role: unknown): UserRole | null => {
     administrator: 'admin',
     school_admin: 'admin',
     schooladministrator: 'admin',
+    branch_admin: 'branch_admin',
+    branchadministrator: 'branch_admin',
     teacher: 'teacher',
     teachers: 'teacher',
     student: 'student',
@@ -38,7 +42,7 @@ const normalizeRole = (role: unknown): UserRole | null => {
     parent: 'parent',
     parents: 'parent',
     director: 'director',
-    principal: 'director',
+    principal: 'principal',
     finance: 'finance',
     finance_officer: 'finance',
     accountant: 'finance',
@@ -57,7 +61,9 @@ const normalizeRole = (role: unknown): UserRole | null => {
 const getDashboardPath = (role: UserRole | null): string => {
   switch (role) {
     case 'admin':
+    case 'branch_admin':
     case 'director':
+    case 'principal':
     case 'finance':
     case 'super_admin':
       return '/admin/dashboard';
@@ -103,8 +109,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     );
   }
 
-  // Prefer the live Supabase profile, but fall back to persisted auth data
-  // while the profile state is settling after a navigation.
   let storedRole: unknown = null;
   try {
     const raw = localStorage.getItem('user');
@@ -117,9 +121,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   const userRole = normalizeRole(user.role) || normalizeRole(storedRole);
 
-  if (allowedRoles.length === 0) {
-    return <>{children}</>;
-  }
+  if (allowedRoles.length === 0) return <>{children}</>;
 
   const normalizedAllowedRoles = allowedRoles
     .map(normalizeRole)
@@ -127,7 +129,6 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   const hasRole = userRole !== null && normalizedAllowedRoles.includes(userRole);
 
-  // Normal-user messaging is intentionally available across these roles.
   const isUserMessagesRoute =
     location.pathname === '/user-messages' ||
     location.pathname.startsWith('/user-messages/');
@@ -136,31 +137,21 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     userRole !== null &&
     ['student', 'parent', 'teacher', 'record_keeper', 'admin_asst'].includes(userRole);
 
-  if (isUserMessagesRoute && canUseUserMessages) {
-    return <>{children}</>;
-  }
+  if (isUserMessagesRoute && canUseUserMessages) return <>{children}</>;
 
-  // Explicitly recognize the role-scoped Results routes. This keeps Results
-  // navigation aligned with AppRoutes and prevents a valid Results child from
-  // falling through to the role dashboard because of a transient role alias.
   const isAdminResults = location.pathname.startsWith('/admin/results/');
   const isTeacherResults = location.pathname.startsWith('/teacher/results/');
   const isStudentResults = location.pathname.startsWith('/student/results/');
   const isParentResults = location.pathname.startsWith('/parent/results/');
 
   const canUseResults =
-    (isAdminResults && !!userRole && ['admin', 'director', 'finance', 'super_admin'].includes(userRole)) ||
+    (isAdminResults && !!userRole && ['admin', 'branch_admin', 'director', 'principal', 'finance', 'super_admin'].includes(userRole)) ||
     (isTeacherResults && userRole === 'teacher') ||
     (isStudentResults && userRole === 'student') ||
     (isParentResults && userRole === 'parent');
 
-  if (canUseResults) {
-    return <>{children}</>;
-  }
-
-  if (hasRole) {
-    return <>{children}</>;
-  }
+  if (canUseResults) return <>{children}</>;
+  if (hasRole) return <>{children}</>;
 
   return <Navigate to={getDashboardPath(userRole)} replace />;
 };
