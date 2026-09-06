@@ -1,13 +1,20 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import {
   AlertCircle,
+  BarChart3,
   CalendarDays,
   CheckCircle2,
-  ChevronDown,
   Clock3,
   Download,
-  FileCheck2,
+  Loader2,
   Lock,
+  Printer,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -15,119 +22,262 @@ import {
   UserCheck,
   UserX,
   Users,
-  XCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../config/supabase/client';
+import { useAuth } from '../../hooks/useAuth';
 
-type AttendanceStatus = 'present' | 'absent' | 'late' | 'excused' | 'half_day';
-type ViewMode = 'manage' | 'student';
+type Status =
+  | 'present'
+  | 'absent'
+  | 'late'
+  | 'excused'
+  | 'half_day';
 
-interface ClassRow {
-  id: string;
-  name: string;
-  code?: string | null;
-  class_teacher_id?: string | null;
-}
-
-interface StudentRow {
+type Student = {
   id: string;
   first_name: string;
   last_name: string;
   middle_name?: string | null;
   admission_number?: string | null;
   passport_url?: string | null;
-}
+  class_id?: string | null;
+};
 
-interface AttendanceRow {
-  student: StudentRow;
-  status: AttendanceStatus;
-  check_in_at: string | null;
-  remarks: string;
-  record_id?: string;
-  date?: string;
-}
+type ClassRow = {
+  id: string;
+  name: string;
+  code?: string | null;
+  class_teacher_id?: string | null;
+  assistant_teacher_id?: string | null;
+};
 
-interface SessionRow {
+type Session = {
   id: string;
   class_id: string;
   attendance_date: string;
   status: 'open' | 'submitted' | 'locked';
   submitted_at?: string | null;
-}
-
-const MANAGER_ROLES = ['admin', 'branch_admin', 'super_admin', 'director', 'principal', 'record_keeper'];
-const STATUS_OPTIONS: AttendanceStatus[] = ['present', 'late', 'absent', 'excused', 'half_day'];
-
-const statusMeta: Record<AttendanceStatus, { label: string; className: string; icon: React.FC<any> }> = {
-  present: { label: 'Present', className: 'bg-emerald-50 text-emerald-700 ring-emerald-200', icon: CheckCircle2 },
-  late: { label: 'Late', className: 'bg-amber-50 text-amber-700 ring-amber-200', icon: Clock3 },
-  absent: { label: 'Absent', className: 'bg-rose-50 text-rose-700 ring-rose-200', icon: XCircle },
-  excused: { label: 'Excused', className: 'bg-sky-50 text-sky-700 ring-sky-200', icon: ShieldCheck },
-  half_day: { label: 'Half day', className: 'bg-violet-50 text-violet-700 ring-violet-200', icon: AlertCircle },
 };
 
-const isoToday = () => new Date().toISOString().slice(0, 10);
+type AttendanceRecord = {
+  student: Student;
+  status: Status;
+  check_in_at: string | null;
+  remarks: string;
+  record_id?: string;
+};
 
-const formatTime = (value?: string | null) =>
-  value
-    ? new Intl.DateTimeFormat('en-NG', { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
-    : '—';
+type Counts = {
+  present: number;
+  absent: number;
+  late: number;
+  excused: number;
+  half_day: number;
+  total: number;
+};
 
-const displayName = (student: StudentRow) =>
-  [student.last_name, student.first_name, student.middle_name].filter(Boolean).join(' ');
+type HistoryItem = {
+  date: string;
+  status: Status;
+};
+
+const MANAGER_ROLES = [
+  'admin',
+  'branch_admin',
+  'director',
+  'principal',
+  'super_admin',
+  'record_keeper',
+  'finance',
+];
+
+const STATUSES: Status[] = [
+  'present',
+  'late',
+  'absent',
+  'excused',
+  'half_day',
+];
+
+const STATUS_META: Record<
+  Status,
+  {
+    label: string;
+    short: string;
+    classes: string;
+  }
+> = {
+  present: {
+    label: 'Present',
+    short: 'P',
+    classes:
+      'border-emerald-200 bg-emerald-50 text-emerald-700',
+  },
+  late: {
+    label: 'Late',
+    short: 'L',
+    classes:
+      'border-amber-200 bg-amber-50 text-amber-700',
+  },
+  absent: {
+    label: 'Absent',
+    short: 'A',
+    classes:
+      'border-rose-200 bg-rose-50 text-rose-700',
+  },
+  excused: {
+    label: 'Excused',
+    short: 'E',
+    classes:
+      'border-sky-200 bg-sky-50 text-sky-700',
+  },
+  half_day: {
+    label: 'Half day',
+    short: 'H',
+    classes:
+      'border-violet-200 bg-violet-50 text-violet-700',
+  },
+};
+
+const getToday = () =>
+  new Date().toISOString().slice(0, 10);
+
+const emptyCounts = (): Counts => ({
+  present: 0,
+  absent: 0,
+  late: 0,
+  excused: 0,
+  half_day: 0,
+  total: 0,
+});
+
+const attendanceRate = (counts: Counts) => {
+  if (!counts.total) return 0;
+
+  return Math.round(
+    ((counts.present + counts.late) / counts.total) * 100,
+  );
+};
+
+const studentName = (student: Student) =>
+  [
+    student.last_name,
+    student.first_name,
+    student.middle_name,
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+const initials = (student: Student) =>
+  `${student.first_name?.[0] || ''}${student.last_name?.[0] || ''}`
+    .toUpperCase();
+
+const formatDate = (date: string) =>
+  new Intl.DateTimeFormat('en-NG', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(`${date}T00:00:00`));
+
+const formatTime = (value?: string | null) => {
+  if (!value) return '—';
+
+  try {
+    return new Intl.DateTimeFormat('en-NG', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(value));
+  } catch {
+    return '—';
+  }
+};
 
 export default function AttendanceManagement() {
   const { user } = useAuth();
+
   const role = String(user?.role || '').toLowerCase();
+  const branchId = user?.branch_id || '';
+
   const isManager = MANAGER_ROLES.includes(role);
   const isTeacher = role === 'teacher';
   const isStudent = role === 'student';
-  const viewMode: ViewMode = isStudent ? 'student' : 'manage';
+  const isParent = role === 'parent';
+
+  const canManage = isManager || isTeacher;
 
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [selectedClassId, setSelectedClassId] = useState('');
-  const [selectedDate, setSelectedDate] = useState(isoToday());
-  const [students, setStudents] = useState<StudentRow[]>([]);
-  const [rows, setRows] = useState<Record<string, AttendanceRow>>({});
-  const [session, setSession] = useState<SessionRow | null>(null);
+  const [selectedDate, setSelectedDate] = useState(getToday());
+
+  const [students, setStudents] = useState<Student[]>([]);
+  const [records, setRecords] = useState<
+    Record<string, AttendanceRecord>
+  >({});
+
+  const [session, setSession] = useState<Session | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | AttendanceStatus>('all');
-  const [teacherProfileId, setTeacherProfileId] = useState('');
-  const [studentHistory, setStudentHistory] = useState<AttendanceRow[]>([]);
-  const [historyDays, setHistoryDays] = useState(30);
 
-  const loadTeacherProfile = useCallback(async () => {
-    if (!user?.id || !isTeacher) return '';
-    const byUser = await supabase.from('teachers').select('id').eq('user_id', user.id).maybeSingle();
-    if (byUser.data?.id) {
-      setTeacherProfileId(byUser.data.id);
-      return byUser.data.id;
-    }
-    if (user.email) {
-      const byEmail = await supabase.from('teachers').select('id').ilike('email', user.email).maybeSingle();
-      if (byEmail.data?.id) {
-        setTeacherProfileId(byEmail.data.id);
-        return byEmail.data.id;
-      }
-    }
-    return '';
-  }, [isTeacher, user?.email, user?.id]);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<'all' | Status>('all');
+
+  const [sidebarStats, setSidebarStats] = useState<
+    Record<string, Counts>
+  >({});
+
+  const [studentHistory, setStudentHistory] = useState<
+    HistoryItem[]
+  >([]);
+
+  const [currentStudent, setCurrentStudent] =
+    useState<Student | null>(null);
+
+  const [parentChildren, setParentChildren] = useState<Student[]>(
+    [],
+  );
+
+  const [selectedChildId, setSelectedChildId] = useState('');
+
+  const [mobileSidebarOpen, setMobileSidebarOpen] =
+    useState(false);
+
+  const [mobileAnalyticsOpen, setMobileAnalyticsOpen] =
+    useState(false);
+
+  /*
+   * ============================================================
+   * LOAD CLASSES
+   * ============================================================
+   */
 
   const loadClasses = useCallback(async () => {
-    if (!user?.branch_id || viewMode === 'student') return;
+    if (!branchId || !canManage) return;
+
     setLoading(true);
+
     try {
-      let teacherId = teacherProfileId;
-      if (isTeacher && !teacherId) teacherId = await loadTeacherProfile();
+      let teacherId = '';
+
+      if (isTeacher && user?.id) {
+        const { data, error } = await supabase
+          .from('teachers')
+          .select('id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        teacherId = data?.id || '';
+      }
 
       let query = supabase
         .from('classes')
-        .select('id,name,code,class_teacher_id')
-        .eq('branch_id', user.branch_id)
+        .select(
+          'id,name,code,class_teacher_id,assistant_teacher_id',
+        )
+        .eq('branch_id', branchId)
         .eq('status', 'active')
         .order('name');
 
@@ -137,360 +287,2264 @@ export default function AttendanceManagement() {
           setSelectedClassId('');
           return;
         }
-        query = query.eq('class_teacher_id', teacherId);
+
+        query = query.or(
+          `class_teacher_id.eq.${teacherId},assistant_teacher_id.eq.${teacherId}`,
+        );
       }
 
       const { data, error } = await query;
+
       if (error) throw error;
-      const nextClasses = (data || []) as ClassRow[];
-      setClasses(nextClasses);
-      setSelectedClassId(current => current && nextClasses.some(c => c.id === current) ? current : (nextClasses[0]?.id || ''));
+
+      const list = (data || []) as ClassRow[];
+
+      setClasses(list);
+
+      setSelectedClassId((current) => {
+        if (current && list.some((item) => item.id === current)) {
+          return current;
+        }
+
+        return list[0]?.id || '';
+      });
     } catch (error: any) {
-      toast.error(error?.message || 'Unable to load classes');
+      console.error('loadClasses:', error);
+      toast.error(
+        error?.message || 'Unable to load attendance classes',
+      );
     } finally {
       setLoading(false);
     }
-  }, [isTeacher, loadTeacherProfile, teacherProfileId, user?.branch_id, viewMode]);
+  }, [
+    branchId,
+    canManage,
+    isTeacher,
+    user?.id,
+  ]);
 
-  const loadRegister = useCallback(async () => {
-    if (!user?.branch_id || !selectedClassId || viewMode === 'student') return;
-    setLoading(true);
+  /*
+   * ============================================================
+   * LOAD PARENT CHILDREN
+   * ============================================================
+   */
+
+  const loadParentChildren = useCallback(async () => {
+    if (!isParent || !user?.id || !branchId) return;
+
     try {
-      const { data: studentData, error: studentError } = await supabase
+      const { data: parent, error: parentError } =
+        await supabase
+          .from('parents')
+          .select('id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+      if (parentError) throw parentError;
+
+      if (!parent?.id) {
+        setParentChildren([]);
+        return;
+      }
+
+      const { data, error } = await supabase
         .from('students')
-        .select('id,first_name,last_name,middle_name,admission_number,passport_url')
-        .eq('branch_id', user.branch_id)
-        .eq('class_id', selectedClassId)
-        .eq('current_status', 'active')
+        .select(
+          'id,first_name,last_name,middle_name,admission_number,passport_url,class_id',
+        )
+        .eq('parent_id', parent.id)
+        .eq('branch_id', branchId)
         .order('last_name')
         .order('first_name');
-      if (studentError) throw studentError;
 
-      const nextStudents = (studentData || []) as StudentRow[];
-      setStudents(nextStudents);
+      if (error) throw error;
 
-      const { data: sessionData, error: sessionError } = await supabase
-        .from('attendance_sessions')
-        .select('id,class_id,attendance_date,status,submitted_at')
-        .eq('branch_id', user.branch_id)
-        .eq('class_id', selectedClassId)
-        .eq('attendance_date', selectedDate)
-        .eq('session_type', 'daily')
-        .maybeSingle();
-      if (sessionError && sessionError.code !== 'PGRST116') throw sessionError;
+      const children = (data || []) as Student[];
 
-      const nextSession = (sessionData || null) as SessionRow | null;
-      setSession(nextSession);
+      setParentChildren(children);
 
-      const nextRows: Record<string, AttendanceRow> = {};
-      nextStudents.forEach(student => {
-        nextRows[student.id] = { student, status: 'present', check_in_at: null, remarks: '' };
+      setSelectedChildId((current) => {
+        if (
+          current &&
+          children.some((child) => child.id === current)
+        ) {
+          return current;
+        }
+
+        return children[0]?.id || '';
       });
-
-      if (nextSession) {
-        const { data: recordData, error: recordError } = await supabase
-          .from('attendance_records')
-          .select('id,student_id,status,check_in_at,remarks')
-          .eq('session_id', nextSession.id);
-        if (recordError) throw recordError;
-        (recordData || []).forEach((record: any) => {
-          if (nextRows[record.student_id]) {
-            nextRows[record.student_id] = {
-              ...nextRows[record.student_id],
-              record_id: record.id,
-              status: record.status as AttendanceStatus,
-              check_in_at: record.check_in_at,
-              remarks: record.remarks || '',
-            };
-          }
-        });
-      }
-      setRows(nextRows);
     } catch (error: any) {
-      toast.error(error?.message || 'Unable to load attendance register');
-    } finally {
-      setLoading(false);
+      console.error('loadParentChildren:', error);
+      toast.error(
+        error?.message || 'Unable to load your children',
+      );
     }
-  }, [selectedClassId, selectedDate, user?.branch_id, viewMode]);
+  }, [
+    branchId,
+    isParent,
+    user?.id,
+  ]);
 
-  const loadStudentHistory = useCallback(async () => {
-    if (!user?.id || !user?.branch_id || !isStudent) return;
-    setLoading(true);
-    try {
-      const { data: student, error: studentError } = await supabase
-        .from('students')
-        .select('id,first_name,last_name,middle_name,admission_number,passport_url,class_id')
-        .eq('user_id', user.id)
-        .eq('branch_id', user.branch_id)
-        .maybeSingle();
-      if (studentError) throw studentError;
-      if (!student) {
-        setStudentHistory([]);
-        return;
-      }
+  /*
+   * ============================================================
+   * LOAD CLASS REGISTER
+   * ============================================================
+   */
 
-      const from = new Date();
-      from.setDate(from.getDate() - historyDays);
-      const fromDate = from.toISOString().slice(0, 10);
-
-      const { data: sessions, error: sessionError } = await supabase
-        .from('attendance_sessions')
-        .select('id,attendance_date,class_id,status')
-        .eq('branch_id', user.branch_id)
-        .gte('attendance_date', fromDate)
-        .lte('attendance_date', selectedDate)
-        .order('attendance_date', { ascending: false });
-      if (sessionError) throw sessionError;
-      const sessionIds = (sessions || []).map((item: any) => item.id);
-      if (!sessionIds.length) {
-        setStudentHistory([]);
-        return;
-      }
-
-      const { data: records, error: recordError } = await supabase
-        .from('attendance_records')
-        .select('id,session_id,status,check_in_at,remarks')
-        .eq('student_id', student.id)
-        .in('session_id', sessionIds);
-      if (recordError) throw recordError;
-
-      const sessionMap = new Map((sessions || []).map((item: any) => [item.id, item]));
-      const history = (records || []).map((record: any) => ({
-        student,
-        record_id: record.id,
-        status: record.status as AttendanceStatus,
-        check_in_at: record.check_in_at,
-        remarks: record.remarks || '',
-        date: sessionMap.get(record.session_id)?.attendance_date || '',
-      })) as AttendanceRow[];
-      setStudentHistory(history);
-    } catch (error: any) {
-      toast.error(error?.message || 'Unable to load your attendance');
-    } finally {
-      setLoading(false);
-    }
-  }, [historyDays, isStudent, selectedDate, user?.branch_id, user?.id]);
-
-  useEffect(() => {
-    if (!user?.id) return;
-    if (viewMode === 'student') loadStudentHistory();
-    else loadClasses();
-  }, [loadClasses, loadStudentHistory, user?.id, viewMode]);
-
-  useEffect(() => {
-    if (viewMode === 'manage' && selectedClassId) loadRegister();
-  }, [loadRegister, selectedClassId, selectedDate, viewMode]);
-
-  const setStatus = (studentId: string, status: AttendanceStatus) => {
-    if (session?.status === 'locked' && !isManager) {
-      toast.error('This attendance session is locked');
+  const loadRegister = useCallback(async () => {
+    if (!branchId || !selectedClassId || !canManage) {
       return;
     }
-    setRows(previous => ({
-      ...previous,
-      [studentId]: {
-        ...previous[studentId],
-        status,
-        check_in_at: status === 'present' || status === 'late' ? (previous[studentId].check_in_at || new Date().toISOString()) : null,
-      },
-    }));
-  };
 
-  const setRemark = (studentId: string, remarks: string) => {
-    setRows(previous => ({ ...previous, [studentId]: { ...previous[studentId], remarks } }));
-  };
+    setLoading(true);
 
-  const markAll = (status: AttendanceStatus) => {
-    const timestamp = status === 'present' || status === 'late' ? new Date().toISOString() : null;
-    setRows(previous => Object.fromEntries(Object.entries(previous).map(([id, row]) => [id, { ...row, status, check_in_at: timestamp }])));
-  };
-
-  const saveAttendance = async () => {
-    if (!user?.id || !user?.branch_id || !selectedClassId || !students.length) return;
-    if (session?.status === 'locked') return toast.error('This attendance session is locked');
-    setSaving(true);
     try {
-      let sessionId = session?.id;
-      if (!sessionId) {
-        const { data, error } = await supabase
+      const { data: studentData, error: studentError } =
+        await supabase
+          .from('students')
+          .select(
+            'id,first_name,last_name,middle_name,admission_number,passport_url,class_id',
+          )
+          .eq('branch_id', branchId)
+          .eq('class_id', selectedClassId)
+          .eq('current_status', 'active')
+          .order('last_name')
+          .order('first_name');
+
+      if (studentError) throw studentError;
+
+      const studentList = (studentData || []) as Student[];
+
+      setStudents(studentList);
+
+      const { data: sessionData, error: sessionError } =
+        await supabase
           .from('attendance_sessions')
-          .insert({ branch_id: user.branch_id, class_id: selectedClassId, teacher_id: teacherProfileId || null, attendance_date: selectedDate, session_type: 'daily', status: 'open', created_by: user.id })
-          .select('id,class_id,attendance_date,status,submitted_at')
-          .single();
-        if (error) throw error;
-        sessionId = data.id;
-        setSession(data as SessionRow);
+          .select(
+            'id,class_id,attendance_date,status,submitted_at',
+          )
+          .eq('branch_id', branchId)
+          .eq('class_id', selectedClassId)
+          .eq('attendance_date', selectedDate)
+          .eq('session_type', 'daily')
+          .limit(1)
+          .maybeSingle();
+
+      if (
+        sessionError &&
+        sessionError.code !== 'PGRST116'
+      ) {
+        throw sessionError;
       }
 
-      const payload = students.map(student => ({
-        session_id: sessionId,
-        student_id: student.id,
-        teacher_id: teacherProfileId || null,
-        status: rows[student.id]?.status || 'present',
-        check_in_at: rows[student.id]?.check_in_at || null,
-        remarks: rows[student.id]?.remarks || null,
-        marked_by: user.id,
-      }));
+      const currentSession =
+        (sessionData || null) as Session | null;
 
-      const { error: recordError } = await supabase.from('attendance_records').upsert(payload, { onConflict: 'session_id,student_id' });
+      setSession(currentSession);
+
+      const nextRecords: Record<
+        string,
+        AttendanceRecord
+      > = {};
+
+      studentList.forEach((student) => {
+        nextRecords[student.id] = {
+          student,
+          status: 'present',
+          check_in_at: null,
+          remarks: '',
+        };
+      });
+
+      if (currentSession?.id) {
+        const {
+          data: recordData,
+          error: recordError,
+        } = await supabase
+          .from('attendance_records')
+          .select(
+            'id,student_id,status,check_in_at,remarks',
+          )
+          .eq('session_id', currentSession.id);
+
+        if (recordError) throw recordError;
+
+        (recordData || []).forEach((record: any) => {
+          if (!nextRecords[record.student_id]) return;
+
+          nextRecords[record.student_id] = {
+            ...nextRecords[record.student_id],
+            record_id: record.id,
+            status: record.status as Status,
+            check_in_at: record.check_in_at,
+            remarks: record.remarks || '',
+          };
+        });
+      }
+
+      setRecords(nextRecords);
+    } catch (error: any) {
+      console.error('loadRegister:', error);
+
+      toast.error(
+        error?.message ||
+          'Unable to load attendance register',
+      );
+
+      setStudents([]);
+      setRecords({});
+      setSession(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    branchId,
+    canManage,
+    selectedClassId,
+    selectedDate,
+  ]);
+
+  /*
+   * ============================================================
+   * LOAD CLASS SIDEBAR ANALYTICS
+   * ============================================================
+   */
+
+  const loadSidebarStats = useCallback(async () => {
+    if (
+      !branchId ||
+      !canManage ||
+      classes.length === 0
+    ) {
+      return;
+    }
+
+    try {
+      const classIds = classes.map((item) => item.id);
+
+      const { data: sessions, error: sessionError } =
+        await supabase
+          .from('attendance_sessions')
+          .select('id,class_id')
+          .eq('branch_id', branchId)
+          .eq('attendance_date', selectedDate)
+          .eq('session_type', 'daily')
+          .in('class_id', classIds);
+
+      if (sessionError) throw sessionError;
+
+      if (!sessions?.length) {
+        setSidebarStats({});
+        return;
+      }
+
+      const sessionIds = sessions.map(
+        (item) => item.id,
+      );
+
+      const {
+        data: attendanceRows,
+        error: recordError,
+      } = await supabase
+        .from('attendance_records')
+        .select('session_id,status')
+        .in('session_id', sessionIds);
+
       if (recordError) throw recordError;
 
-      const { data: updatedSession, error: sessionError } = await supabase
-        .from('attendance_sessions')
-        .update({ status: 'submitted', submitted_by: user.id, submitted_at: new Date().toISOString() })
-        .eq('id', sessionId)
-        .select('id,class_id,attendance_date,status,submitted_at')
-        .single();
-      if (sessionError) throw sessionError;
-      setSession(updatedSession as SessionRow);
-      toast.success('Attendance saved and securely audited');
+      const sessionClassMap = new Map<string, string>();
+
+      sessions.forEach((item) => {
+        sessionClassMap.set(
+          item.id,
+          item.class_id,
+        );
+      });
+
+      const result: Record<string, Counts> = {};
+
+      (attendanceRows || []).forEach((row: any) => {
+        const classId = sessionClassMap.get(
+          row.session_id,
+        );
+
+        if (!classId) return;
+
+        if (!result[classId]) {
+          result[classId] = emptyCounts();
+        }
+
+        result[classId].total++;
+
+        if (STATUSES.includes(row.status)) {
+          result[classId][row.status]++;
+        }
+      });
+
+      setSidebarStats(result);
+    } catch (error) {
+      console.warn(
+        'Attendance sidebar analytics:',
+        error,
+      );
+    }
+  }, [
+    branchId,
+    canManage,
+    classes,
+    selectedDate,
+  ]);
+
+  /*
+   * ============================================================
+   * LOAD STUDENT/PARENT ATTENDANCE HISTORY
+   * ============================================================
+   */
+
+  const loadStudentHistory = useCallback(
+    async (studentId: string) => {
+      if (!branchId || !studentId) return;
+
+      setLoading(true);
+
+      try {
+        const { data: student, error: studentError } =
+          await supabase
+            .from('students')
+            .select(
+              'id,first_name,last_name,middle_name,admission_number,passport_url,class_id',
+            )
+            .eq('id', studentId)
+            .eq('branch_id', branchId)
+            .maybeSingle();
+
+        if (studentError) throw studentError;
+
+        if (!student) {
+          setCurrentStudent(null);
+          setStudentHistory([]);
+          return;
+        }
+
+        setCurrentStudent(student as Student);
+
+        const fromDate = new Date();
+
+        fromDate.setDate(
+          fromDate.getDate() - 89,
+        );
+
+        const from = fromDate
+          .toISOString()
+          .slice(0, 10);
+
+        const { data: sessions, error: sessionsError } =
+          await supabase
+            .from('attendance_sessions')
+            .select('id,attendance_date')
+            .eq('branch_id', branchId)
+            .eq('class_id', student.class_id)
+            .eq('session_type', 'daily')
+            .gte('attendance_date', from)
+            .lte(
+              'attendance_date',
+              selectedDate,
+            )
+            .order('attendance_date', {
+              ascending: false,
+            });
+
+        if (sessionsError) throw sessionsError;
+
+        const sessionIds = (sessions || []).map(
+          (item) => item.id,
+        );
+
+        if (!sessionIds.length) {
+          setStudentHistory([]);
+          return;
+        }
+
+        const {
+          data: attendanceRows,
+          error: attendanceError,
+        } = await supabase
+          .from('attendance_records')
+          .select('session_id,status')
+          .eq('student_id', studentId)
+          .in('session_id', sessionIds);
+
+        if (attendanceError) throw attendanceError;
+
+        const dates = new Map<string, string>();
+
+        (sessions || []).forEach((item) => {
+          dates.set(
+            item.id,
+            item.attendance_date,
+          );
+        });
+
+        const history = (attendanceRows || [])
+          .map((row: any) => ({
+            date:
+              dates.get(row.session_id) || '',
+            status: row.status as Status,
+          }))
+          .filter(
+            (item) => item.date,
+          );
+
+        setStudentHistory(history);
+      } catch (error: any) {
+        console.error(
+          'loadStudentHistory:',
+          error,
+        );
+
+        toast.error(
+          error?.message ||
+            'Unable to load attendance history',
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [
+      branchId,
+      selectedDate,
+    ],
+  );
+
+  /*
+   * ============================================================
+   * INITIAL LOAD
+   * ============================================================
+   */
+
+  useEffect(() => {
+    void loadClasses();
+    void loadParentChildren();
+  }, [
+    loadClasses,
+    loadParentChildren,
+  ]);
+
+  useEffect(() => {
+    void loadRegister();
+  }, [loadRegister]);
+
+  useEffect(() => {
+    void loadSidebarStats();
+  }, [loadSidebarStats]);
+
+  /*
+   * ============================================================
+   * STUDENT LOGIN VIEW
+   * ============================================================
+   */
+
+  useEffect(() => {
+    if (
+      !isStudent ||
+      !user?.id ||
+      !branchId
+    ) {
+      return;
+    }
+
+    void (async () => {
+      const { data, error } =
+        await supabase
+          .from('students')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('branch_id', branchId)
+          .maybeSingle();
+
+      if (error) {
+        console.error(
+          'Student lookup:',
+          error,
+        );
+        return;
+      }
+
+      if (data?.id) {
+        await loadStudentHistory(
+          data.id,
+        );
+      }
+    })();
+  }, [
+    branchId,
+    isStudent,
+    loadStudentHistory,
+    user?.id,
+  ]);
+
+  /*
+   * ============================================================
+   * PARENT VIEW
+   * ============================================================
+   */
+
+  useEffect(() => {
+    if (
+      isParent &&
+      selectedChildId
+    ) {
+      void loadStudentHistory(
+        selectedChildId,
+      );
+    }
+  }, [
+    isParent,
+    selectedChildId,
+    loadStudentHistory,
+  ]);
+
+  /*
+   * ============================================================
+   * REGISTER COUNTS
+   * ============================================================
+   */
+
+  const counts = useMemo(() => {
+    const result = emptyCounts();
+
+    Object.values(records).forEach(
+      (record) => {
+        result.total++;
+        result[record.status]++;
+      },
+    );
+
+    return result;
+  }, [records]);
+
+  const visibleRecords = useMemo(() => {
+    const query = search
+      .toLowerCase()
+      .trim();
+
+    return Object.values(records).filter(
+      (record) => {
+        const searchable =
+          `${studentName(
+            record.student,
+          )} ${
+            record.student.admission_number || ''
+          }`.toLowerCase();
+
+        const matchesSearch =
+          !query ||
+          searchable.includes(query);
+
+        const matchesFilter =
+          filter === 'all' ||
+          record.status === filter;
+
+        return (
+          matchesSearch &&
+          matchesFilter
+        );
+      },
+    );
+  }, [
+    filter,
+    records,
+    search,
+  ]);
+
+  /*
+   * ============================================================
+   * UPDATE STATUS
+   * ============================================================
+   */
+
+  const setStudentStatus = (
+    studentId: string,
+    status: Status,
+  ) => {
+    setRecords((previous) => {
+      const existing =
+        previous[studentId];
+
+      if (!existing) return previous;
+
+      return {
+        ...previous,
+        [studentId]: {
+          ...existing,
+          status,
+          check_in_at:
+            status === 'late'
+              ? existing.check_in_at ||
+                new Date().toISOString()
+              : existing.check_in_at,
+        },
+      };
+    });
+  };
+
+  /*
+   * ============================================================
+   * UPDATE REMARK
+   * ============================================================
+   */
+
+  const setRemark = (
+    studentId: string,
+    remarks: string,
+  ) => {
+    setRecords((previous) => {
+      const existing =
+        previous[studentId];
+
+      if (!existing) return previous;
+
+      return {
+        ...previous,
+        [studentId]: {
+          ...existing,
+          remarks,
+        },
+      };
+    });
+  };
+
+  /*
+   * ============================================================
+   * MARK ALL
+   * ============================================================
+   */
+
+  const markAll = (
+    status: Status,
+  ) => {
+    setRecords((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).map(
+          ([studentId, record]) => [
+            studentId,
+            {
+              ...record,
+              status,
+            },
+          ],
+        ),
+      ),
+    );
+  };
+
+  /*
+   * ============================================================
+   * SAVE ATTENDANCE
+   *
+   * IMPORTANT:
+   * This uses the secure Supabase RPC.
+   * It does NOT directly insert into attendance_sessions.
+   * ============================================================
+   */
+
+  const saveAttendance = async () => {
+    if (
+      !branchId ||
+      !selectedClassId ||
+      !user?.id ||
+      students.length === 0
+    ) {
+      toast.error(
+        'Select a class containing students first.',
+      );
+      return;
+    }
+
+    if (!canManage) {
+      toast.error(
+        'You do not have permission to manage attendance.',
+      );
+      return;
+    }
+
+    if (
+      session?.status === 'locked' &&
+      !isManager
+    ) {
+      toast.error(
+        'This attendance register is locked.',
+      );
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const payload = students.map(
+        (student) => {
+          const record =
+            records[student.id];
+
+          return {
+            student_id: student.id,
+            status:
+              record?.status ||
+              'present',
+            check_in_at:
+              record?.check_in_at ||
+              null,
+            remarks:
+              record?.remarks ||
+              null,
+          };
+        },
+      );
+
+      let teacherId: string | null =
+        null;
+
+      if (isTeacher) {
+        const {
+          data,
+          error,
+        } = await supabase
+          .from('teachers')
+          .select('id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        teacherId =
+          data?.id || null;
+      }
+
+      const {
+        data,
+        error,
+      } = await supabase.rpc(
+        'attendance_save_register',
+        {
+          p_branch_id:
+            branchId,
+          p_class_id:
+            selectedClassId,
+          p_attendance_date:
+            selectedDate,
+          p_records:
+            payload,
+          p_teacher_id:
+            teacherId,
+        },
+      );
+
+      if (error) {
+        console.error(
+          'attendance_save_register error:',
+          error,
+        );
+
+        throw new Error(
+          error.message ||
+            'Unable to save attendance',
+        );
+      }
+
+      const saved =
+        Number(
+          data?.saved ??
+            students.length,
+        );
+
+      toast.success(
+        `Attendance saved for ${saved} student${
+          saved === 1 ? '' : 's'
+        }.`,
+      );
+
       await loadRegister();
+      await loadSidebarStats();
     } catch (error: any) {
-      toast.error(error?.message || 'Unable to save attendance');
+      console.error(
+        'Full attendance save error:',
+        error,
+      );
+
+      toast.error(
+        error?.message ||
+          'Unable to save attendance',
+      );
     } finally {
       setSaving(false);
     }
   };
 
-  const lockSession = async () => {
-    if (!session?.id || !isManager || !user?.id) return;
-    const nextLocked = session.status !== 'locked';
-    const { data, error } = await supabase.from('attendance_sessions').update({ status: nextLocked ? 'locked' : 'submitted' }).eq('id', session.id).select('id,class_id,attendance_date,status,submitted_at').single();
-    if (error) return toast.error(error.message);
-    setSession(data as SessionRow);
-    toast.success(nextLocked ? 'Attendance session locked' : 'Attendance session reopened');
+  /*
+   * ============================================================
+   * LOCK / REOPEN
+   * ============================================================
+   */
+
+  const toggleLock = async () => {
+    if (
+      !isManager ||
+      !session?.id
+    ) {
+      return;
+    }
+
+    const nextStatus =
+      session.status === 'locked'
+        ? 'submitted'
+        : 'locked';
+
+    try {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from('attendance_sessions')
+        .update({
+          status: nextStatus,
+        })
+        .eq('id', session.id)
+        .select(
+          'id,class_id,attendance_date,status,submitted_at',
+        )
+        .single();
+
+      if (error) throw error;
+
+      setSession(
+        data as Session,
+      );
+
+      toast.success(
+        nextStatus === 'locked'
+          ? 'Attendance locked successfully.'
+          : 'Attendance reopened successfully.',
+      );
+    } catch (error: any) {
+      console.error(
+        'toggleLock:',
+        error,
+      );
+
+      toast.error(
+        error?.message ||
+          'Unable to change attendance lock',
+      );
+    }
   };
 
-  const filteredRows = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return Object.values(rows).filter(row => {
-      const matchesSearch = !term || displayName(row.student).toLowerCase().includes(term) || String(row.student.admission_number || '').toLowerCase().includes(term);
-      const matchesStatus = statusFilter === 'all' || row.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    });
-  }, [rows, search, statusFilter]);
-
-  const counts = useMemo(() => {
-    const values = Object.values(rows);
-    return {
-      total: values.length,
-      present: values.filter(row => row.status === 'present').length,
-      late: values.filter(row => row.status === 'late').length,
-      absent: values.filter(row => row.status === 'absent').length,
-      excused: values.filter(row => row.status === 'excused').length,
-      halfDay: values.filter(row => row.status === 'half_day').length,
-    };
-  }, [rows]);
-
-  const studentCounts = useMemo(() => {
-    const total = studentHistory.length;
-    const present = studentHistory.filter(row => row.status === 'present').length;
-    const late = studentHistory.filter(row => row.status === 'late').length;
-    const absent = studentHistory.filter(row => row.status === 'absent').length;
-    const excused = studentHistory.filter(row => row.status === 'excused').length;
-    return { total, present, late, absent, excused, rate: total ? Math.round(((present + late + excused) / total) * 100) : 0 };
-  }, [studentHistory]);
+  /*
+   * ============================================================
+   * CSV EXPORT
+   * ============================================================
+   */
 
   const exportCsv = () => {
-    const data = viewMode === 'manage' ? filteredRows : studentHistory;
-    const header = ['Date', 'Admission No', 'Student', 'Status', 'Check In', 'Remarks'];
-    const lines = data.map(row => [row.date || selectedDate, row.student.admission_number || '', displayName(row.student), row.status, formatTime(row.check_in_at), row.remarks || ''].map(value => `"${String(value).replace(/"/g, '""')}"`).join(','));
-    const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `attendance-${selectedDate}.csv`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    if (!visibleRecords.length) {
+      toast.error(
+        'There is no attendance data to export.',
+      );
+      return;
+    }
+
+    const rows = [
+      [
+        'Student',
+        'Admission Number',
+        'Status',
+        'Check In',
+        'Remarks',
+      ],
+      ...visibleRecords.map(
+        (record) => [
+          studentName(
+            record.student,
+          ),
+          record.student
+            .admission_number || '',
+          STATUS_META[
+            record.status
+          ].label,
+          record.check_in_at
+            ? formatTime(
+                record.check_in_at,
+              )
+            : '',
+          record.remarks || '',
+        ],
+      ),
+    ];
+
+    const csv = rows
+      .map((row) =>
+        row
+          .map(
+            (value) =>
+              `"${String(
+                value,
+              ).replace(
+                /"/g,
+                '""',
+              )}"`,
+          )
+          .join(','),
+      )
+      .join('\n');
+
+    const blob =
+      new Blob(
+        [csv],
+        {
+          type: 'text/csv;charset=utf-8;',
+        },
+      );
+
+    const url =
+      URL.createObjectURL(
+        blob,
+      );
+
+    const link =
+      document.createElement(
+        'a',
+      );
+
+    link.href = url;
+    link.download = `attendance-${selectedDate}.csv`;
+
+    document.body.appendChild(
+      link,
+    );
+
+    link.click();
+    link.remove();
+
+    URL.revokeObjectURL(
+      url,
+    );
   };
 
-  if (viewMode === 'student') {
+  /*
+   * ============================================================
+   * PRINT
+   * ============================================================
+   */
+
+  const printAttendance = () => {
+    window.print();
+  };
+
+  /*
+   * ============================================================
+   * SELECTED CLASS
+   * ============================================================
+   */
+
+  const selectedClass = classes.find(
+    (item) =>
+      item.id === selectedClassId,
+  );
+
+  /*
+   * ============================================================
+   * STUDENT HISTORY STATS
+   * ============================================================
+   */
+
+  const historyCounts = useMemo(() => {
+    const result =
+      emptyCounts();
+
+    studentHistory.forEach(
+      (item) => {
+        result.total++;
+
+        if (
+          STATUSES.includes(
+            item.status,
+          )
+        ) {
+          result[item.status]++;
+        }
+      },
+    );
+
+    return result;
+  }, [studentHistory]);
+
+  const historyRate =
+    attendanceRate(
+      historyCounts,
+    );
+
+  /*
+   * ============================================================
+   * LOADING STATE
+   * ============================================================
+   */
+
+  if (
+    loading &&
+    !students.length &&
+    !currentStudent
+  ) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 md:p-8 space-y-6">
-        <header className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-2 text-indigo-600 text-sm font-bold uppercase tracking-wider"><ShieldCheck size={16} /> My Attendance</div>
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mt-2">
-            <div><h1 className="text-3xl font-black text-slate-900 dark:text-white">Attendance Passport</h1><p className="text-slate-500 mt-1">Your attendance record, punctuality and absence history.</p></div>
-            <div className="flex items-center gap-2"><select value={historyDays} onChange={e => setHistoryDays(Number(e.target.value))} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value={30}>Last 30 days</option><option value={60}>Last 60 days</option><option value={90}>Last 90 days</option><option value={180}>Last 6 months</option></select><button onClick={exportCsv} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white"><Download size={16} /> Export</button></div>
-          </div>
-        </header>
-        <main className="max-w-7xl mx-auto space-y-5">
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-            {[
-              ['Attendance rate', `${studentCounts.rate}%`, 'text-indigo-600'],
-              ['Present', studentCounts.present, 'text-emerald-600'],
-              ['Late', studentCounts.late, 'text-amber-600'],
-              ['Absent', studentCounts.absent, 'text-rose-600'],
-              ['Excused', studentCounts.excused, 'text-sky-600'],
-            ].map(([label, value, color]) => <div key={String(label)} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"><p className="text-xs font-semibold text-slate-500">{label}</p><p className={`mt-1 text-2xl font-black ${color}`}>{value}</p></div>)}
-          </div>
-          <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-100 p-5 dark:border-slate-800"><div><h2 className="font-black text-slate-900 dark:text-white">Attendance history</h2><p className="text-xs text-slate-500 mt-1">Only your own attendance records are visible.</p></div><CalendarDays className="text-indigo-500" size={20} /></div>
-            <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {studentHistory.map(row => { const meta = statusMeta[row.status]; const Icon = meta.icon; return <div key={row.record_id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-4"><div className="w-11 h-11 rounded-2xl bg-slate-100 flex items-center justify-center dark:bg-slate-800"><CalendarDays size={18} className="text-slate-500" /></div><div className="flex-1"><p className="font-bold text-slate-900 dark:text-white">{new Date(`${row.date}T00:00:00`).toLocaleDateString('en-NG',{weekday:'long',day:'numeric',month:'short',year:'numeric'})}</p><p className="text-xs text-slate-500">Check-in: {formatTime(row.check_in_at)} {row.remarks ? `• ${row.remarks}` : ''}</p></div><span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold ring-1 ${meta.className}`}><Icon size={14} /> {meta.label}</span></div>; })}
-              {!loading && !studentHistory.length && <div className="p-12 text-center text-slate-400">No attendance records found for this period.</div>}
-              {loading && <div className="p-12 text-center text-slate-400">Loading attendance history…</div>}
-            </div>
-          </section>
-        </main>
+      <div className="flex min-h-[60vh] items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+          <p className="text-sm font-medium text-slate-600">
+            Loading attendance...
+          </p>
+        </div>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 p-4 md:p-8 space-y-6">
-      <header className="max-w-7xl mx-auto">
-        <div className="flex items-center gap-2 text-indigo-600 text-sm font-bold uppercase tracking-wider"><Clock3 size={16} /> Premium Roll Call</div>
-        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mt-2">
-          <div><h1 className="text-3xl font-black text-slate-900 dark:text-white">Attendance Command Centre</h1><p className="text-slate-500 mt-1">Secure daily registers with role-based access, audit history and parent-alert readiness.</p></div>
-          <div className="flex gap-2"><button onClick={exportCsv} disabled={!filteredRows.length} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm disabled:opacity-50"><Download size={16} /> Export CSV</button><button onClick={() => loadRegister()} disabled={!selectedClassId || loading} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh</button></div>
+  /*
+   * ============================================================
+   * STUDENT / PARENT ATTENDANCE PASSPORT
+   * ============================================================
+   */
+
+  if (
+    isStudent ||
+    isParent
+  ) {
+    const displayStudent =
+      currentStudent;
+
+    return (
+      <div className="min-h-screen bg-slate-50 p-3 sm:p-5 lg:p-6">
+        <div className="mx-auto max-w-7xl space-y-5">
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-indigo-600">
+                  <ShieldCheck className="h-4 w-4" />
+                  Attendance Passport
+                </div>
+
+                <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                  Attendance History
+                </h1>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  View attendance records,
+                  punctuality and history.
+                </p>
+              </div>
+
+              {isParent &&
+                parentChildren.length >
+                  0 && (
+                  <div className="w-full lg:w-72">
+                    <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Select child
+                    </label>
+
+                    <select
+                      value={
+                        selectedChildId
+                      }
+                      onChange={(event) =>
+                        setSelectedChildId(
+                          event.target
+                            .value,
+                        )
+                      }
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    >
+                      {parentChildren.map(
+                        (child) => (
+                          <option
+                            key={
+                              child.id
+                            }
+                            value={
+                              child.id
+                            }
+                          >
+                            {studentName(
+                              child,
+                            )}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </div>
+                )}
+            </div>
+          </div>
+
+          {!displayStudent ? (
+            <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
+              <UserX className="mx-auto h-10 w-10 text-slate-400" />
+
+              <h2 className="mt-4 text-lg font-bold text-slate-800">
+                No attendance profile found
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Your attendance information is
+                not available yet.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-slate-500">
+                      Attendance rate
+                    </span>
+
+                    <BarChart3 className="h-5 w-5 text-indigo-600" />
+                  </div>
+
+                  <div className="mt-3 text-3xl font-bold text-slate-900">
+                    {historyRate}%
+                  </div>
+
+                  <p className="mt-1 text-xs text-slate-500">
+                    Based on recorded sessions
+                  </p>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-slate-500">
+                      Present
+                    </span>
+
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                  </div>
+
+                  <div className="mt-3 text-3xl font-bold text-slate-900">
+                    {historyCounts.present}
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-slate-500">
+                      Late
+                    </span>
+
+                    <Clock3 className="h-5 w-5 text-amber-600" />
+                  </div>
+
+                  <div className="mt-3 text-3xl font-bold text-slate-900">
+                    {historyCounts.late}
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-slate-500">
+                      Absent
+                    </span>
+
+                    <UserX className="h-5 w-5 text-rose-600" />
+                  </div>
+
+                  <div className="mt-3 text-3xl font-bold text-slate-900">
+                    {historyCounts.absent}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-indigo-50 text-lg font-bold text-indigo-700">
+                      {displayStudent.passport_url ? (
+                        <img
+                          src={
+                            displayStudent.passport_url
+                          }
+                          alt={studentName(
+                            displayStudent,
+                          )}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        initials(
+                          displayStudent,
+                        )
+                      )}
+                    </div>
+
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-900">
+                        {studentName(
+                          displayStudent,
+                        )}
+                      </h2>
+
+                      <p className="text-sm text-slate-500">
+                        {displayStudent.admission_number ||
+                          'No admission number'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      loadStudentHistory(
+                        displayStudent.id,
+                      )
+                    }
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    Refresh
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-100 p-5">
+                  <h2 className="font-bold text-slate-900">
+                    Recent attendance
+                  </h2>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    Last 90 days of recorded attendance.
+                  </p>
+                </div>
+
+                <div className="divide-y divide-slate-100">
+                  {studentHistory.length ===
+                  0 ? (
+                    <div className="p-10 text-center text-sm text-slate-500">
+                      No attendance records found.
+                    </div>
+                  ) : (
+                    studentHistory.map(
+                      (item, index) => (
+                        <div
+                          key={`${item.date}-${index}`}
+                          className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+                              <CalendarDays className="h-5 w-5 text-slate-500" />
+                            </div>
+
+                            <div>
+                              <p className="font-semibold text-slate-800">
+                                {formatDate(
+                                  item.date,
+                                )}
+                              </p>
+
+                              <p className="text-xs text-slate-500">
+                                Attendance record
+                              </p>
+                            </div>
+                          </div>
+
+                          <span
+                            className={`inline-flex w-fit items-center rounded-full border px-3 py-1 text-xs font-bold ${STATUS_META[item.status].classes}`}
+                          >
+                            {
+                              STATUS_META[
+                                item.status
+                              ].label
+                            }
+                          </span>
+                        </div>
+                      ),
+                    )
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
-      </header>
-      <main className="max-w-7xl mx-auto space-y-5">
-        <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-500">Class {isTeacher && <span className="text-indigo-500">• Class teacher only</span>}</span><div className="relative"><select value={selectedClassId} onChange={e => setSelectedClassId(e.target.value)} className="w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 py-3 pr-9 text-sm font-semibold outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-white"><option value="">Select class</option>{classes.map(item => <option key={item.id} value={item.id}>{item.name}{item.code ? ` (${item.code})` : ''}</option>)}</select><ChevronDown className="absolute right-3 top-3.5 text-slate-400" size={16} /></div></label>
-            <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-500">Register date</span><input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-white" /></label>
-            <div className="flex items-end gap-2"><button onClick={() => markAll('present')} className="flex-1 rounded-xl bg-emerald-50 px-3 py-3 text-xs font-black text-emerald-700">Mark all present</button><button onClick={() => markAll('absent')} className="flex-1 rounded-xl bg-rose-50 px-3 py-3 text-xs font-black text-rose-700">Mark all absent</button></div>
+      </div>
+    );
+  }
+
+  /*
+   * ============================================================
+   * ACCESS DENIED
+   * ============================================================
+   */
+
+  if (!canManage) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center bg-slate-50 p-5">
+        <div className="max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <ShieldCheck className="mx-auto h-12 w-12 text-slate-400" />
+
+          <h1 className="mt-4 text-xl font-bold text-slate-900">
+            Attendance access unavailable
+          </h1>
+
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            Your account does not currently have permission
+            to manage attendance.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * ============================================================
+   * MAIN ATTENDANCE MANAGEMENT UI
+   * ============================================================
+   */
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <div className="mx-auto max-w-[1800px] p-3 sm:p-5 lg:p-6">
+        {/* HEADER */}
+
+        <div className="mb-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-indigo-600">
+                <ShieldCheck className="h-4 w-4" />
+                Attendance Management
+              </div>
+
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+                Attendance Command Centre
+              </h1>
+
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
+                Manage daily attendance, monitor class performance,
+                record punctuality and maintain a complete attendance
+                history.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setMobileSidebarOpen(
+                    (value) => !value,
+                  )
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 lg:hidden"
+              >
+                <Users className="h-4 w-4" />
+                Classes
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setMobileAnalyticsOpen(
+                    (value) => !value,
+                  )
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 xl:hidden"
+              >
+                <BarChart3 className="h-4 w-4" />
+                Analytics
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  void loadRegister();
+                  void loadSidebarStats();
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Refresh
+              </button>
+
+              <button
+                type="button"
+                onClick={printAttendance}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <Printer className="h-4 w-4" />
+                Print
+              </button>
+
+              <button
+                type="button"
+                onClick={exportCsv}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <Download className="h-4 w-4" />
+                Export
+              </button>
+            </div>
           </div>
-        </section>
-        <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          {[
-            ['Students', counts.total, Users, 'text-slate-700'],
-            ['Present', counts.present, UserCheck, 'text-emerald-600'],
-            ['Late', counts.late, Clock3, 'text-amber-600'],
-            ['Absent', counts.absent, UserX, 'text-rose-600'],
-            ['Excused', counts.excused, ShieldCheck, 'text-sky-600'],
-            ['Half day', counts.halfDay, AlertCircle, 'text-violet-600'],
-          ].map(([label, value, Icon, color]) => <div key={String(label)} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-slate-500">{label}</p>{React.createElement(Icon as React.FC<any>, { size: 17, className: color })}</div><p className={`mt-1 text-2xl font-black ${color}`}>{value}</p></div>)}
-        </section>
-        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex flex-col xl:flex-row xl:items-center gap-3 border-b border-slate-100 p-4 dark:border-slate-800">
-            <div className="relative flex-1"><Search size={17} className="absolute left-3 top-3 text-slate-400" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student or admission number…" className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-3 text-sm outline-none dark:border-slate-700 dark:bg-slate-950" /></div>
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as 'all' | AttendanceStatus)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold dark:border-slate-700 dark:bg-slate-950"><option value="all">All statuses</option>{STATUS_OPTIONS.map(status => <option key={status} value={status}>{statusMeta[status].label}</option>)}</select>
-            <button onClick={saveAttendance} disabled={saving || !selectedClassId || !students.length || session?.status === 'locked'} className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"><FileCheck2 size={17} />{saving ? 'Saving…' : 'Save & Submit'}</button>
-            {isManager && session && <button onClick={lockSession} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold dark:border-slate-700 dark:bg-slate-950">{session.status === 'locked' ? <Unlock size={16} /> : <Lock size={16} />}{session.status === 'locked' ? 'Reopen' : 'Lock'}</button>}
+        </div>
+
+        {/* CONTROLS */}
+
+        <div className="mb-5 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_190px_auto]">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+              <input
+                type="search"
+                value={search}
+                onChange={(event) =>
+                  setSearch(
+                    event.target.value,
+                  )
+                }
+                placeholder="Search student or admission number..."
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
+
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(event) =>
+                setSelectedDate(
+                  event.target.value,
+                )
+              }
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            />
+
+            <select
+              value={filter}
+              onChange={(event) =>
+                setFilter(
+                  event.target
+                    .value as
+                    | 'all'
+                    | Status,
+                )
+              }
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+            >
+              <option value="all">
+                All statuses
+              </option>
+
+              {STATUSES.map(
+                (status) => (
+                  <option
+                    key={status}
+                    value={status}
+                  >
+                    {
+                      STATUS_META[
+                        status
+                      ].label
+                    }
+                  </option>
+                ),
+              )}
+            </select>
           </div>
-          {session && <div className="flex items-center justify-between gap-3 bg-slate-50 px-4 py-2.5 text-xs dark:bg-slate-950"><span className="font-semibold text-slate-500">Session: <b className="text-slate-800 dark:text-white">{session.status}</b>{session.submitted_at ? ` • submitted ${formatTime(session.submitted_at)}` : ''}</span><span className="text-slate-400">{filteredRows.length} of {students.length} students</span></div>}
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1050px] text-left text-sm">
-              <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500 dark:bg-slate-950"><tr><th className="px-4 py-3">Student</th><th className="px-4 py-3">Admission No.</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Check-in</th><th className="px-4 py-3">Remarks</th></tr></thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredRows.map(row => <tr key={row.student.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
-                  <td className="px-4 py-3"><div className="flex items-center gap-3"><div className="h-10 w-10 overflow-hidden rounded-xl bg-slate-100 flex items-center justify-center dark:bg-slate-800">{row.student.passport_url ? <img src={row.student.passport_url} alt="" className="h-full w-full object-cover" /> : <Users size={17} className="text-slate-400" />}</div><div><p className="font-bold text-slate-900 dark:text-white">{displayName(row.student)}</p><p className="text-xs text-slate-400">{row.student.middle_name || 'Student'}</p></div></div></td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{row.student.admission_number || '—'}</td>
-                  <td className="px-4 py-3"><div className="flex flex-wrap gap-1.5">{STATUS_OPTIONS.map(status => { const active = row.status === status; const meta = statusMeta[status]; return <button key={status} onClick={() => setStatus(row.student.id, status)} disabled={session?.status === 'locked'} className={`rounded-lg px-2.5 py-1.5 text-[10px] font-black transition ${active ? `${meta.className} ring-1` : 'bg-slate-100 text-slate-500 dark:bg-slate-800'} disabled:cursor-not-allowed`}>{meta.label}</button>; })}</div></td>
-                  <td className="px-4 py-3"><span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300"><Clock3 size={14} />{formatTime(row.check_in_at)}</span></td>
-                  <td className="px-4 py-3"><input value={row.remarks} onChange={e => setRemark(row.student.id, e.target.value)} disabled={session?.status === 'locked'} placeholder="Optional remark…" className="w-full rounded-lg border border-transparent bg-slate-50 px-3 py-2 text-xs outline-none focus:border-indigo-300 dark:bg-slate-950" /></td>
-                </tr>)}
-              </tbody>
-            </table>
+
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <button
+              type="button"
+              onClick={() =>
+                markAll('present')
+              }
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 sm:flex-none"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              Mark all present
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                markAll('absent')
+              }
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 hover:bg-rose-100 sm:flex-none"
+            >
+              <UserX className="h-4 w-4" />
+              Mark all absent
+            </button>
+
+            <div className="flex-1 sm:flex-none" />
+
+            {isManager &&
+              session && (
+                <button
+                  type="button"
+                  onClick={
+                    toggleLock
+                  }
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:flex-none"
+                >
+                  {session.status ===
+                  'locked' ? (
+                    <>
+                      <Unlock className="h-4 w-4" />
+                      Reopen
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="h-4 w-4" />
+                      Lock
+                    </>
+                  )}
+                </button>
+              )}
+
+            <button
+              type="button"
+              disabled={
+                saving ||
+                students.length ===
+                  0
+              }
+              onClick={saveAttendance}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="h-4 w-4" />
+                  Save & Submit
+                </>
+              )}
+            </button>
           </div>
-          {!selectedClassId && <div className="p-14 text-center"><Users className="mx-auto text-slate-300" size={38} /><p className="mt-3 font-bold text-slate-500">Select a class to open the register.</p><p className="text-xs text-slate-400 mt-1">Teachers only see classes where they are assigned as class teacher.</p></div>}
-          {selectedClassId && !loading && !filteredRows.length && <div className="p-14 text-center text-slate-400">No students match the current filters.</div>}
-          {loading && <div className="p-14 text-center text-slate-400">Loading secure attendance register…</div>}
-        </section>
-      </main>
+        </div>
+
+        {/* MAIN THREE COLUMN LAYOUT */}
+
+        <div className="grid gap-5 lg:grid-cols-[250px_minmax(0,1fr)] xl:grid-cols-[250px_minmax(0,1fr)_320px]">
+          {/* LEFT CLASS SIDEBAR */}
+
+          <aside
+            className={`min-w-0 ${
+              mobileSidebarOpen
+                ? 'block'
+                : 'hidden lg:block'
+            }`}
+          >
+            <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-100 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                      Classes
+                    </p>
+
+                    <h2 className="mt-1 font-bold text-slate-900">
+                      Daily register
+                    </h2>
+                  </div>
+
+                  <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">
+                    {classes.length}
+                  </span>
+                </div>
+              </div>
+
+              <div className="max-h-[calc(100vh-280px)] overflow-y-auto p-2">
+                {classes.length ===
+                0 ? (
+                  <div className="p-5 text-center">
+                    <Users className="mx-auto h-8 w-8 text-slate-300" />
+
+                    <p className="mt-2 text-sm font-semibold text-slate-600">
+                      No classes available
+                    </p>
+
+                    {isTeacher && (
+                      <p className="mt-1 text-xs leading-5 text-slate-400">
+                        You must be assigned as
+                        a class teacher or
+                        assistant teacher.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  classes.map(
+                    (classItem) => {
+                      const stats =
+                        sidebarStats[
+                          classItem.id
+                        ] ||
+                        emptyCounts();
+
+                      const selected =
+                        selectedClassId ===
+                        classItem.id;
+
+                      return (
+                        <button
+                          key={
+                            classItem.id
+                          }
+                          type="button"
+                          onClick={() => {
+                            setSelectedClassId(
+                              classItem.id,
+                            );
+                            setMobileSidebarOpen(
+                              false,
+                            );
+                          }}
+                          className={`mb-1 w-full rounded-2xl p-3 text-left transition ${
+                            selected
+                              ? 'bg-indigo-50 ring-1 ring-indigo-200'
+                              : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p
+                                className={`truncate text-sm font-bold ${
+                                  selected
+                                    ? 'text-indigo-700'
+                                    : 'text-slate-800'
+                                }`}
+                              >
+                                {
+                                  classItem.name
+                                }
+                              </p>
+
+                              {classItem.code && (
+                                <p className="mt-0.5 text-xs text-slate-400">
+                                  {
+                                    classItem.code
+                                  }
+                                </p>
+                              )}
+                            </div>
+
+                            <span className="shrink-0 rounded-lg bg-white px-2 py-1 text-xs font-bold text-slate-500 shadow-sm">
+                              {stats.total}
+                            </span>
+                          </div>
+
+                          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-indigo-500"
+                              style={{
+                                width: `${attendanceRate(
+                                  stats,
+                                )}%`,
+                              }}
+                            />
+                          </div>
+
+                          <div className="mt-2 flex items-center justify-between text-[11px]">
+                            <span className="font-semibold text-slate-500">
+                              {attendanceRate(
+                                stats,
+                              )}
+                              % attendance
+                            </span>
+
+                            {stats.absent >
+                              0 && (
+                              <span className="font-bold text-rose-600">
+                                {stats.absent}{' '}
+                                absent
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    },
+                  )
+                )}
+              </div>
+            </div>
+          </aside>
+
+          {/* MAIN REGISTER */}
+
+          <main className="min-w-0">
+            <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+              {/* REGISTER HEADER */}
+
+              <div className="border-b border-slate-100 p-4 sm:p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-xl font-bold text-slate-900">
+                        {selectedClass?.name ||
+                          'Select a class'}
+                      </h2>
+
+                      {session && (
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-[11px] font-bold uppercase ${
+                            session.status ===
+                            'locked'
+                              ? 'border-rose-200 bg-rose-50 text-rose-700'
+                              : session.status ===
+                                'submitted'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : 'border-amber-200 bg-amber-50 text-amber-700'
+                          }`}
+                        >
+                          {
+                            session.status
+                          }
+                        </span>
+                      )}
+                    </div>
+
+                    <p className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+                      <CalendarDays className="h-4 w-4" />
+                      {formatDate(
+                        selectedDate,
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <div className="rounded-2xl bg-emerald-50 px-3 py-2">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-600">
+                        Present
+                      </p>
+
+                      <p className="mt-0.5 text-lg font-bold text-emerald-700">
+                        {counts.present}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-amber-50 px-3 py-2">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-amber-600">
+                        Late
+                      </p>
+
+                      <p className="mt-0.5 text-lg font-bold text-amber-700">
+                        {counts.late}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-rose-50 px-3 py-2">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-rose-600">
+                        Absent
+                      </p>
+
+                      <p className="mt-0.5 text-lg font-bold text-rose-700">
+                        {counts.absent}
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl bg-indigo-50 px-3 py-2">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-600">
+                        Rate
+                      </p>
+
+                      <p className="mt-0.5 text-lg font-bold text-indigo-700">
+                        {attendanceRate(
+                          counts,
+                        )}
+                        %
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* REGISTER */}
+
+              {students.length ===
+              0 ? (
+                <div className="p-12 text-center">
+                  <Users className="mx-auto h-12 w-12 text-slate-300" />
+
+                  <h3 className="mt-4 font-bold text-slate-800">
+                    No active students
+                  </h3>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    This class does not currently
+                    have active students.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[1050px]">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                          Student
+                        </th>
+
+                        <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                          Status
+                        </th>
+
+                        <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                          Check-in
+                        </th>
+
+                        <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+                          Remarks
+                        </th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-slate-100">
+                      {visibleRecords.map(
+                        (record) => {
+                          const locked =
+                            session?.status ===
+                              'locked' &&
+                            !isManager;
+
+                          return (
+                            <tr
+                              key={
+                                record.student.id
+                              }
+                              className="hover:bg-slate-50/70"
+                            >
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-indigo-50 text-xs font-bold text-indigo-700">
+                                    {record.student
+                                      .passport_url ? (
+                                      <img
+                                        src={
+                                          record
+                                            .student
+                                            .passport_url
+                                        }
+                                        alt={studentName(
+                                          record.student,
+                                        )}
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      initials(
+                                        record.student,
+                                      )
+                                    )}
+                                  </div>
+
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-bold text-slate-800">
+                                      {studentName(
+                                        record.student,
+                                      )}
+                                    </p>
+
+                                    <p className="mt-0.5 text-xs text-slate-400">
+                                      {record.student
+                                        .admission_number ||
+                                        'No admission number'}
+                                    </p>
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="px-3 py-3">
+                                <div className="flex flex-wrap gap-1.5">
+                                  {STATUSES.map(
+                                    (
+                                      status,
+                                    ) => (
+                                      <button
+                                        key={
+                                          status
+                                        }
+                                        type="button"
+                                        disabled={
+                                          locked
+                                        }
+                                        onClick={() =>
+                                          setStudentStatus(
+                                            record
+                                              .student
+                                              .id,
+                                            status,
+                                          )
+                                        }
+                                        title={
+                                          STATUS_META[
+                                            status
+                                          ].label
+                                        }
+                                        className={`rounded-lg border px-2.5 py-1.5 text-xs font-bold transition ${
+                                          record.status ===
+                                          status
+                                            ? STATUS_META[
+                                                status
+                                              ].classes
+                                            : 'border-slate-200 bg-white text-slate-400 hover:bg-slate-50'
+                                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                                      >
+                                        <span className="sm:hidden">
+                                          {
+                                            STATUS_META[
+                                              status
+                                            ].short
+                                          }
+                                        </span>
+
+                                        <span className="hidden sm:inline">
+                                          {
+                                            STATUS_META[
+                                              status
+                                            ].label
+                                          }
+                                        </span>
+                                      </button>
+                                    ),
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="px-3 py-3">
+                                <div className="flex items-center gap-2 text-sm text-slate-600">
+                                  <Clock3 className="h-4 w-4 text-slate-400" />
+
+                                  {formatTime(
+                                    record.check_in_at,
+                                  )}
+                                </div>
+                              </td>
+
+                              <td className="px-3 py-3">
+                                <input
+                                  type="text"
+                                  value={
+                                    record.remarks
+                                  }
+                                  disabled={
+                                    locked
+                                  }
+                                  onChange={(
+                                    event,
+                                  ) =>
+                                    setRemark(
+                                      record
+                                        .student
+                                        .id,
+                                      event
+                                        .target
+                                        .value,
+                                    )
+                                  }
+                                  placeholder="Optional remark..."
+                                  className="w-full min-w-[160px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50"
+                                />
+                              </td>
+                            </tr>
+                          );
+                        },
+                      )}
+                    </tbody>
+                  </table>
+
+                  {visibleRecords.length ===
+                    0 && (
+                    <div className="p-10 text-center">
+                      <Search className="mx-auto h-8 w-8 text-slate-300" />
+
+                      <p className="mt-3 text-sm font-semibold text-slate-600">
+                        No students match your search.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* FOOTER */}
+
+              <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-xs text-slate-500">
+                  Showing{' '}
+                  <span className="font-bold text-slate-700">
+                    {visibleRecords.length}
+                  </span>{' '}
+                  of{' '}
+                  <span className="font-bold text-slate-700">
+                    {students.length}
+                  </span>{' '}
+                  students
+                </div>
+
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+                  {session?.status ===
+                    'locked' && (
+                    <>
+                      <Lock className="h-4 w-4 text-rose-500" />
+                      Register locked
+                    </>
+                  )}
+
+                  {session?.submitted_at &&
+                    session.status !==
+                      'locked' && (
+                      <>
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                        Submitted{' '}
+                        {formatTime(
+                          session.submitted_at,
+                        )}
+                      </>
+                    )}
+                </div>
+              </div>
+            </div>
+          </main>
+
+          {/* RIGHT ANALYTICS */}
+
+          <aside
+            className={`min-w-0 ${
+              mobileAnalyticsOpen
+                ? 'block'
+                : 'hidden xl:block'
+            }`}
+          >
+            <div className="space-y-5">
+              {/* RATE CARD */}
+
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                      Class attendance
+                    </p>
+
+                    <h2 className="mt-1 font-bold text-slate-900">
+                      Daily performance
+                    </h2>
+                  </div>
+
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50">
+                    <BarChart3 className="h-5 w-5 text-indigo-600" />
+                  </div>
+                </div>
+
+                <div className="mt-6 flex items-end justify-between">
+                  <div>
+                    <p className="text-4xl font-bold tracking-tight text-slate-900">
+                      {attendanceRate(
+                        counts,
+                      )}
+                      %
+                    </p>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      attendance rate
+                    </p>
+                  </div>
+
+                  <p className="text-sm font-bold text-slate-500">
+                    {counts.total} students
+                  </p>
+                </div>
+
+                <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className="h-full rounded-full bg-indigo-600 transition-all"
+                    style={{
+                      width: `${attendanceRate(
+                        counts,
+                      )}%`,
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* STATUS BREAKDOWN */}
+
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <UserCheck className="h-5 w-5 text-slate-500" />
+
+                  <h2 className="font-bold text-slate-900">
+                    Status breakdown
+                  </h2>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {STATUSES.map(
+                    (status) => {
+                      const value =
+                        counts[
+                          status
+                        ];
+
+                      const percentage =
+                        counts.total
+                          ? Math.round(
+                              (value /
+                                counts.total) *
+                                100,
+                            )
+                          : 0;
+
+                      return (
+                        <div
+                          key={
+                            status
+                          }
+                        >
+                          <div className="mb-1.5 flex items-center justify-between">
+                            <span
+                              className={`rounded-full border px-2 py-0.5 text-[11px] font-bold ${STATUS_META[status].classes}`}
+                            >
+                              {
+                                STATUS_META[
+                                  status
+                                ].label
+                              }
+                            </span>
+
+                            <span className="text-xs font-bold text-slate-600">
+                              {value}{' '}
+                              ·{' '}
+                              {percentage}
+                              %
+                            </span>
+                          </div>
+
+                          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-slate-500 transition-all"
+                              style={{
+                                width: `${percentage}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    },
+                  )}
+                </div>
+              </div>
+
+              {/* SESSION DETAILS */}
+
+              <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-5 w-5 text-slate-500" />
+
+                  <h2 className="font-bold text-slate-900">
+                    Session details
+                  </h2>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-3">
+                    <span className="text-xs font-medium text-slate-500">
+                      Date
+                    </span>
+
+                    <span className="text-xs font-bold text-slate-800">
+                      {formatDate(
+                        selectedDate,
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-3">
+                    <span className="text-xs font-medium text-slate-500">
+                      Students
+                    </span>
+
+                    <span className="text-xs font-bold text-slate-800">
+                      {students.length}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-3">
+                    <span className="text-xs font-medium text-slate-500">
+                      Status
+                    </span>
+
+                    <span className="text-xs font-bold capitalize text-slate-800">
+                      {session?.status ||
+                        'Not created'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ATTENTION */}
+
+              <div className="rounded-3xl border border-rose-100 bg-rose-50 p-5">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-rose-600" />
+
+                  <h2 className="font-bold text-rose-900">
+                    Needs attention
+                  </h2>
+                </div>
+
+                <p className="mt-2 text-sm leading-6 text-rose-700">
+                  {counts.absent ===
+                  0
+                    ? 'No students are currently marked absent.'
+                    : `${counts.absent} student${
+                        counts.absent ===
+                        1
+                          ? ''
+                          : 's'
+                      } marked absent today.`}
+                </p>
+
+                {counts.late >
+                  0 && (
+                  <p className="mt-2 text-xs font-semibold text-amber-700">
+                    {counts.late}{' '}
+                    student
+                    {counts.late ===
+                    1
+                      ? ''
+                      : 's'}{' '}
+                    marked late.
+                  </p>
+                )}
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+
+      {/* PRINT STYLES */}
+
+      <style>
+        {`
+          @media print {
+            .no-print {
+              display: none !important;
+            }
+
+            body {
+              background: white !important;
+            }
+
+            @page {
+              size: landscape;
+              margin: 10mm;
+            }
+
+            table {
+              min-width: 100% !important;
+            }
+          }
+        `}
+      </style>
     </div>
   );
 }
