@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
 import {
   AlertCircle,
   CalendarDays,
+  Check,
   CheckCircle2,
   ChevronDown,
   Clock3,
@@ -46,7 +48,6 @@ interface AttendanceRow {
   check_in_at: string | null;
   remarks: string;
   record_id?: string;
-  date?: string;
 }
 
 interface SessionRow {
@@ -78,7 +79,7 @@ const formatTime = (value?: string | null) =>
 const displayName = (student: StudentRow) =>
   [student.last_name, student.first_name, student.middle_name].filter(Boolean).join(' ');
 
-export default function AttendanceManagement() {
+export default function AttendanceHub() {
   const { user } = useAuth();
   const role = String(user?.role || '').toLowerCase();
   const isManager = MANAGER_ROLES.includes(role);
@@ -97,6 +98,7 @@ export default function AttendanceManagement() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | AttendanceStatus>('all');
   const [teacherProfileId, setTeacherProfileId] = useState('');
+  const [studentProfileId, setStudentProfileId] = useState('');
   const [studentHistory, setStudentHistory] = useState<AttendanceRow[]>([]);
   const [historyDays, setHistoryDays] = useState(30);
 
@@ -184,7 +186,12 @@ export default function AttendanceManagement() {
 
       const nextRows: Record<string, AttendanceRow> = {};
       nextStudents.forEach(student => {
-        nextRows[student.id] = { student, status: 'present', check_in_at: null, remarks: '' };
+        nextRows[student.id] = {
+          student,
+          status: 'present',
+          check_in_at: null,
+          remarks: '',
+        };
       });
 
       if (nextSession) {
@@ -228,6 +235,7 @@ export default function AttendanceManagement() {
         setStudentHistory([]);
         return;
       }
+      setStudentProfileId(student.id);
 
       const from = new Date();
       from.setDate(from.getDate() - historyDays);
@@ -314,7 +322,15 @@ export default function AttendanceManagement() {
       if (!sessionId) {
         const { data, error } = await supabase
           .from('attendance_sessions')
-          .insert({ branch_id: user.branch_id, class_id: selectedClassId, teacher_id: teacherProfileId || null, attendance_date: selectedDate, session_type: 'daily', status: 'open', created_by: user.id })
+          .insert({
+            branch_id: user.branch_id,
+            class_id: selectedClassId,
+            teacher_id: teacherProfileId || null,
+            attendance_date: selectedDate,
+            session_type: 'daily',
+            status: 'open',
+            created_by: user.id,
+          })
           .select('id,class_id,attendance_date,status,submitted_at')
           .single();
         if (error) throw error;
@@ -332,7 +348,9 @@ export default function AttendanceManagement() {
         marked_by: user.id,
       }));
 
-      const { error: recordError } = await supabase.from('attendance_records').upsert(payload, { onConflict: 'session_id,student_id' });
+      const { error: recordError } = await supabase
+        .from('attendance_records')
+        .upsert(payload, { onConflict: 'session_id,student_id' });
       if (recordError) throw recordError;
 
       const { data: updatedSession, error: sessionError } = await supabase
@@ -355,7 +373,12 @@ export default function AttendanceManagement() {
   const lockSession = async () => {
     if (!session?.id || !isManager || !user?.id) return;
     const nextLocked = session.status !== 'locked';
-    const { data, error } = await supabase.from('attendance_sessions').update({ status: nextLocked ? 'locked' : 'submitted' }).eq('id', session.id).select('id,class_id,attendance_date,status,submitted_at').single();
+    const { data, error } = await supabase
+      .from('attendance_sessions')
+      .update({ status: nextLocked ? 'locked' : 'submitted' })
+      .eq('id', session.id)
+      .select('id,class_id,attendance_date,status,submitted_at')
+      .single();
     if (error) return toast.error(error.message);
     setSession(data as SessionRow);
     toast.success(nextLocked ? 'Attendance session locked' : 'Attendance session reopened');
@@ -383,18 +406,26 @@ export default function AttendanceManagement() {
   }, [rows]);
 
   const studentCounts = useMemo(() => {
-    const total = studentHistory.length;
-    const present = studentHistory.filter(row => row.status === 'present').length;
-    const late = studentHistory.filter(row => row.status === 'late').length;
-    const absent = studentHistory.filter(row => row.status === 'absent').length;
-    const excused = studentHistory.filter(row => row.status === 'excused').length;
+    const values = studentHistory;
+    const total = values.length;
+    const present = values.filter(row => row.status === 'present').length;
+    const late = values.filter(row => row.status === 'late').length;
+    const absent = values.filter(row => row.status === 'absent').length;
+    const excused = values.filter(row => row.status === 'excused').length;
     return { total, present, late, absent, excused, rate: total ? Math.round(((present + late + excused) / total) * 100) : 0 };
   }, [studentHistory]);
 
   const exportCsv = () => {
     const data = viewMode === 'manage' ? filteredRows : studentHistory;
     const header = ['Date', 'Admission No', 'Student', 'Status', 'Check In', 'Remarks'];
-    const lines = data.map(row => [row.date || selectedDate, row.student.admission_number || '', displayName(row.student), row.status, formatTime(row.check_in_at), row.remarks || ''].map(value => `"${String(value).replace(/"/g, '""')}"`).join(','));
+    const lines = data.map((row: any) => [
+      row.date || selectedDate,
+      row.student.admission_number || '',
+      displayName(row.student),
+      row.status,
+      formatTime(row.check_in_at),
+      row.remarks || '',
+    ].map(value => `"${String(value).replace(/"/g, '""')}"`).join(','));
     const blob = new Blob([[header.join(','), ...lines].join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -427,7 +458,7 @@ export default function AttendanceManagement() {
           <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between border-b border-slate-100 p-5 dark:border-slate-800"><div><h2 className="font-black text-slate-900 dark:text-white">Attendance history</h2><p className="text-xs text-slate-500 mt-1">Only your own attendance records are visible.</p></div><CalendarDays className="text-indigo-500" size={20} /></div>
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
-              {studentHistory.map(row => { const meta = statusMeta[row.status]; const Icon = meta.icon; return <div key={row.record_id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-4"><div className="w-11 h-11 rounded-2xl bg-slate-100 flex items-center justify-center dark:bg-slate-800"><CalendarDays size={18} className="text-slate-500" /></div><div className="flex-1"><p className="font-bold text-slate-900 dark:text-white">{new Date(`${row.date}T00:00:00`).toLocaleDateString('en-NG',{weekday:'long',day:'numeric',month:'short',year:'numeric'})}</p><p className="text-xs text-slate-500">Check-in: {formatTime(row.check_in_at)} {row.remarks ? `• ${row.remarks}` : ''}</p></div><span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold ring-1 ${meta.className}`}><Icon size={14} /> {meta.label}</span></div>; })}
+              {studentHistory.map((row: any) => { const meta = statusMeta[row.status]; const Icon = meta.icon; return <div key={row.record_id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-4"><div className="w-11 h-11 rounded-2xl bg-slate-100 flex items-center justify-center dark:bg-slate-800"><CalendarDays size={18} className="text-slate-500" /></div><div className="flex-1"><p className="font-bold text-slate-900 dark:text-white">{new Date(`${row.date}T00:00:00`).toLocaleDateString('en-NG',{weekday:'long',day:'numeric',month:'short',year:'numeric'})}</p><p className="text-xs text-slate-500">Check-in: {formatTime(row.check_in_at)} {row.remarks ? `• ${row.remarks}` : ''}</p></div><span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold ring-1 ${meta.className}`}><Icon size={14} /> {meta.label}</span></div> })}
               {!loading && !studentHistory.length && <div className="p-12 text-center text-slate-400">No attendance records found for this period.</div>}
               {loading && <div className="p-12 text-center text-slate-400">Loading attendance history…</div>}
             </div>
@@ -446,6 +477,7 @@ export default function AttendanceManagement() {
           <div className="flex gap-2"><button onClick={exportCsv} disabled={!filteredRows.length} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm disabled:opacity-50"><Download size={16} /> Export CSV</button><button onClick={() => loadRegister()} disabled={!selectedClassId || loading} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white"><RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh</button></div>
         </div>
       </header>
+
       <main className="max-w-7xl mx-auto space-y-5">
         <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -454,6 +486,7 @@ export default function AttendanceManagement() {
             <div className="flex items-end gap-2"><button onClick={() => markAll('present')} className="flex-1 rounded-xl bg-emerald-50 px-3 py-3 text-xs font-black text-emerald-700">Mark all present</button><button onClick={() => markAll('absent')} className="flex-1 rounded-xl bg-rose-50 px-3 py-3 text-xs font-black text-rose-700">Mark all absent</button></div>
           </div>
         </section>
+
         <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
             ['Students', counts.total, Users, 'text-slate-700'],
@@ -464,14 +497,17 @@ export default function AttendanceManagement() {
             ['Half day', counts.halfDay, AlertCircle, 'text-violet-600'],
           ].map(([label, value, Icon, color]) => <div key={String(label)} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-slate-500">{label}</p>{React.createElement(Icon as React.FC<any>, { size: 17, className: color })}</div><p className={`mt-1 text-2xl font-black ${color}`}>{value}</p></div>)}
         </section>
+
         <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="flex flex-col xl:flex-row xl:items-center gap-3 border-b border-slate-100 p-4 dark:border-slate-800">
             <div className="relative flex-1"><Search size={17} className="absolute left-3 top-3 text-slate-400" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search student or admission number…" className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-3 text-sm outline-none dark:border-slate-700 dark:bg-slate-950" /></div>
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as 'all' | AttendanceStatus)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold dark:border-slate-700 dark:bg-slate-950"><option value="all">All statuses</option>{STATUS_OPTIONS.map(status => <option key={status} value={status}>{statusMeta[status].label}</option>)}</select>
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)} className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold dark:border-slate-700 dark:bg-slate-950"><option value="all">All statuses</option>{STATUS_OPTIONS.map(status => <option key={status} value={status}>{statusMeta[status].label}</option>)}</select>
             <button onClick={saveAttendance} disabled={saving || !selectedClassId || !students.length || session?.status === 'locked'} className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"><FileCheck2 size={17} />{saving ? 'Saving…' : 'Save & Submit'}</button>
             {isManager && session && <button onClick={lockSession} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold dark:border-slate-700 dark:bg-slate-950">{session.status === 'locked' ? <Unlock size={16} /> : <Lock size={16} />}{session.status === 'locked' ? 'Reopen' : 'Lock'}</button>}
           </div>
+
           {session && <div className="flex items-center justify-between gap-3 bg-slate-50 px-4 py-2.5 text-xs dark:bg-slate-950"><span className="font-semibold text-slate-500">Session: <b className="text-slate-800 dark:text-white">{session.status}</b>{session.submitted_at ? ` • submitted ${formatTime(session.submitted_at)}` : ''}</span><span className="text-slate-400">{filteredRows.length} of {students.length} students</span></div>}
+
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1050px] text-left text-sm">
               <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-wider text-slate-500 dark:bg-slate-950"><tr><th className="px-4 py-3">Student</th><th className="px-4 py-3">Admission No.</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Check-in</th><th className="px-4 py-3">Remarks</th></tr></thead>
@@ -479,7 +515,7 @@ export default function AttendanceManagement() {
                 {filteredRows.map(row => <tr key={row.student.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/30">
                   <td className="px-4 py-3"><div className="flex items-center gap-3"><div className="h-10 w-10 overflow-hidden rounded-xl bg-slate-100 flex items-center justify-center dark:bg-slate-800">{row.student.passport_url ? <img src={row.student.passport_url} alt="" className="h-full w-full object-cover" /> : <Users size={17} className="text-slate-400" />}</div><div><p className="font-bold text-slate-900 dark:text-white">{displayName(row.student)}</p><p className="text-xs text-slate-400">{row.student.middle_name || 'Student'}</p></div></div></td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{row.student.admission_number || '—'}</td>
-                  <td className="px-4 py-3"><div className="flex flex-wrap gap-1.5">{STATUS_OPTIONS.map(status => { const active = row.status === status; const meta = statusMeta[status]; return <button key={status} onClick={() => setStatus(row.student.id, status)} disabled={session?.status === 'locked'} className={`rounded-lg px-2.5 py-1.5 text-[10px] font-black transition ${active ? `${meta.className} ring-1` : 'bg-slate-100 text-slate-500 dark:bg-slate-800'} disabled:cursor-not-allowed`}>{meta.label}</button>; })}</div></td>
+                  <td className="px-4 py-3"><div className="flex flex-wrap gap-1.5">{STATUS_OPTIONS.map(status => { const active = row.status === status; const meta = statusMeta[status]; return <button key={status} onClick={() => setStatus(row.student.id, status)} disabled={session?.status === 'locked'} className={`rounded-lg px-2.5 py-1.5 text-[10px] font-black transition ${active ? `${meta.className} ring-1` : 'bg-slate-100 text-slate-500 dark:bg-slate-800'} disabled:cursor-not-allowed`}>{meta.label}</button> })}</div></td>
                   <td className="px-4 py-3"><span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300"><Clock3 size={14} />{formatTime(row.check_in_at)}</span></td>
                   <td className="px-4 py-3"><input value={row.remarks} onChange={e => setRemark(row.student.id, e.target.value)} disabled={session?.status === 'locked'} placeholder="Optional remark…" className="w-full rounded-lg border border-transparent bg-slate-50 px-3 py-2 text-xs outline-none focus:border-indigo-300 dark:bg-slate-950" /></td>
                 </tr>)}
