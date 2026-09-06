@@ -37,15 +37,12 @@ import ParentPayBill from './pages/parent/ParentPayBill';
 import MyChildren from './pages/parent/MyChildren';
 import ParentPaymentHistory from './pages/parent/ParentPaymentHistory';
 import { ParentProfile } from './pages/parent';
-
 import MessagePage from './pages/communication/MessagesPage';
 import UserMessagePage from './pages/communication/UsersMessagePage';
-
 import AdminAsst from './pages/adminAsst';
 import AdminAsstProfile from './pages/adminAsst/AdminAsstProfile';
 import AdminAsstPayment from './pages/adminAsst/AdminAsstPayment';
-
-// Result Components - Admin
+import AttendanceHub from './pages/modules/AttendanceHub';
 import {
   AdminEnterTest,
   AdminEnterExam,
@@ -53,8 +50,6 @@ import {
   AdminViewResults,
   AdminResultSummary
 } from './pages/admin/results';
-
-// Result Components - Teacher
 import {
   TeacherEnterTest,
   TeacherEnterExam,
@@ -62,16 +57,12 @@ import {
   TeacherViewResults,
   TeacherResultSummary
 } from './pages/teacher/results';
-
-// Result Components - Student
 import {
   StudentViewTest,
   StudentViewExam,
   StudentViewCBT,
   StudentResultSummary
 } from './pages/student/results';
-
-// Result Components - Parent
 import {
   ParentViewTest,
   ParentViewExam,
@@ -82,29 +73,19 @@ import {
 const AppRoutes: React.FC = () => {
   return (
     <Routes>
-      {/* Public */}
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/404" element={<NotFound />} />
 
-      {/* ===================================================== */}
-      /* ADMIN / DIRECTOR / SUPER ADMIN / FINANCE              */
-      /* All admin routes including results                    */
-      /* ===================================================== */}
       <Route
         path="/admin"
-        element={
-          <ProtectedRoute allowedRoles={['admin', 'director', 'super_admin', 'finance']}>
-            <MainLayout />
-          </ProtectedRoute>
-        }
+        element={<ProtectedRoute allowedRoles={['admin', 'director', 'super_admin', 'finance']}><MainLayout /></ProtectedRoute>}
       >
         <Route path="dashboard" element={<AdminDashboard />} />
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="messages" element={<MessagePage />} />
         <Route path="messages/:conversationId" element={<MessagePage />} />
-        
-        {/* Admin Result Routes - Now correctly nested under /admin */}
+        <Route path="attendance" element={<AttendanceHub />} />
         <Route path="results/enter-test" element={<AdminEnterTest />} />
         <Route path="results/enter-exam" element={<AdminEnterExam />} />
         <Route path="results/enter-cbt" element={<AdminEnterCBT />} />
@@ -112,33 +93,17 @@ const AppRoutes: React.FC = () => {
         <Route path="results/summary" element={<AdminResultSummary />} />
       </Route>
 
-      {/* ===================================================== */}
-      {/* NORMAL USER MESSAGING                                 */}
-      /* ===================================================== */}
       <Route
         path="/user-messages"
-        element={
-          <ProtectedRoute
-            allowedRoles={['student', 'parent', 'teacher', 'record_keeper', 'admin_asst']}
-          >
-            <MainLayout />
-          </ProtectedRoute>
-        }
+        element={<ProtectedRoute allowedRoles={['student', 'parent', 'teacher', 'record_keeper', 'admin_asst']}><MainLayout /></ProtectedRoute>}
       >
         <Route index element={<UserMessagePage />} />
         <Route path=":conversationId" element={<UserMessagePage />} />
       </Route>
 
-      {/* ===================================================== */}
-      {/* ADMIN ASSISTANT / RECORD KEEPER                        */}
-      {/* ===================================================== */}
       <Route
         path="/admin-asst"
-        element={
-          <ProtectedRoute allowedRoles={['admin', 'director', 'admin_asst', 'record_keeper']}>
-            <MainLayout />
-          </ProtectedRoute>
-        }
+        element={<ProtectedRoute allowedRoles={['admin', 'director', 'admin_asst', 'record_keeper']}><MainLayout /></ProtectedRoute>}
       >
         <Route path="dashboard" element={<AdminAsst />} />
         <Route path="students" element={<AdminAsst />} />
@@ -154,45 +119,29 @@ const AppRoutes: React.FC = () => {
         <Route index element={<Navigate to="/admin-asst/dashboard" replace />} />
       </Route>
 
-      {/* ===================================================== */}
-      {/* STUDENT                                               */}
-      {/* ===================================================== */}
       <Route
         path="/student"
-        element={
-          <ProtectedRoute allowedRoles={['student']}>
-            <MainLayout />
-          </ProtectedRoute>
-        }
+        element={<ProtectedRoute allowedRoles={['student']}><MainLayout /></ProtectedRoute>}
       >
         <Route path="dashboard" element={<StudentDashboard />} />
         <Route index element={<Navigate to="/student/dashboard" replace />} />
         <Route path="profile" element={<StudentProfile />} />
         <Route path="payments" element={<StudentPayments />} />
         <Route path="paybill" element={<StudentPayBill />} />
-        
-        {/* Student Result Routes */}
+        <Route path="attendance" element={<AttendanceHub />} />
         <Route path="results/test" element={<StudentViewTest />} />
         <Route path="results/exam" element={<StudentViewExam />} />
         <Route path="results/cbt" element={<StudentViewCBT />} />
         <Route path="results/summary" element={<StudentResultSummary />} />
       </Route>
 
-      {/* ===================================================== */}
-      {/* TEACHER                                               */}
-      {/* ===================================================== */}
       <Route
         path="/teacher"
-        element={
-          <ProtectedRoute allowedRoles={['teacher']}>
-            <MainLayout />
-          </ProtectedRoute>
-        }
+        element={<ProtectedRoute allowedRoles={['teacher']}><MainLayout /></ProtectedRoute>}
       >
         <Route path="dashboard" element={<TeacherDashboard />} />
         <Route index element={<Navigate to="/teacher/dashboard" replace />} />
-        
-        {/* Teacher Result Routes */}
+        <Route path="attendance" element={<AttendanceHub />} />
         <Route path="results/enter-test" element={<TeacherEnterTest />} />
         <Route path="results/enter-exam" element={<TeacherEnterExam />} />
         <Route path="results/enter-cbt" element={<TeacherEnterCBT />} />
@@ -200,16 +149,9 @@ const AppRoutes: React.FC = () => {
         <Route path="results/summary" element={<TeacherResultSummary />} />
       </Route>
 
-      {/* ===================================================== */}
-      {/* PARENT                                                */}
-      {/* ===================================================== */}
       <Route
         path="/parent"
-        element={
-          <ProtectedRoute allowedRoles={['parent']}>
-            <MainLayout />
-          </ProtectedRoute>
-        }
+        element={<ProtectedRoute allowedRoles={['parent']}><MainLayout /></ProtectedRoute>}
       >
         <Route path="dashboard" element={<ParentDashboard />} />
         <Route index element={<Navigate to="/parent/dashboard" replace />} />
@@ -219,59 +161,47 @@ const AppRoutes: React.FC = () => {
         <Route path="profile" element={<ParentProfile />} />
         <Route path="payment/:studentId" element={<ParentPaymentHistory />} />
         <Route path="payment" element={<ParentPaymentHistory />} />
-        
-        {/* Parent Result Routes */}
         <Route path="results/test" element={<ParentViewTest />} />
         <Route path="results/exam" element={<ParentViewExam />} />
         <Route path="results/cbt" element={<ParentViewCBT />} />
         <Route path="results/summary" element={<ParentResultSummary />} />
       </Route>
 
-      {/* ===================================================== */}
-      {/* SHARED APPLICATION ROUTES                              */}
-      {/* These routes are accessible to all authenticated users */}
-      {/* ===================================================== */}
+      <Route
+        path="/attendance"
+        element={<ProtectedRoute allowedRoles={['admin', 'director', 'super_admin', 'finance', 'record_keeper', 'teacher']}><MainLayout /></ProtectedRoute>}
+      >
+        <Route index element={<AttendanceHub />} />
+      </Route>
+
       <Route
         path="/"
-        element={
-          <ProtectedRoute>
-            <MainLayout />
-          </ProtectedRoute>
-        }
+        element={<ProtectedRoute><MainLayout /></ProtectedRoute>}
       >
-        {/* Shared Routes */}
         <Route path="students" element={<StudentsList />} />
         <Route path="students/:id" element={<StudentDetails />} />
         <Route path="students/edit/:id" element={<EditStudent />} />
         <Route path="students/register" element={<RegisterStudent />} />
-
         <Route path="teachers" element={<TeachersList />} />
         <Route path="teachers/add" element={<AddTeacher />} />
         <Route path="teachers/:id" element={<ViewTeacher />} />
         <Route path="teachers/edit/:id" element={<AddTeacher />} />
-
         <Route path="subjects" element={<SubjectsManagement />} />
-
         <Route path="payments" element={<PaymentsList />} />
         <Route path="payments/record" element={<RecordPayment />} />
-
         <Route path="fees" element={<FeesList />} />
         <Route path="fees/:id" element={<FeeDetail />} />
         <Route path="fees/edit/:id" element={<FeeEdit />} />
         <Route path="fees/create" element={<CreateFee />} />
-
         <Route path="classes" element={<ClassesList />} />
         <Route path="parents/create" element={<ParentManagement />} />
         <Route path="branches" element={<BranchesList />} />
         <Route path="reports" element={<ReportsDashboard />} />
         <Route path="settings" element={<Settings />} />
         <Route path="profile" element={<Profile />} />
-
-        {/* Default redirect */}
         <Route index element={<DashboardRouter />} />
       </Route>
 
-      {/* Catch all */}
       <Route path="*" element={<Navigate to="/404" replace />} />
     </Routes>
   );
