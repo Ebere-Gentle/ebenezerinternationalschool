@@ -43,10 +43,26 @@ import AdminAsst from './pages/adminAsst';
 import AdminAsstProfile from './pages/adminAsst/AdminAsstProfile';
 import AdminAsstPayment from './pages/adminAsst/AdminAsstPayment';
 import AttendanceManagement from './pages/academic/AttendanceManagement';
-import { AdminEnterTest, AdminEnterExam, AdminEnterCBT, AdminViewResults, AdminResultSummary } from './pages/admin/results';
-import { TeacherEnterTest, TeacherEnterExam, TeacherEnterCBT, TeacherViewResults, TeacherResultSummary } from './pages/teacher/results';
-import { StudentViewTest, StudentViewExam, StudentViewCBT, StudentResultSummary } from './pages/student/results';
-import { ParentViewTest, ParentViewExam, ParentViewCBT, ParentResultSummary } from './pages/parent/results';
+
+// Results are kept in the existing role-specific folders.
+import AdminEnterTest from './pages/admin/results/AdminEnterTest';
+import AdminEnterExam from './pages/admin/results/AdminEnterExam';
+import AdminEnterCBT from './pages/admin/results/AdminEnterCBT';
+import AdminViewResults from './pages/admin/results/AdminViewResults';
+import AdminResultSummary from './pages/admin/results/AdminResultSummary';
+import TeacherEnterTest from './pages/teacher/results/TeacherEnterTest';
+import TeacherEnterExam from './pages/teacher/results/TeacherEnterExam';
+import TeacherEnterCBT from './pages/teacher/results/TeacherEnterCBT';
+import TeacherViewResults from './pages/teacher/results/TeacherViewResults';
+import TeacherResultSummary from './pages/teacher/results/TeacherResultSummary';
+import StudentViewTest from './pages/student/results/StudentViewTest';
+import StudentViewExam from './pages/student/results/StudentViewExam';
+import StudentViewCBT from './pages/student/results/StudentViewCBT';
+import StudentResultSummary from './pages/student/results/StudentResultSummary';
+import ParentViewTest from './pages/parent/results/ParentViewTest';
+import ParentViewExam from './pages/parent/results/ParentViewExam';
+import ParentViewCBT from './pages/parent/results/ParentViewCBT';
+import ParentResultSummary from './pages/parent/results/ParentResultSummary';
 
 const ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper', 'finance'];
 const ATTENDANCE_ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper', 'finance'];
