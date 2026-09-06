@@ -1,0 +1,5 @@
+-- The production migration was applied through Supabase migration tooling.
+-- This file documents the module scope for repository history.
+-- Modules: school_events, event_attendees, attendance_sessions, attendance_records,
+-- result_batches, result_entries, result_publication_audits plus indexes, RLS helpers,
+-- result percentage trigger, messaging indexes/unread trigger and Realtime publication.
