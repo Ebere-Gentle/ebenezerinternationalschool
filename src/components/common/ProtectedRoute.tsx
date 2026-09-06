@@ -29,27 +29,23 @@ const normalizeRole = (role: unknown): UserRole | null => {
   const aliases: Record<string, UserRole> = {
     admin: 'admin',
     administrator: 'admin',
-
+    school_admin: 'admin',
+    schooladministrator: 'admin',
     teacher: 'teacher',
     teachers: 'teacher',
-
     student: 'student',
     students: 'student',
-
     parent: 'parent',
     parents: 'parent',
-
     director: 'director',
-
+    principal: 'director',
     finance: 'finance',
+    finance_officer: 'finance',
     accountant: 'finance',
-
     super_admin: 'super_admin',
     superadmin: 'super_admin',
-
     record_keeper: 'record_keeper',
     recordkeeper: 'record_keeper',
-    'admin_assistant': 'admin_asst',
     admin_assistant: 'admin_asst',
     admin_asst: 'admin_asst',
     adminassistant: 'admin_asst',
@@ -65,20 +61,15 @@ const getDashboardPath = (role: UserRole | null): string => {
     case 'finance':
     case 'super_admin':
       return '/admin/dashboard';
-
     case 'teacher':
       return '/teacher/dashboard';
-
     case 'student':
       return '/student/dashboard';
-
     case 'parent':
       return '/parent/dashboard';
-
     case 'record_keeper':
     case 'admin_asst':
       return '/admin-asst/dashboard';
-
     default:
       return '/dashboard';
   }
@@ -91,137 +82,87 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   const { isAuthenticated, user, isLoading } = useAuth();
   const location = useLocation();
 
-  /*
-   * ---------------------------------------------------------
-   * LOADING
-   * ---------------------------------------------------------
-   */
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="flex flex-col items-center gap-3">
           <div className="animate-spin rounded-full h-10 w-10 border-4 border-gray-200 border-t-blue-600" />
-
-          <p className="text-sm text-gray-500">
-            Loading your account...
-          </p>
+          <p className="text-sm text-gray-500">Loading your account...</p>
         </div>
       </div>
     );
   }
 
-  /*
-   * ---------------------------------------------------------
-   * NOT LOGGED IN
-   * ---------------------------------------------------------
-   */
   if (!isAuthenticated || !user) {
     return (
       <Navigate
         to="/login"
-        state={{
-          from: location.pathname + location.search + location.hash,
-        }}
+        state={{ from: location.pathname + location.search + location.hash }}
         replace
       />
     );
   }
 
-  /*
-   * ---------------------------------------------------------
-   * NORMALIZE USER ROLE
-   * ---------------------------------------------------------
-   */
-  const userRole = normalizeRole(user.role);
+  // Prefer the live Supabase profile, but fall back to persisted auth data
+  // while the profile state is settling after a navigation.
+  let storedRole: unknown = null;
+  try {
+    const raw = localStorage.getItem('user');
+    storedRole = raw
+      ? JSON.parse(raw)?.role
+      : localStorage.getItem('userRole');
+  } catch {
+    storedRole = localStorage.getItem('userRole');
+  }
 
-  /*
-   * Debug information.
-   *
-   * Keep this for now while we verify the role problem.
-   */
-  console.log('ProtectedRoute:', {
-    pathname: location.pathname,
-    rawRole: user.role,
-    normalizedRole: userRole,
-    allowedRoles,
-  });
+  const userRole = normalizeRole(user.role) || normalizeRole(storedRole);
 
-  /*
-   * ---------------------------------------------------------
-   * NO ROLE RESTRICTION
-   * ---------------------------------------------------------
-   */
   if (allowedRoles.length === 0) {
     return <>{children}</>;
   }
 
-  /*
-   * ---------------------------------------------------------
-   * ROLE CHECK
-   * ---------------------------------------------------------
-   */
-  const normalizedAllowedRoles = allowedRoles.map(
-    (role) => normalizeRole(role)
-  );
+  const normalizedAllowedRoles = allowedRoles
+    .map(normalizeRole)
+    .filter((role): role is UserRole => role !== null);
 
-  const hasRole =
-    userRole !== null &&
-    normalizedAllowedRoles.includes(userRole);
+  const hasRole = userRole !== null && normalizedAllowedRoles.includes(userRole);
 
-  /*
-   * ---------------------------------------------------------
-   * IMPORTANT:
-   *
-   * /user-messages is intentionally allowed for all
-   * normal communication users.
-   *
-   * This prevents the message page from being treated like
-   * an admin-only page.
-   * ---------------------------------------------------------
-   */
+  // Normal-user messaging is intentionally available across these roles.
   const isUserMessagesRoute =
     location.pathname === '/user-messages' ||
     location.pathname.startsWith('/user-messages/');
 
   const canUseUserMessages =
     userRole !== null &&
-    [
-      'student',
-      'parent',
-      'teacher',
-      'record_keeper',
-      'admin_asst',
-    ].includes(userRole);
+    ['student', 'parent', 'teacher', 'record_keeper', 'admin_asst'].includes(userRole);
 
   if (isUserMessagesRoute && canUseUserMessages) {
     return <>{children}</>;
   }
 
-  /*
-   * ---------------------------------------------------------
-   * AUTHORIZED
-   * ---------------------------------------------------------
-   */
+  // Explicitly recognize the role-scoped Results routes. This keeps Results
+  // navigation aligned with AppRoutes and prevents a valid Results child from
+  // falling through to the role dashboard because of a transient role alias.
+  const isAdminResults = location.pathname.startsWith('/admin/results/');
+  const isTeacherResults = location.pathname.startsWith('/teacher/results/');
+  const isStudentResults = location.pathname.startsWith('/student/results/');
+  const isParentResults = location.pathname.startsWith('/parent/results/');
+
+  const canUseResults =
+    (isAdminResults && !!userRole && ['admin', 'director', 'finance', 'super_admin'].includes(userRole)) ||
+    (isTeacherResults && userRole === 'teacher') ||
+    (isStudentResults && userRole === 'student') ||
+    (isParentResults && userRole === 'parent');
+
+  if (canUseResults) {
+    return <>{children}</>;
+  }
+
   if (hasRole) {
     return <>{children}</>;
   }
 
-  /*
-   * ---------------------------------------------------------
-   * UNAUTHORIZED
-   * ---------------------------------------------------------
-   */
-  const redirectPath = getDashboardPath(userRole);
-
-  console.warn('ProtectedRoute: unauthorized access', {
-    pathname: location.pathname,
-    rawRole: user.role,
-    normalizedRole: userRole,
-    allowedRoles,
-    redirectPath,
-  });
-
-  return <Navigate to={redirectPath} replace />;
+  return <Navigate to={getDashboardPath(userRole)} replace />;
 };
 
 export default ProtectedRoute;
