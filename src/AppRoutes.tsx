@@ -48,7 +48,8 @@ import { TeacherEnterTest, TeacherEnterExam, TeacherEnterCBT, TeacherViewResults
 import { StudentViewTest, StudentViewExam, StudentViewCBT, StudentResultSummary } from './pages/student/results';
 import { ParentViewTest, ParentViewExam, ParentViewCBT, ParentResultSummary } from './pages/parent/results';
 
-const ATTENDANCE_ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper'];
+const ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper', 'finance'];
+const ATTENDANCE_ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper', 'finance'];
 
 const AppRoutes: React.FC = () => (
   <Routes>
@@ -56,7 +57,7 @@ const AppRoutes: React.FC = () => (
     <Route path="/login" element={<Login />} />
     <Route path="/404" element={<NotFound />} />
 
-    <Route path="/admin" element={<ProtectedRoute allowedRoles={ATTENDANCE_ADMIN_ROLES}><MainLayout /></ProtectedRoute>}>
+    <Route path="/admin" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><MainLayout /></ProtectedRoute>}>
       <Route path="dashboard" element={<AdminDashboard />} />
       <Route index element={<Navigate to="/admin/dashboard" replace />} />
       <Route path="messages" element={<MessagePage />} />
