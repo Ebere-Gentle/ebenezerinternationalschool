@@ -5,8 +5,11 @@ import StudentsList from './StudentsList';
 import { supabase } from '../../config/supabase/client';
 
 type Credential = {
+  role?: 'student' | 'parent';
   student_id?: string;
+  parent_id?: string;
   student_name?: string;
+  name?: string;
   admission_number?: string;
   email?: string;
   temporary_password?: string;
@@ -15,39 +18,84 @@ type Credential = {
 
 const StudentsWithLoginAccounts: React.FC = () => {
   const [creating, setCreating] = useState(false);
-  const [missingCount, setMissingCount] = useState<number | null>(null);
+  const [missingStudentCount, setMissingStudentCount] = useState<number | null>(null);
+  const [missingParentCount, setMissingParentCount] = useState<number | null>(null);
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [showCredentials, setShowCredentials] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const loadMissingCount = async () => {
+  const loadMissingCounts = async () => {
     try {
-      const { count, error } = await supabase
+      const { data: historicalStudents, error: studentError } = await supabase
         .from('students')
-        .select('id', { count: 'exact', head: true })
+        .select('id, parent_id')
+        .eq('metadata->>source', 'new_historical_student_import')
         .is('user_id', null)
         .not('email', 'is', null);
 
-      if (error) throw error;
-      setMissingCount(count ?? 0);
+      if (studentError) throw studentError;
+
+      const students = historicalStudents ?? [];
+      setMissingStudentCount(students.length);
+
+      const parentIds = [...new Set(students.map((student) => student.parent_id).filter(Boolean))];
+
+      if (!parentIds.length) {
+        setMissingParentCount(0);
+        return;
+      }
+
+      const { count, error: parentError } = await supabase
+        .from('parents')
+        .select('id', { count: 'exact', head: true })
+        .in('id', parentIds)
+        .is('user_id', null)
+        .not('email', 'is', null);
+
+      if (parentError) throw parentError;
+      setMissingParentCount(count ?? 0);
     } catch (error) {
-      console.error('Error checking student login accounts:', error);
+      console.error('Error checking login accounts:', error);
     }
   };
 
   useEffect(() => {
-    loadMissingCount();
+    loadMissingCounts();
   }, []);
 
-  const createStudentLoginAccounts = async () => {
+  const extractCredentials = (payload: any, role: 'student' | 'parent'): Credential[] => {
+    if (Array.isArray(payload?.credentials)) {
+      return payload.credentials.map((item: Credential) => ({ ...item, role }));
+    }
+
+    if (Array.isArray(payload?.results)) {
+      return payload.results
+        .filter((item: Credential) => item.temporary_password || item.password)
+        .map((item: Credential) => ({ ...item, role }));
+    }
+
+    return [];
+  };
+
+  const createAllLoginAccounts = async () => {
     if (creating) return;
 
+    const studentCount = missingStudentCount ?? 0;
+    const parentCount = missingParentCount ?? 0;
+
+    if (studentCount === 0 && parentCount === 0) {
+      toast.success('All eligible historical student and parent login accounts are already linked.');
+      return;
+    }
+
     const confirmed = window.confirm(
-      `Create login accounts for ${missingCount ?? 'all eligible'} students who have an email address but no linked login account?\n\nThe system will securely create the accounts and link them to the correct student records.`
+      `Create ${studentCount} student and ${parentCount} parent login account${studentCount + parentCount === 1 ? '' : 's'} now?\n\nOnly the imported historical students and their linked parents will be processed. Existing accounts will not be replaced.`
     );
     if (!confirmed) return;
 
     setCreating(true);
+    setCredentials([]);
+
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) throw sessionError;
@@ -57,36 +105,80 @@ const StudentsWithLoginAccounts: React.FC = () => {
         return;
       }
 
-      const { data, error } = await supabase.functions.invoke('batch-student-auth', {
-        body: {},
-      });
+      // Get the exact historical student records. We deliberately pass IDs to
+      // the Edge Function so this button cannot create accounts for unrelated students.
+      const { data: students, error: studentsError } = await supabase
+        .from('students')
+        .select('id, parent_id')
+        .eq('metadata->>source', 'new_historical_student_import')
+        .is('user_id', null)
+        .not('email', 'is', null);
 
-      if (error) throw error;
+      if (studentsError) throw studentsError;
 
-      const payload = data ?? {};
-      const returnedCredentials = Array.isArray(payload.credentials)
-        ? payload.credentials
-        : Array.isArray(payload.results)
-          ? payload.results.filter((item: Credential) => item.temporary_password || item.password)
-          : [];
+      const studentIds = (students ?? []).map((student) => student.id);
+      const parentIds = [
+        ...new Set((students ?? []).map((student) => student.parent_id).filter(Boolean)),
+      ];
 
-      setCredentials(returnedCredentials);
-      setShowCredentials(returnedCredentials.length > 0);
+      const allCredentials: Credential[] = [];
+      const failures: string[] = [];
+
+      if (studentIds.length) {
+        const { data: studentData, error: studentAuthError } = await supabase.functions.invoke(
+          'batch-student-auth',
+          { body: { student_ids: studentIds } }
+        );
+
+        if (studentAuthError) {
+          const detail = studentAuthError?.context?.body?.error || studentAuthError.message;
+          failures.push(`Students: ${detail}`);
+        } else {
+          allCredentials.push(...extractCredentials(studentData, 'student'));
+
+          const failed = Number(studentData?.failed ?? 0);
+          if (failed > 0) failures.push(`Students: ${failed} account${failed === 1 ? '' : 's'} failed.`);
+        }
+      }
+
+      // Parent IDs come from the exact imported student set above. This prevents
+      // the existing batch-parent-auth function from touching unrelated parents.
+      if (parentIds.length) {
+        const { data: parentData, error: parentAuthError } = await supabase.functions.invoke(
+          'batch-parent-auth',
+          { body: { parent_ids: parentIds } }
+        );
+
+        if (parentAuthError) {
+          const detail = parentAuthError?.context?.body?.error || parentAuthError.message;
+          failures.push(`Parents: ${detail}`);
+        } else {
+          allCredentials.push(...extractCredentials(parentData, 'parent'));
+
+          const failed = Number(parentData?.failed ?? 0);
+          if (failed > 0) failures.push(`Parents: ${failed} account${failed === 1 ? '' : 's'} failed.`);
+        }
+      }
+
+      setCredentials(allCredentials);
+      setShowCredentials(allCredentials.length > 0);
       setRefreshKey((value) => value + 1);
-      await loadMissingCount();
+      await loadMissingCounts();
 
-      const createdCount =
-        payload.created_count ??
-        (Array.isArray(payload.created) ? payload.created.length : returnedCredentials.length);
-
-      if (createdCount > 0) {
-        toast.success(`Created and linked ${createdCount} student login account${createdCount === 1 ? '' : 's'}.`);
+      if (failures.length) {
+        toast.error(failures.join(' '));
       } else {
-        toast.success(payload.message || 'Student login accounts are already up to date.');
+        toast.success(
+          `Student and parent login account creation completed: ${allCredentials.length} new credential${allCredentials.length === 1 ? '' : 's'} generated.`
+        );
       }
     } catch (error: any) {
-      console.error('Error creating student login accounts:', error);
-      const message = error?.context?.body?.message || error?.message || 'Failed to create student login accounts.';
+      console.error('Error creating student and parent login accounts:', error);
+      const message =
+        error?.context?.body?.error ||
+        error?.context?.body?.message ||
+        error?.message ||
+        'Failed to create login accounts.';
       toast.error(message);
     } finally {
       setCreating(false);
@@ -101,9 +193,12 @@ const StudentsWithLoginAccounts: React.FC = () => {
       return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
     };
 
-    const header = ['Student Name', 'Admission Number', 'Email', 'Temporary Password'];
+    const header = ['Account Type', 'Name', 'Student ID', 'Parent ID', 'Admission Number', 'Email', 'Temporary Password'];
     const rows = credentials.map((item) => [
-      item.student_name || '',
+      item.role || '',
+      item.student_name || item.name || '',
+      item.student_id || '',
+      item.parent_id || '',
       item.admission_number || '',
       item.email || '',
       item.temporary_password || item.password || '',
@@ -114,7 +209,7 @@ const StudentsWithLoginAccounts: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `student_login_credentials_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `student_parent_login_credentials_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -131,14 +226,18 @@ const StudentsWithLoginAccounts: React.FC = () => {
               <ShieldCheck className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-semibold">Student Login Accounts</h2>
+              <h2 className="text-base sm:text-lg font-semibold">Student & Parent Login Accounts</h2>
               <p className="text-xs sm:text-sm text-white/80 mt-1 max-w-2xl">
-                Securely create and link Supabase Auth accounts for students who have an email address but no login account.
+                Create and securely link Supabase Auth accounts for the imported historical students and their linked parents.
               </p>
-              <div className="flex items-center gap-2 mt-2 text-xs sm:text-sm">
-                <Users className="w-4 h-4" />
-                <span>
-                  {missingCount === null ? 'Checking eligible students…' : `${missingCount} eligible student${missingCount === 1 ? '' : 's'} without a login`}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-2 text-xs sm:text-sm">
+                <span className="inline-flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  {missingStudentCount === null ? 'Checking students…' : `${missingStudentCount} student${missingStudentCount === 1 ? '' : 's'} without login`}
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  {missingParentCount === null ? 'Checking parents…' : `${missingParentCount} parent${missingParentCount === 1 ? '' : 's'} without login`}
                 </span>
               </div>
             </div>
@@ -146,22 +245,22 @@ const StudentsWithLoginAccounts: React.FC = () => {
 
           <button
             type="button"
-            onClick={createStudentLoginAccounts}
-            disabled={creating || missingCount === 0}
+            onClick={createAllLoginAccounts}
+            disabled={creating || (missingStudentCount === 0 && missingParentCount === 0)}
             className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white text-blue-700 font-semibold text-sm hover:bg-blue-50 disabled:opacity-60 disabled:cursor-not-allowed transition-all shadow-sm shrink-0"
           >
             {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
-            {creating ? 'Creating Accounts…' : 'Create Student Login Accounts'}
+            {creating ? 'Creating Accounts…' : 'Create All Student & Parent Accounts'}
           </button>
         </div>
       </div>
 
       {showCredentials && credentials.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/50 backdrop-blur-sm">
-          <div className="w-full max-w-5xl max-h-[90vh] overflow-hidden bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700">
+          <div className="w-full max-w-6xl max-h-[90vh] overflow-hidden bg-white dark:bg-gray-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               <div>
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white">New Student Login Credentials</h3>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">New Student & Parent Login Credentials</h3>
                 <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1">
                   Save these credentials now. Temporary passwords are only returned for accounts created in this operation.
                 </p>
@@ -179,7 +278,7 @@ const StudentsWithLoginAccounts: React.FC = () => {
             <div className="p-4 sm:p-6 overflow-auto max-h-[65vh]">
               <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-sm text-gray-600 dark:text-gray-300">
-                  <span className="font-semibold">{credentials.length}</span> account{credentials.length === 1 ? '' : 's'} created.
+                  <span className="font-semibold">{credentials.length}</span> new account credential{credentials.length === 1 ? '' : 's'} generated.
                 </div>
                 <button
                   type="button"
@@ -195,7 +294,9 @@ const StudentsWithLoginAccounts: React.FC = () => {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 dark:bg-gray-800">
                     <tr>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Student</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Type</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Name</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">ID</th>
                       <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Admission</th>
                       <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Email</th>
                       <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-300">Temporary Password</th>
@@ -203,8 +304,10 @@ const StudentsWithLoginAccounts: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                     {credentials.map((item, index) => (
-                      <tr key={`${item.student_id || item.email || 'student'}-${index}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{item.student_name || '—'}</td>
+                      <tr key={`${item.role || 'account'}-${item.student_id || item.parent_id || item.email || 'record'}-${index}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                        <td className="px-4 py-3 font-medium text-gray-700 dark:text-gray-200 capitalize">{item.role || '—'}</td>
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white whitespace-nowrap">{item.student_name || item.name || '—'}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{item.student_id || item.parent_id || '—'}</td>
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap">{item.admission_number || '—'}</td>
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-300">{item.email || '—'}</td>
                         <td className="px-4 py-3 font-mono text-gray-900 dark:text-white whitespace-nowrap">{item.temporary_password || item.password || '—'}</td>
