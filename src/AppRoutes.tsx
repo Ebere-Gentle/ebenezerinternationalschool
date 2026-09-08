@@ -12,6 +12,7 @@ import StudentDashboard from './pages/student/StudentDashboard';
 import FeeDetail from './pages/fees/FeeDetail';
 import ParentDashboard from './pages/parent/ParentDashboard';
 import StudentsList from './pages/students/StudentsList';
+import StudentsWithLoginAccounts from './pages/students/StudentsWithLoginAccounts';
 import StudentDetails from './pages/students/StudentDetails';
 import SubjectsManagement from './pages/Subjects/SubjectsManagement';
 import EditStudent from './pages/students/EditStudent';
@@ -150,7 +151,7 @@ const AppRoutes: React.FC = () => (
     </Route>
 
     <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
-      <Route path="students" element={<StudentsList />} />
+      <Route path="students" element={<StudentsWithLoginAccounts />} />
       <Route path="students/:id" element={<StudentDetails />} />
       <Route path="students/edit/:id" element={<EditStudent />} />
       <Route path="students/register" element={<RegisterStudent />} />
