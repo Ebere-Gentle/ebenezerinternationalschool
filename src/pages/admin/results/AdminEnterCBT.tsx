@@ -1,12 +1,5 @@
-import React from 'react';
-import { ResultForm } from '../../../components/results/shared/ResultForm';
+import AdminResultEntry from './AdminResultEntry';
 
-const AdminEnterCBT: React.FC = () => {
-  return (
-    <div className="container mx-auto p-4">
-      <ResultForm type="cbt" />
-    </div>
-  );
-};
+const AdminEnterCBT = () => <AdminResultEntry assessmentType="cbt" />;
 
 export default AdminEnterCBT;

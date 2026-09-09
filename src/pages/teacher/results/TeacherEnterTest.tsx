@@ -1,12 +1,5 @@
-import React from 'react';
-import { ResultForm } from '../../../components/results/shared/ResultForm';
+import TeacherResultEntry from './TeacherResultEntry';
 
-const TeacherEnterTest: React.FC = () => {
-  return (
-    <div className="container mx-auto p-4">
-      <ResultForm type="test" />
-    </div>
-  );
-};
+const TeacherEnterTest = () => <TeacherResultEntry assessmentType="test" />;
 
 export default TeacherEnterTest;

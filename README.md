@@ -1,178 +1,40 @@
-# React + TypeScript + Vite
+# EIS School Management
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A role-based school-management application for administrators, teachers, students, parents, finance staff, and records staff. It includes student registration, class and subject management, attendance, fees and payments, results, communication, reporting, and school operations.
 
-Currently, two official plugins are available:
+## Requirements
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Node.js 20 or newer
+- npm 10 or newer
+- A Supabase project configured with this repository's migrations and Edge Functions
 
-## React Compiler
+## Local setup
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. Install dependencies with `npm ci`.
+2. Create a `.env` file using the variables below.
+3. Run `npm run dev`.
+4. Open the local address printed by Vite.
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```dotenv
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-publishable-or-anon-key
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
-password for db: EISrecords1234567890987654321
+Never commit `.env` files, database passwords, service-role keys, or user credentials. Use the Supabase dashboard or your deployment provider's secret manager for server-only values.
 
-```
-eis-school-management
-├─ .env
-├─ .oxlintrc.json
-├─ README.md
-├─ index.html
-├─ package-lock.json
-├─ package.json
-├─ postcss.config.js
-├─ public
-│  ├─ favicon.svg
-│  └─ icons.svg
-├─ src
-│  ├─ App.css
-│  ├─ App.tsx
-│  ├─ assets
-│  │  ├─ hero.png
-│  │  ├─ react.svg
-│  │  ├─ styles
-│  │  └─ vite.svg
-│  ├─ components
-│  │  ├─ common
-│  │  ├─ forms
-│  │  │  └─ StudentRegistrationForm
-│  │  │     └─ StudentRegistrationForm.tsx
-│  │  ├─ layout
-│  │  │  └─ MainLayout
-│  │  │     └─ MainLayout.tsx
-│  │  ├─ shared
-│  │  └─ ui
-│  ├─ config
-│  │  └─ supabase
-│  │     └─ client.ts
-│  ├─ constants
-│  ├─ contexts
-│  │  ├─ AuthContext.tsx
-│  │  ├─ NotificationContext.tsx
-│  │  ├─ ThemeContext.tsx
-│  │  ├─ index.ts
-│  │  └─ {AuthContext}
-│  ├─ features
-│  │  ├─ analytics
-│  │  ├─ communication
-│  │  ├─ payment
-│  │  ├─ registration
-│  │  └─ reporting
-│  ├─ hooks
-│  │  ├─ useAuth.ts
-│  │  ├─ useNotification.ts
-│  │  ├─ useStudents.ts
-│  │  └─ useTheme.ts
-│  ├─ index.css
-│  ├─ main.tsx
-│  ├─ pages
-│  │  ├─ announcements
-│  │  ├─ auth
-│  │  │  └─ Login.tsx
-│  │  ├─ branches
-│  │  │  └─ BranchesList.tsx
-│  │  ├─ calendar
-│  │  ├─ classes
-│  │  │  └─ ClassesList.tsx
-│  │  ├─ dashboard
-│  │  │  └─ Dashboard.tsx
-│  │  ├─ documents
-│  │  ├─ error
-│  │  │  ├─ NotFound.tsx
-│  │  │  └─ Unauthorized.tsx
-│  │  ├─ fees
-│  │  │  └─ FeesList.tsx
-│  │  ├─ landing
-│  │  ├─ notifications
-│  │  ├─ parents
-│  │  ├─ payments
-│  │  │  └─ PaymentsList.tsx
-│  │  ├─ profile
-│  │  │  └─ Profile.tsx
-│  │  ├─ reports
-│  │  │  └─ ReportsDashboard.tsx
-│  │  ├─ settings
-│  │  │  └─ Settings.tsx
-│  │  ├─ students
-│  │  │  ├─ RegisterStudent.tsx
-│  │  │  └─ StudentsList.tsx
-│  │  ├─ support
-│  │  └─ teachers
-│  │     └─ TeachersList.tsx
-│  ├─ routes
-│  │  ├─ AppRoutes.tsx
-│  │  └─ RouteConstants.ts
-│  ├─ services
-│  │  ├─ api
-│  │  ├─ auth
-│  │  │  ├─ auth.service.ts
-│  │  │  └─ types.ts
-│  │  ├─ branches
-│  │  ├─ classes
-│  │  ├─ documents
-│  │  ├─ fees
-│  │  ├─ notifications
-│  │  ├─ parents
-│  │  ├─ payments
-│  │  ├─ reports
-│  │  ├─ settings
-│  │  ├─ students
-│  │  │  └─ student.service.ts
-│  │  └─ teachers
-│  ├─ store
-│  │  └─ slices
-│  ├─ supabase
-│  │  └─ migrations
-│  ├─ types
-│  │  ├─ auth.types.ts
-│  │  ├─ index.ts
-│  │  └─ student.types.ts
-│  └─ utils
-│     ├─ formatters
-│     ├─ generators
-│     ├─ helpers
-│     └─ validators
-├─ tailwind.config.js
-├─ tsconfig.app.json
-├─ tsconfig.json
-├─ tsconfig.node.json
-└─ vite.config.ts
+## Quality checks
 
+```bash
+npm run build
+npm run lint
 ```
 
-<!-- 
-USERNAME:ebenezerinternationalowo@gmail.com
-PASSWORD:ebenezerinternationalowo@gmail.com
+## Deployment
 
-USENAME:donpedro.ev@gmail.com
-PASSWORD:12345
+Build artifacts are written to `dist/`. Configure the same `VITE_SUPABASE_*` environment variables in the deployment environment. Deploy Supabase migrations and Edge Functions separately through the Supabase CLI or CI.
 
-USENAME:david@gmail.com
-PASSWORD:12345
+## Security notes
 
-USENAME:emenike11@gmail.com
-PASSWORD:12345
-
-
-pedro@parent.com
-1234567 -->
+- Apply and verify Row Level Security policies before granting users access to production data.
+- Enforce permissions in Supabase policies and Edge Functions; client-side route guards are only a user-experience layer.
+- Rotate any credential that was previously committed to the repository, then remove it from Git history if the repository has been shared.

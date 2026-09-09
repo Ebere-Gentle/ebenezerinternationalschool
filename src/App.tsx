@@ -1,15 +1,12 @@
 import { Toaster } from 'react-hot-toast';
 import AppRoutes from './routes/AppRoutes';
-import { AuthProvider } from './contexts/AuthContext';
-import { ThemeProvider } from './contexts/ThemeContext';
 import './App.css';
 
 function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <AppRoutes />
-        <Toaster
+    <>
+      <AppRoutes />
+      <Toaster
           position="top-right"
           toastOptions={{
             duration: 4000,
@@ -32,9 +29,8 @@ function App() {
               },
             },
           }}
-        />
-      </AuthProvider>
-    </ThemeProvider>
+      />
+    </>
   );
 }
 

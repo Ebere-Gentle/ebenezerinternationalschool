@@ -45,7 +45,14 @@ import AdminAsstProfile from './pages/adminAsst/AdminAsstProfile';
 import AdminAsstPayment from './pages/adminAsst/AdminAsstPayment';
 import AttendanceManagement from './pages/academic/AttendanceManagement';
 
-// Results are kept in the existing role-specific folders.
+import StudentViewTest from './pages/student/results/StudentViewTest';
+import StudentViewExam from './pages/student/results/StudentViewExam';
+import StudentViewCBT from './pages/student/results/StudentViewCBT';
+import StudentResultSummary from './pages/student/results/StudentResultSummary';
+import ParentViewTest from './pages/parent/results/ParentViewTest';
+import ParentViewExam from './pages/parent/results/ParentViewExam';
+import ParentViewCBT from './pages/parent/results/ParentViewCBT';
+import ParentResultSummary from './pages/parent/results/ParentResultSummary';
 import AdminEnterTest from './pages/admin/results/AdminEnterTest';
 import AdminEnterExam from './pages/admin/results/AdminEnterExam';
 import AdminEnterCBT from './pages/admin/results/AdminEnterCBT';
@@ -56,14 +63,6 @@ import TeacherEnterExam from './pages/teacher/results/TeacherEnterExam';
 import TeacherEnterCBT from './pages/teacher/results/TeacherEnterCBT';
 import TeacherViewResults from './pages/teacher/results/TeacherViewResults';
 import TeacherResultSummary from './pages/teacher/results/TeacherResultSummary';
-import StudentViewTest from './pages/student/results/StudentViewTest';
-import StudentViewExam from './pages/student/results/StudentViewExam';
-import StudentViewCBT from './pages/student/results/StudentViewCBT';
-import StudentResultSummary from './pages/student/results/StudentResultSummary';
-import ParentViewTest from './pages/parent/results/ParentViewTest';
-import ParentViewExam from './pages/parent/results/ParentViewExam';
-import ParentViewCBT from './pages/parent/results/ParentViewCBT';
-import ParentResultSummary from './pages/parent/results/ParentResultSummary';
 
 const ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper', 'finance'];
 const ATTENDANCE_ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper', 'finance'];
@@ -150,7 +149,7 @@ const AppRoutes: React.FC = () => (
       <Route index element={<AttendanceManagement />} />
     </Route>
 
-    <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
+    <Route path="/" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><MainLayout /></ProtectedRoute>}>
       <Route path="students" element={<StudentsWithLoginAccounts />} />
       <Route path="students/:id" element={<StudentDetails />} />
       <Route path="students/edit/:id" element={<EditStudent />} />
