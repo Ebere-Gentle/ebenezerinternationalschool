@@ -83,6 +83,33 @@ import AdminAsst from '../pages/adminAsst';
 import AdminAsstProfile from '../pages/adminAsst/AdminAsstProfile';
 import AdminAsstPayment from '../pages/adminAsst/AdminAsstPayment';
 
+// RESULTS
+import StudentViewTest from '../pages/student/results/StudentViewTest';
+import StudentViewExam from '../pages/student/results/StudentViewExam';
+import StudentViewCBT from '../pages/student/results/StudentViewCBT';
+import StudentResultSummary from '../pages/student/results/StudentResultSummary';
+import ParentViewTest from '../pages/parent/results/ParentViewTest';
+import ParentViewExam from '../pages/parent/results/ParentViewExam';
+import ParentViewCBT from '../pages/parent/results/ParentViewCBT';
+import ParentResultSummary from '../pages/parent/results/ParentResultSummary';
+import AdminEnterTest from '../pages/admin/results/AdminEnterTest';
+import AdminEnterExam from '../pages/admin/results/AdminEnterExam';
+import AdminEnterCBT from '../pages/admin/results/AdminEnterCBT';
+import AdminViewResults from '../pages/admin/results/AdminViewResults';
+import AdminResultSummary from '../pages/admin/results/AdminResultSummary';
+import TeacherEnterTest from '../pages/teacher/results/TeacherEnterTest';
+import TeacherEnterExam from '../pages/teacher/results/TeacherEnterExam';
+import TeacherEnterCBT from '../pages/teacher/results/TeacherEnterCBT';
+import TeacherViewResults from '../pages/teacher/results/TeacherViewResults';
+import TeacherResultSummary from '../pages/teacher/results/TeacherResultSummary';
+
+// JAMB CBT
+import JambCbt from '../pages/student/JambCbt';
+import JambCbtTest from '../pages/student/JambCbtTest';
+import JambCbtProgress from '../pages/parent/JambCbtProgress';
+import JambCbtAnalytics from '../pages/admin/JambCbtAnalytics';
+import JambQuestionBank from '../pages/admin/JambQuestionBank';
+
 const AppRoutes: React.FC = () => {
   return (
     <Routes>
@@ -112,10 +139,13 @@ const AppRoutes: React.FC = () => {
         <Route path="payments" element={<StudentPayments />} />
         <Route path="paybill" element={<StudentPayBill />} />
         <Route path="classes" element={<StudentClasses />} />
-        <Route
-          path="*"
-          element={<Navigate to="/student/dashboard" replace />}
-        />
+        <Route path="jamb-cbt" element={<JambCbt />} />
+        <Route path="jamb-cbt/test/:subjectId" element={<JambCbtTest />} />
+        <Route path="results/test" element={<StudentViewTest />} />
+        <Route path="results/exam" element={<StudentViewExam />} />
+        <Route path="results/cbt" element={<StudentViewCBT />} />
+        <Route path="results/summary" element={<StudentResultSummary />} />
+        <Route path="*" element={<Navigate to="/student/dashboard" replace />} />
       </Route>
 
       {/* ============================================ */}
@@ -138,10 +168,13 @@ const AppRoutes: React.FC = () => {
         <Route path="assignments" element={<TeacherAssignments />} />
         <Route path="grades" element={<TeacherGrades />} />
         <Route path="timetable" element={<TimetablePage />} />
-        <Route
-          path="*"
-          element={<Navigate to="/teacher/dashboard" replace />}
-        />
+        <Route path="jamb-cbt" element={<JambCbtAnalytics />} />
+        <Route path="results/enter-test" element={<TeacherEnterTest />} />
+        <Route path="results/enter-exam" element={<TeacherEnterExam />} />
+        <Route path="results/enter-cbt" element={<TeacherEnterCBT />} />
+        <Route path="results/view" element={<TeacherViewResults />} />
+        <Route path="results/summary" element={<TeacherResultSummary />} />
+        <Route path="*" element={<Navigate to="/teacher/dashboard" replace />} />
       </Route>
 
       {/* ============================================ */}
@@ -164,10 +197,12 @@ const AppRoutes: React.FC = () => {
         <Route path="profile" element={<ParentProfile />} />
         <Route path="payment/:studentId" element={<ParentPaymentHistory />} />
         <Route path="payment" element={<ParentPaymentHistory />} />
-        <Route
-          path="*"
-          element={<Navigate to="/parent/dashboard" replace />}
-        />
+        <Route path="jamb-cbt" element={<JambCbtProgress />} />
+        <Route path="results/test" element={<ParentViewTest />} />
+        <Route path="results/exam" element={<ParentViewExam />} />
+        <Route path="results/cbt" element={<ParentViewCBT />} />
+        <Route path="results/summary" element={<ParentResultSummary />} />
+        <Route path="*" element={<Navigate to="/parent/dashboard" replace />} />
       </Route>
 
       {/* ============================================ */}
@@ -201,16 +236,13 @@ const AppRoutes: React.FC = () => {
         <Route path="settings" element={<AdminAsst />} />
         <Route path="profile" element={<AdminAsstProfile />} />
         <Route index element={<Navigate to="/admin-asst/dashboard" replace />} />
-        <Route
-          path="*"
-          element={<Navigate to="/admin-asst/dashboard" replace />}
-        />
+        <Route path="*" element={<Navigate to="/admin-asst/dashboard" replace />} />
       </Route>
 
       {/* ============================================ */}
       {/* STANDALONE SCHOOL BACKUP ROUTE */}
       {/* ============================================ */}
-      
+
       <Route
         path="/school-backup"
         element={
@@ -241,7 +273,10 @@ const AppRoutes: React.FC = () => {
               'admin',
               'director',
               'super_admin',
-              'finance'
+              'finance',
+              'branch_admin',
+              'principal',
+              'record_keeper'
             ]}
           >
             <MainLayout />
@@ -249,6 +284,13 @@ const AppRoutes: React.FC = () => {
         }
       >
         <Route path="dashboard" element={<AdminDashboard />} />
+        <Route path="jamb-cbt" element={<JambCbtAnalytics />} />
+        <Route path="jamb-cbt/questions" element={<JambQuestionBank />} />
+        <Route path="results/enter-test" element={<AdminEnterTest />} />
+        <Route path="results/enter-exam" element={<AdminEnterExam />} />
+        <Route path="results/enter-cbt" element={<AdminEnterCBT />} />
+        <Route path="results/view" element={<AdminViewResults />} />
+        <Route path="results/summary" element={<AdminResultSummary />} />
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
       </Route>
