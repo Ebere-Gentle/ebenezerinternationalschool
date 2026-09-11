@@ -84,12 +84,6 @@ import JambCbtProgress from '../pages/parent/JambCbtProgress';
 import JambCbtAnalytics from '../pages/admin/JambCbtAnalytics';
 import JambQuestionBank from '../pages/admin/JambQuestionBank';
 
-const AdminShell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <ProtectedRoute>
-    <MainLayout />
-  </ProtectedRoute>
-);
-
 const AppRoutes: React.FC = () => {
   return (
     <Routes>
@@ -97,15 +91,21 @@ const AppRoutes: React.FC = () => {
       <Route path="/login" element={<Login />} />
       <Route path="/404" element={<NotFound />} />
 
-      {/* Explicit top-level admin feature routes. These are intentionally outside
-          the /admin wildcard so they can never fall through to DashboardRouter. */}
-      <Route path="/admin/jamb-cbt" element={<AdminShell><JambCbtAnalytics /></AdminShell>} />
-      <Route path="/admin/jamb-cbt/questions" element={<AdminShell><JambQuestionBank /></AdminShell>} />
-      <Route path="/admin/results/enter-test" element={<AdminShell><AdminEnterTest /></AdminShell>} />
-      <Route path="/admin/results/enter-exam" element={<AdminShell><AdminEnterExam /></AdminShell>} />
-      <Route path="/admin/results/enter-cbt" element={<AdminShell><AdminEnterCBT /></AdminShell>} />
-      <Route path="/admin/results/view" element={<AdminShell><AdminViewResults /></AdminShell>} />
-      <Route path="/admin/results/summary" element={<AdminShell><AdminResultSummary /></AdminShell>} />
+      {/* ADMIN FEATURE ROUTES
+          These routes must be nested under MainLayout so MainLayout's Outlet
+          actually renders the requested page content. */}
+      <Route path="/admin" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
+        <Route path="dashboard" element={<AdminDashboard />} />
+        <Route path="jamb-cbt" element={<JambCbtAnalytics />} />
+        <Route path="jamb-cbt/questions" element={<JambQuestionBank />} />
+        <Route path="results/enter-test" element={<AdminEnterTest />} />
+        <Route path="results/enter-exam" element={<AdminEnterExam />} />
+        <Route path="results/enter-cbt" element={<AdminEnterCBT />} />
+        <Route path="results/view" element={<AdminViewResults />} />
+        <Route path="results/summary" element={<AdminResultSummary />} />
+        <Route index element={<Navigate to="/admin/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
+      </Route>
 
       <Route path="/student" element={<ProtectedRoute allowedRoles={['student']}><MainLayout /></ProtectedRoute>}>
         <Route path="dashboard" element={<StudentDashboard />} />
@@ -176,12 +176,6 @@ const AppRoutes: React.FC = () => {
 
       <Route path="/school-backup" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
         <Route index element={<SchoolBackup />} />
-      </Route>
-
-      <Route path="/admin" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
-        <Route path="dashboard" element={<AdminDashboard />} />
-        <Route index element={<Navigate to="/admin/dashboard" replace />} />
-        <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
       </Route>
 
       <Route path="/promotion" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
