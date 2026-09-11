@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ResultTable } from '../../../components/results/shared/ResultTable';
-import { CumulativeResult, CumulativeCalculator, ResultData } from '../../../components/results/shared/CumulativeCalculator';
+import { CumulativeCalculator } from '../../../components/results/shared/CumulativeCalculator';
+import type { CumulativeResult, ResultData } from '../../../components/results/shared/CumulativeCalculator';
 import { supabase } from '../../../config/supabase/client';
 import { Loader2, TrendingUp, Award } from 'lucide-react';
 import { useAuth } from '../../../hooks/useAuth';
@@ -101,16 +102,13 @@ const StudentResultSummary: React.FC = () => {
 
         {summary && results.length > 0 ? (
           <>
-            {/* Summary Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/30 rounded-xl p-4">
                 <div className="flex items-center gap-3">
                   <Award className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">Overall Grade</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {results[0]?.grade || 'N/A'}
-                    </p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{results[0]?.grade || 'N/A'}</p>
                   </div>
                 </div>
               </div>
@@ -119,9 +117,7 @@ const StudentResultSummary: React.FC = () => {
                   <TrendingUp className="w-5 h-5 text-green-600 dark:text-green-400" />
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">Average</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {results[0]?.overallPercentage.toFixed(1)}%
-                    </p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{results[0]?.overallPercentage.toFixed(1)}%</p>
                   </div>
                 </div>
               </div>
@@ -130,9 +126,7 @@ const StudentResultSummary: React.FC = () => {
                   <Award className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">Position</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {results[0]?.position ? `#${results[0].position}` : 'N/A'}
-                    </p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{results[0]?.position ? `#${results[0].position}` : 'N/A'}</p>
                   </div>
                 </div>
               </div>
@@ -141,18 +135,13 @@ const StudentResultSummary: React.FC = () => {
                   <Award className="w-5 h-5 text-orange-600 dark:text-orange-400" />
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">Remark</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                      {results[0]?.remark || 'N/A'}
-                    </p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{results[0]?.remark || 'N/A'}</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <ResultTable
-              results={results}
-              title="Cumulative Results"
-            />
+            <ResultTable results={results} title="Cumulative Results" />
           </>
         ) : (
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8 text-center">
