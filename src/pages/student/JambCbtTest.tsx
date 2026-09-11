@@ -40,6 +40,7 @@ const JambCbtTest: React.FC = () => {
           await supabaseCleanup(attempt.id);
           throw new Error('No questions are available for this subject yet. An administrator needs to load the question bank.');
         }
+        await jambCbtService.setAttemptQuestionCount(attempt.id, qs.length);
         setAttemptId(attempt.id);
         setQuestions(qs);
         setStartedAt(Date.now());
