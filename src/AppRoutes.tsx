@@ -44,7 +44,6 @@ import AdminAsst from './pages/adminAsst';
 import AdminAsstProfile from './pages/adminAsst/AdminAsstProfile';
 import AdminAsstPayment from './pages/adminAsst/AdminAsstPayment';
 import AttendanceManagement from './pages/academic/AttendanceManagement';
-
 import StudentViewTest from './pages/student/results/StudentViewTest';
 import StudentViewExam from './pages/student/results/StudentViewExam';
 import StudentViewCBT from './pages/student/results/StudentViewCBT';
@@ -63,6 +62,10 @@ import TeacherEnterExam from './pages/teacher/results/TeacherEnterExam';
 import TeacherEnterCBT from './pages/teacher/results/TeacherEnterCBT';
 import TeacherViewResults from './pages/teacher/results/TeacherViewResults';
 import TeacherResultSummary from './pages/teacher/results/TeacherResultSummary';
+import JambCbt from './pages/student/JambCbt';
+import JambCbtTest from './pages/student/JambCbtTest';
+import JambCbtProgress from './pages/parent/JambCbtProgress';
+import JambCbtAnalytics from './pages/admin/JambCbtAnalytics';
 
 const ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper', 'finance'];
 const ATTENDANCE_ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper', 'finance'];
@@ -79,6 +82,7 @@ const AppRoutes: React.FC = () => (
       <Route path="messages" element={<MessagePage />} />
       <Route path="messages/:conversationId" element={<MessagePage />} />
       <Route path="attendance" element={<AttendanceManagement />} />
+      <Route path="jamb-cbt" element={<JambCbtAnalytics />} />
       <Route path="results/enter-test" element={<AdminEnterTest />} />
       <Route path="results/enter-exam" element={<AdminEnterExam />} />
       <Route path="results/enter-cbt" element={<AdminEnterCBT />} />
@@ -113,6 +117,8 @@ const AppRoutes: React.FC = () => (
       <Route path="payments" element={<StudentPayments />} />
       <Route path="paybill" element={<StudentPayBill />} />
       <Route path="attendance" element={<AttendanceManagement />} />
+      <Route path="jamb-cbt" element={<JambCbt />} />
+      <Route path="jamb-cbt/test/:subjectId" element={<JambCbtTest />} />
       <Route path="results/test" element={<StudentViewTest />} />
       <Route path="results/exam" element={<StudentViewExam />} />
       <Route path="results/cbt" element={<StudentViewCBT />} />
@@ -123,6 +129,7 @@ const AppRoutes: React.FC = () => (
       <Route path="dashboard" element={<TeacherDashboard />} />
       <Route index element={<Navigate to="/teacher/dashboard" replace />} />
       <Route path="attendance" element={<AttendanceManagement />} />
+      <Route path="jamb-cbt" element={<JambCbtAnalytics />} />
       <Route path="results/enter-test" element={<TeacherEnterTest />} />
       <Route path="results/enter-exam" element={<TeacherEnterExam />} />
       <Route path="results/enter-cbt" element={<TeacherEnterCBT />} />
@@ -136,6 +143,7 @@ const AppRoutes: React.FC = () => (
       <Route path="pay-bill/:studentId" element={<ParentPayBill />} />
       <Route path="pay-bill" element={<ParentPayBill />} />
       <Route path="children" element={<MyChildren />} />
+      <Route path="jamb-cbt" element={<JambCbtProgress />} />
       <Route path="profile" element={<ParentProfile />} />
       <Route path="payment/:studentId" element={<ParentPaymentHistory />} />
       <Route path="payment" element={<ParentPaymentHistory />} />
