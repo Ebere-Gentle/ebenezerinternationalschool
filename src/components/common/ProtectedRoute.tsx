@@ -17,7 +17,7 @@ type UserRole =
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  allowedRoles?: UserRole[];
+  allowedRoles?: string[];
 }
 
 const normalizeRole = (role: unknown): UserRole | null => {
@@ -81,6 +81,16 @@ const getDashboardPath = (role: UserRole | null): string => {
   }
 };
 
+const isRoleAllowed = (role: UserRole | null, allowedRoles: string[]) => {
+  if (!role) return false;
+
+  const normalizedAllowed = allowedRoles
+    .map(normalizeRole)
+    .filter((value): value is UserRole => value !== null);
+
+  return normalizedAllowed.includes(role);
+};
+
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   children,
   allowedRoles = [],
@@ -119,15 +129,11 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     storedRole = localStorage.getItem('userRole');
   }
 
+  // Prefer the live authenticated profile. Only use local storage when the
+  // authenticated profile does not contain a usable role.
   const userRole = normalizeRole(user.role) || normalizeRole(storedRole);
 
   if (allowedRoles.length === 0) return <>{children}</>;
-
-  const normalizedAllowedRoles = allowedRoles
-    .map(normalizeRole)
-    .filter((role): role is UserRole => role !== null);
-
-  const hasRole = userRole !== null && normalizedAllowedRoles.includes(userRole);
 
   const isUserMessagesRoute =
     location.pathname === '/user-messages' ||
@@ -139,20 +145,50 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   if (isUserMessagesRoute && canUseUserMessages) return <>{children}</>;
 
-  const isAdminResults = location.pathname.startsWith('/admin/results/');
-  const isTeacherResults = location.pathname.startsWith('/teacher/results/');
-  const isStudentResults = location.pathname.startsWith('/student/results/');
-  const isParentResults = location.pathname.startsWith('/parent/results/');
+  // Explicit route families. This prevents a valid feature route from being
+  // mistaken for a generic/shared route simply because its parent layout is
+  // also protected.
+  const adminResults = location.pathname.startsWith('/admin/results/');
+  const teacherResults = location.pathname.startsWith('/teacher/results/');
+  const studentResults = location.pathname.startsWith('/student/results/');
+  const parentResults = location.pathname.startsWith('/parent/results/');
 
-  const canUseResults =
-    (isAdminResults && !!userRole && ['admin', 'branch_admin', 'director', 'principal', 'finance', 'super_admin'].includes(userRole)) ||
-    (isTeacherResults && userRole === 'teacher') ||
-    (isStudentResults && userRole === 'student') ||
-    (isParentResults && userRole === 'parent');
+  const adminJamb =
+    location.pathname === '/admin/jamb-cbt' ||
+    location.pathname.startsWith('/admin/jamb-cbt/');
+  const teacherJamb =
+    location.pathname === '/teacher/jamb-cbt' ||
+    location.pathname.startsWith('/teacher/jamb-cbt/');
+  const studentJamb =
+    location.pathname === '/student/jamb-cbt' ||
+    location.pathname.startsWith('/student/jamb-cbt/');
+  const parentJamb =
+    location.pathname === '/parent/jamb-cbt' ||
+    location.pathname.startsWith('/parent/jamb-cbt/');
 
-  if (canUseResults) return <>{children}</>;
-  if (hasRole) return <>{children}</>;
+  if (adminResults || adminJamb) {
+    if (userRole && ['admin', 'branch_admin', 'director', 'principal', 'super_admin'].includes(userRole)) {
+      return <>{children}</>;
+    }
+  }
 
+  if (teacherResults || teacherJamb) {
+    if (userRole === 'teacher') return <>{children}</>;
+  }
+
+  if (studentResults || studentJamb) {
+    if (userRole === 'student') return <>{children}</>;
+  }
+
+  if (parentResults || parentJamb) {
+    if (userRole === 'parent') return <>{children}</>;
+  }
+
+  if (isRoleAllowed(userRole, allowedRoles)) return <>{children}</>;
+
+  // Never send a user to a dashboard because of an ambiguous/legacy feature
+  // URL. The caller's intended route is preserved by the route aliases in
+  // AppRoutes; this fallback is only for genuinely unauthorized access.
   return <Navigate to={getDashboardPath(userRole)} replace />;
 };
 
