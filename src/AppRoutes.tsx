@@ -6,7 +6,7 @@ import ProtectedRoute from './components/common/ProtectedRoute';
 import MainLayout from './components/layout/MainLayout';
 import DashboardRouter from './components/common/DashboardRouter';
 import FeeEdit from './pages/fees/FeeEdit';
-import AdminDashboard from './pages/dashboard/AdminDashboard';
+import AdminDashboardWithJamb from './pages/dashboard/AdminDashboardWithJamb';
 import TeacherDashboard from './pages/teacher/TeacherDashboard';
 import StudentDashboard from './pages/student/StudentDashboard';
 import FeeDetail from './pages/fees/FeeDetail';
@@ -78,7 +78,7 @@ const AppRoutes: React.FC = () => (
     <Route path="/404" element={<NotFound />} />
 
     <Route path="/admin" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><MainLayout /></ProtectedRoute>}>
-      <Route path="dashboard" element={<AdminDashboard />} />
+      <Route path="dashboard" element={<AdminDashboardWithJamb />} />
       <Route index element={<Navigate to="/admin/dashboard" replace />} />
       <Route path="messages" element={<MessagePage />} />
       <Route path="messages/:conversationId" element={<MessagePage />} />
