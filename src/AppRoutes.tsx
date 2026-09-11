@@ -1,5 +1,5 @@
-import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import Login from './pages/auth/Login';
 import Landing from './pages/landing/Landing';
 import ProtectedRoute from './components/common/ProtectedRoute';
@@ -11,7 +11,6 @@ import TeacherDashboard from './pages/teacher/TeacherDashboard';
 import StudentDashboard from './pages/student/StudentDashboard';
 import FeeDetail from './pages/fees/FeeDetail';
 import ParentDashboard from './pages/parent/ParentDashboard';
-import StudentsList from './pages/students/StudentsList';
 import StudentsWithLoginAccounts from './pages/students/StudentsWithLoginAccounts';
 import StudentDetails from './pages/students/StudentDetails';
 import SubjectsManagement from './pages/Subjects/SubjectsManagement';
@@ -71,11 +70,151 @@ import JambQuestionBank from './pages/admin/JambQuestionBank';
 const ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper', 'finance'];
 const ATTENDANCE_ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper', 'finance'];
 
+const normalizeRouteRole = (role: unknown) => {
+  const value = String(role || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (['administrator', 'school_admin', 'schooladministrator'].includes(value)) return 'admin';
+  if (['branchadministrator'].includes(value)) return 'branch_admin';
+  if (['teachers'].includes(value)) return 'teacher';
+  if (['students'].includes(value)) return 'student';
+  if (['parents'].includes(value)) return 'parent';
+  if (['finance_officer', 'accountant'].includes(value)) return 'finance';
+  if (['superadmin'].includes(value)) return 'super_admin';
+  if (['recordkeeper'].includes(value)) return 'record_keeper';
+  if (['admin_assistant', 'adminassistant'].includes(value)) return 'admin_asst';
+  return value;
+};
+
+/**
+ * Handles older/shared URLs that may still exist in dashboard cards, cached
+ * navigation, bookmarks or previously deployed versions. These aliases must
+ * resolve to the user's role-specific route instead of falling through to a
+ * generic dashboard.
+ */
+const LegacyFeatureRedirect: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    let role = '';
+    try {
+      const raw = localStorage.getItem('user');
+      role = normalizeRouteRole(raw ? JSON.parse(raw)?.role : localStorage.getItem('userRole'));
+    } catch {
+      role = normalizeRouteRole(localStorage.getItem('userRole'));
+    }
+
+    const path = location.pathname.replace(/\/+$/, '') || '/';
+    const suffix = path.replace(/^\/(?:jamb-cbt|results)/, '');
+
+    const roleBase: Record<string, string> = {
+      admin: '/admin',
+      branch_admin: '/admin',
+      director: '/admin',
+      principal: '/admin',
+      super_admin: '/admin',
+      finance: '/admin',
+      teacher: '/teacher',
+      student: '/student',
+      parent: '/parent',
+      record_keeper: '/admin-asst',
+      admin_asst: '/admin-asst',
+    };
+
+    let target: string | null = null;
+
+    if (path === '/jamb-cbt') {
+      target = role === 'student'
+        ? '/student/jamb-cbt'
+        : role === 'parent'
+          ? '/parent/jamb-cbt'
+          : role === 'teacher'
+            ? '/teacher/jamb-cbt'
+            : roleBase[role]
+              ? '/admin/jamb-cbt'
+              : null;
+    } else if (path === '/jamb-cbt/questions') {
+      target = '/admin/jamb-cbt/questions';
+    } else if (path === '/results/test') {
+      target = role === 'student'
+        ? '/student/results/test'
+        : role === 'parent'
+          ? '/parent/results/test'
+          : role === 'teacher'
+            ? '/teacher/results/view'
+            : roleBase[role]
+              ? '/admin/results/view'
+              : null;
+    } else if (path === '/results/exam') {
+      target = role === 'student'
+        ? '/student/results/exam'
+        : role === 'parent'
+          ? '/parent/results/exam'
+          : role === 'teacher'
+            ? '/teacher/results/view'
+            : roleBase[role]
+              ? '/admin/results/view'
+              : null;
+    } else if (path === '/results/cbt') {
+      target = role === 'student'
+        ? '/student/results/cbt'
+        : role === 'parent'
+          ? '/parent/results/cbt'
+          : role === 'teacher'
+            ? '/teacher/results/view'
+            : roleBase[role]
+              ? '/admin/results/view'
+              : null;
+    } else if (path === '/results/summary') {
+      target = role === 'student'
+        ? '/student/results/summary'
+        : role === 'parent'
+          ? '/parent/results/summary'
+          : role === 'teacher'
+            ? '/teacher/results/summary'
+            : roleBase[role]
+              ? '/admin/results/summary'
+              : null;
+    } else if (path.startsWith('/results/')) {
+      const resultPath = path.replace(/^\/results\//, '');
+      const allowed = new Set([
+        'enter-test',
+        'enter-exam',
+        'enter-cbt',
+        'view',
+        'summary',
+      ]);
+      if (roleBase[role] && allowed.has(resultPath)) {
+        target = role === 'teacher'
+          ? `/teacher/results/${resultPath}`
+          : role === 'admin' || ['branch_admin', 'director', 'principal', 'super_admin', 'finance'].includes(role)
+            ? `/admin/results/${resultPath}`
+            : null;
+      }
+    } else if (path.startsWith('/jamb-cbt/')) {
+      const jambPath = path.replace(/^\/jamb-cbt\/?/, '');
+      if (role === 'student') target = `/student/jamb-cbt/${jambPath}`;
+      else if (role === 'parent') target = `/parent/jamb-cbt/${jambPath}`;
+      else if (role === 'teacher') target = `/teacher/jamb-cbt/${jambPath}`;
+      else if (roleBase[role]) target = `/admin/jamb-cbt/${jambPath}`;
+    }
+
+    if (target && target !== path) {
+      navigate(target, { replace: true });
+    }
+  }, [location.pathname, navigate]);
+
+  return null;
+};
+
 const AppRoutes: React.FC = () => (
   <Routes>
     <Route path="/" element={<Landing />} />
     <Route path="/login" element={<Login />} />
     <Route path="/404" element={<NotFound />} />
+
+    {/* Legacy/shared aliases are resolved before the generic 404 route. */}
+    <Route path="/jamb-cbt/*" element={<ProtectedRoute><LegacyFeatureRedirect /></ProtectedRoute>} />
+    <Route path="/results/*" element={<ProtectedRoute><LegacyFeatureRedirect /></ProtectedRoute>} />
 
     <Route path="/admin" element={<ProtectedRoute allowedRoles={ADMIN_ROLES}><MainLayout /></ProtectedRoute>}>
       <Route path="dashboard" element={<AdminDashboardWithJamb />} />
