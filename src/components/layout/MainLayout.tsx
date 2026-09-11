@@ -3,20 +3,20 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Menu, 
-  X, 
-  LayoutDashboard, 
-  Users, 
-  GraduationCap, 
-  CreditCard, 
-  Coins, 
-  BookOpen, 
-  Building2, 
-  BarChart3, 
-  Settings, 
-  LogOut, 
-  Sun, 
+import {
+  Menu,
+  X,
+  LayoutDashboard,
+  Users,
+  GraduationCap,
+  CreditCard,
+  Coins,
+  BookOpen,
+  Building2,
+  BarChart3,
+  Settings,
+  LogOut,
+  Sun,
   ArrowUp,
   Moon,
   User,
@@ -57,8 +57,6 @@ import {
   HandHelping,
   Box,
   History,
-  ChevronUp,
-  MoreHorizontal,
   ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
@@ -120,9 +118,10 @@ const navigation: NavigationItem[] = [
 
   // Admin Routes
   { label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard', roles: ['admin', 'super_admin', 'director', 'finance'] },
-  
+
   // Academic Section
-  { label: 'Academic', icon: BookOpen, path: '#', roles: ['admin', 'super_admin', 'director'],
+  {
+    label: 'Academic', icon: BookOpen, path: '#', roles: ['admin', 'super_admin', 'director'],
     children: [
       { label: 'Students', icon: Users, path: '/students', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Teachers', icon: GraduationCap, path: '/teachers', roles: ['admin', 'super_admin', 'director'] },
@@ -131,51 +130,27 @@ const navigation: NavigationItem[] = [
       { label: 'Timetable', icon: Calendar, path: '/timetable', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
-  
+
   // ============================================================
   // RESULTS SECTION - ADMIN
   // ============================================================
-  { 
-    label: 'Results', 
-    icon: BarChart3, 
-    path: '#', 
+  {
+    label: 'Results',
+    icon: BarChart3,
+    path: '#',
     roles: ['admin', 'super_admin', 'director'],
     children: [
-      { 
-        label: 'Enter Test', 
-        icon: FileText, 
-        path: '/admin/results/enter-test', 
-        roles: ['admin', 'super_admin', 'director'] 
-      },
-      { 
-        label: 'Enter Exam', 
-        icon: ClipboardCheck, 
-        path: '/admin/results/enter-exam', 
-        roles: ['admin', 'super_admin', 'director'] 
-      },
-      { 
-        label: 'Enter CBT/Assignment', 
-        icon: BookOpen, 
-        path: '/admin/results/enter-cbt', 
-        roles: ['admin', 'super_admin', 'director'] 
-      },
-      { 
-        label: 'View Results', 
-        icon: BarChart3, 
-        path: '/admin/results/view', 
-        roles: ['admin', 'super_admin', 'director'] 
-      },
-      { 
-        label: 'Result Summary', 
-        icon: TrendingUp, 
-        path: '/admin/results/summary', 
-        roles: ['admin', 'super_admin', 'director'] 
-      },
+      { label: 'Enter Test', icon: FileText, path: '/admin/results/enter-test', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Enter Exam', icon: ClipboardCheck, path: '/admin/results/enter-exam', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Enter CBT/Assignment', icon: BookOpen, path: '/admin/results/enter-cbt', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'View Results', icon: BarChart3, path: '/admin/results/view', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Result Summary', icon: TrendingUp, path: '/admin/results/summary', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
 
   // Finance Section
-  { label: 'Finance', icon: CreditCard, path: '#', roles: ['admin', 'super_admin', 'director', 'finance'],
+  {
+    label: 'Finance', icon: CreditCard, path: '#', roles: ['admin', 'super_admin', 'director', 'finance'],
     children: [
       { label: 'Payments', icon: CreditCard, path: '/payments', roles: ['admin', 'super_admin', 'director', 'finance'] },
       { label: 'Invoice', icon: Coins, path: '/fees', roles: ['admin', 'super_admin', 'director', 'finance'] },
@@ -183,9 +158,10 @@ const navigation: NavigationItem[] = [
       { label: 'Receipt Verification', icon: ShieldCheck, path: '/verify-receipt', roles: ['admin', 'super_admin', 'director', 'finance', 'admin_asst', 'record_keeper'] },
     ]
   },
-  
+
   // Human Resources Section
-  { label: 'Human Resources', icon: Users2, path: '#', roles: ['admin', 'super_admin', 'director'],
+  {
+    label: 'Human Resources', icon: Users2, path: '#', roles: ['admin', 'super_admin', 'director'],
     children: [
       { label: 'Staff', icon: Briefcase, path: '/staff', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Parents', icon: Users2, path: '/parents/create', roles: ['admin', 'super_admin', 'director'] },
@@ -193,9 +169,10 @@ const navigation: NavigationItem[] = [
       { label: 'Leave Requests', icon: ClipboardCheck, path: '/leave-requests', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
-  
+
   // School Admin Section
-  { label: 'School Admin', icon: Building2, path: '#', roles: ['admin', 'super_admin', 'director'],
+  {
+    label: 'School Admin', icon: Building2, path: '#', roles: ['admin', 'super_admin', 'director'],
     children: [
       { label: 'Branches', icon: Building2, path: '/branches', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Houses', icon: Home, path: '/houses', roles: ['admin', 'super_admin', 'director'] },
@@ -205,16 +182,17 @@ const navigation: NavigationItem[] = [
       { label: 'Backup', icon: Download, path: '/school-backup', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
-  
+
   // Communication Section
-  { label: 'Communication', icon: MessageSquare, path: '#', roles: ['admin', 'super_admin', 'director'],
+  {
+    label: 'Communication', icon: MessageSquare, path: '#', roles: ['admin', 'super_admin', 'director'],
     children: [
       { label: 'Announcements', icon: Megaphone, path: '/announcements', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Messages', icon: MessageSquare, path: '/messages', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Notices', icon: FileText, path: '/notices', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
-  
+
   // ============================================================
   // TEACHER ROUTES
   // ============================================================
@@ -225,140 +203,75 @@ const navigation: NavigationItem[] = [
   { label: 'Assignments', icon: FileText, path: '/teacher/assignments', roles: ['teacher'] },
   { label: 'Grades', icon: TrendingUp, path: '/teacher/grades', roles: ['teacher'] },
   { label: 'Timetable', icon: Calendar, path: '/teacher/timetable', roles: ['teacher'] },
-  
+
   // ============================================================
   // RESULTS SECTION - TEACHER
   // ============================================================
-  { 
-    label: 'Results', 
-    icon: BarChart3, 
-    path: '#', 
+  {
+    label: 'Results',
+    icon: BarChart3,
+    path: '#',
     roles: ['teacher'],
     children: [
-      { 
-        label: 'Enter Test', 
-        icon: FileText, 
-        path: '/teacher/results/enter-test', 
-        roles: ['teacher'] 
-      },
-      { 
-        label: 'Enter Exam', 
-        icon: ClipboardCheck, 
-        path: '/teacher/results/enter-exam', 
-        roles: ['teacher'] 
-      },
-      { 
-        label: 'Enter CBT/Assignment', 
-        icon: BookOpen, 
-        path: '/teacher/results/enter-cbt', 
-        roles: ['teacher'] 
-      },
-      { 
-        label: 'View Results', 
-        icon: BarChart3, 
-        path: '/teacher/results/view', 
-        roles: ['teacher'] 
-      },
-      { 
-        label: 'Result Summary', 
-        icon: TrendingUp, 
-        path: '/teacher/results/summary', 
-        roles: ['teacher'] 
-      },
+      { label: 'Enter Test', icon: FileText, path: '/teacher/results/enter-test', roles: ['teacher'] },
+      { label: 'Enter Exam', icon: ClipboardCheck, path: '/teacher/results/enter-exam', roles: ['teacher'] },
+      { label: 'Enter CBT/Assignment', icon: BookOpen, path: '/teacher/results/enter-cbt', roles: ['teacher'] },
+      { label: 'View Results', icon: BarChart3, path: '/teacher/results/view', roles: ['teacher'] },
+      { label: 'Result Summary', icon: TrendingUp, path: '/teacher/results/summary', roles: ['teacher'] },
     ]
   },
-  
+
   // ============================================================
   // PARENT ROUTES
   // ============================================================
   { label: 'Dashboard', icon: LayoutDashboard, path: '/parent/dashboard', roles: ['parent'] },
   { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'] },
-  
+
   // ============================================================
   // RESULTS SECTION - PARENT
   // ============================================================
-  { 
-    label: 'Results', 
-    icon: BarChart3, 
-    path: '#', 
+  {
+    label: 'Results',
+    icon: BarChart3,
+    path: '#',
     roles: ['parent'],
     children: [
-      { 
-        label: 'View Test Results', 
-        icon: FileText, 
-        path: '/parent/results/test', 
-        roles: ['parent'] 
-      },
-      { 
-        label: 'View Exam Results', 
-        icon: ClipboardCheck, 
-        path: '/parent/results/exam', 
-        roles: ['parent'] 
-      },
-      { 
-        label: 'View CBT Results', 
-        icon: BookOpen, 
-        path: '/parent/results/cbt', 
-        roles: ['parent'] 
-      },
-      { 
-        label: 'Result Summary', 
-        icon: TrendingUp, 
-        path: '/parent/results/summary', 
-        roles: ['parent'] 
-      },
+      { label: 'View Test Results', icon: FileText, path: '/parent/results/test', roles: ['parent'] },
+      { label: 'View Exam Results', icon: ClipboardCheck, path: '/parent/results/exam', roles: ['parent'] },
+      { label: 'View CBT Results', icon: BookOpen, path: '/parent/results/cbt', roles: ['parent'] },
+      { label: 'Result Summary', icon: TrendingUp, path: '/parent/results/summary', roles: ['parent'] },
     ]
   },
-  
+
   { label: 'Pay Bill', icon: Wallet, path: '/parent/pay-bill', roles: ['parent'], badge: 'New' },
   { label: 'My Profile', icon: User, path: '/parent/profile', roles: ['parent'] },
-  
+
   // ============================================================
   // STUDENT ROUTES
   // ============================================================
   { label: 'Dashboard', icon: LayoutDashboard, path: '/student/dashboard', roles: ['student'] },
   { label: 'My Profile', icon: User, path: '/student/profile', roles: ['student'] },
-  
+
   // ============================================================
   // RESULTS SECTION - STUDENT
   // ============================================================
-  { 
-    label: 'Results', 
-    icon: BarChart3, 
-    path: '#', 
+  {
+    label: 'Results',
+    icon: BarChart3,
+    path: '#',
     roles: ['student'],
     children: [
-      { 
-        label: 'View Test Results', 
-        icon: FileText, 
-        path: '/student/results/test', 
-        roles: ['student'] 
-      },
-      { 
-        label: 'View Exam Results', 
-        icon: ClipboardCheck, 
-        path: '/student/results/exam', 
-        roles: ['student'] 
-      },
-      { 
-        label: 'View CBT Results', 
-        icon: BookOpen, 
-        path: '/student/results/cbt', 
-        roles: ['student'] 
-      },
-      { 
-        label: 'Result Summary', 
-        icon: TrendingUp, 
-        path: '/student/results/summary', 
-        roles: ['student'] 
-      },
+      { label: 'View Test Results', icon: FileText, path: '/student/results/test', roles: ['student'] },
+      { label: 'View Exam Results', icon: ClipboardCheck, path: '/student/results/exam', roles: ['student'] },
+      { label: 'View CBT Results', icon: BookOpen, path: '/student/results/cbt', roles: ['student'] },
+      { label: 'Result Summary', icon: TrendingUp, path: '/student/results/summary', roles: ['student'] },
     ]
   },
-  
+
   { label: 'Pay Bill', icon: Wallet, path: '/student/paybill', roles: ['student'], badge: 'New' },
   { label: 'Payment History', icon: Receipt, path: '/student/payments', roles: ['student'] },
   { label: 'My Classes', icon: BookOpen, path: '/student/classes', roles: ['student'] },
-  
+
   // Settings - Available to all roles
   { label: 'Settings', icon: Settings, path: '/settings', roles: ['admin', 'super_admin', 'director', 'finance', 'teacher', 'parent', 'student', 'record_keeper', 'admin_asst'] },
   { label: 'Messages', icon: MessageSquare, path: '/user-messages', roles: ['teacher', 'parent', 'student', 'record_keeper', 'admin_asst'] },
@@ -424,7 +337,7 @@ const MainLayout = () => {
   const [canUploadProfile, setCanUploadProfile] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
-  
+
   const { user, logout } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
   const location = useLocation();
@@ -462,10 +375,10 @@ const MainLayout = () => {
   const isStudentOrParent = userRole === 'student' || userRole === 'parent';
   const isAdminAsst = userRole === 'record_keeper' || userRole === 'admin_asst';
   const isAdminRole = ['admin', 'super_admin', 'director', 'finance'].includes(userRole);
-  
+
   // Check if user should have dock (mobile only)
   const shouldShowDock = isMobile && (isStudentOrParent || isAdminAsst);
-  
+
   // Get dock navigation items
   const dockNavItems = getDockNavigation(userRole);
 
@@ -498,7 +411,7 @@ const MainLayout = () => {
     if (user?.id) {
       fetchUserProfile(user.id);
       fetchAnnouncements();
-      
+
       // Subscribe to new announcements
       const subscription = supabase
         .channel('announcements_channel')
@@ -513,7 +426,7 @@ const MainLayout = () => {
             const newAnnouncement = payload.new;
             const userRole = user?.role || 'student';
             const targetRoles = newAnnouncement.target_roles || [];
-            
+
             if (targetRoles.length === 0 || targetRoles.includes(userRole)) {
               const notification: Notification = {
                 id: newAnnouncement.id,
@@ -528,7 +441,7 @@ const MainLayout = () => {
                   priority: newAnnouncement.priority,
                 }
               };
-              
+
               setNotifications(prev => [notification, ...prev]);
               toast(newAnnouncement.title, {
                 duration: 4000,
@@ -567,7 +480,7 @@ const MainLayout = () => {
     setImageLoading(true);
     setIsStudent(false);
     setCanUploadProfile(false);
-    
+
     try {
       const { data: studentData, error: studentError } = await supabase
         .from('students')
@@ -819,20 +732,20 @@ const MainLayout = () => {
   };
 
   const markNotificationRead = async (notificationId: string) => {
-    setNotifications(prev => 
+    setNotifications(prev =>
       prev.map(n => n.id === notificationId ? { ...n, is_read: true } : n)
     );
   };
 
   const handleNotificationClick = (notification: Notification) => {
     markNotificationRead(notification.id);
-    
+
     if (notification.data?.path) {
       navigate(notification.data.path);
     } else {
       navigate('/announcements');
     }
-    
+
     setShowNotifications(false);
   };
 
@@ -886,7 +799,7 @@ const MainLayout = () => {
       if (error) {
         console.error('Upload error:', error);
         toast.dismiss();
-        
+
         if (error.message?.includes('bucket not found')) {
           toast.error('Profile photo bucket not found. Please contact administrator.');
         } else if (error.message?.includes('permission denied') || error.message?.includes('row-level security')) {
@@ -915,7 +828,7 @@ const MainLayout = () => {
 
       const userRole = userProfile?.role || 'record_keeper';
       let tableName = 'users';
-      
+
       if (userRole === 'teacher') {
         tableName = 'teachers';
       } else if (userRole === 'parent') {
@@ -923,15 +836,16 @@ const MainLayout = () => {
       } else {
         tableName = 'users';
       }
-      
-      const { data: existingUser, error: checkError } = await supabase        .from(tableName)
+
+      const { data: existingUser, error: checkError } = await supabase
+        .from(tableName)
         .select('id')
         .eq('id', user.id)
         .single();
 
       if (checkError || !existingUser) {
         const { error: updateUserError } = await supabase.auth.updateUser({
-          data: { 
+          data: {
             profile_image_url: publicUrl,
             avatar_url: publicUrl
           }
@@ -947,7 +861,7 @@ const MainLayout = () => {
       } else {
         const { error: updateError } = await supabase
           .from(tableName)
-          .update({ 
+          .update({
             profile_image_url: filePath,
             updated_at: new Date().toISOString()
           })
@@ -963,14 +877,14 @@ const MainLayout = () => {
       }
 
       setProfileImageUrl(publicUrl);
-      setUserProfile(prev => prev ? { 
-        ...prev, 
+      setUserProfile(prev => prev ? {
+        ...prev,
         profile_image_url: publicUrl
       } : null);
 
       toast.dismiss();
       toast.success('Profile picture updated successfully! 🎉');
-      
+
       await fetchUserProfile(user.id);
     } catch (error: any) {
       toast.dismiss();
@@ -1214,9 +1128,9 @@ const MainLayout = () => {
             <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
           </div>
         )}
-        <img 
-          src={imageUrl} 
-          alt="Profile" 
+        <img
+          src={imageUrl}
+          alt="Profile"
           className={`${className} ${imgLoading ? 'hidden' : 'block'}`}
           loading="lazy"
           onError={() => {
@@ -1243,7 +1157,7 @@ const MainLayout = () => {
     return (
       <div className={`relative group ${sizeClasses[size]}`}>
         <ProfileImage className={`${sizeClasses[size]} rounded-xl object-cover shadow-lg`} />
-        
+
         {!isStudent && canUploadProfile && (
           <div className="absolute inset-0 rounded-xl bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
             <label htmlFor={inputId} className="cursor-pointer w-full h-full flex items-center justify-center">
@@ -1263,13 +1177,13 @@ const MainLayout = () => {
             />
           </div>
         )}
-        
+
         {isStudent && (
           <div className="absolute inset-0 rounded-xl flex items-center justify-center pointer-events-none">
             <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-gray-400 rounded-full border-2 border-white dark:border-gray-900" />
           </div>
         )}
-        
+
         {isPremium && showPremium && (
           <div className="absolute -top-1 -right-1">
             <Crown className="w-3 h-3 text-amber-500 fill-amber-500" />
@@ -1286,13 +1200,13 @@ const MainLayout = () => {
   };
 
   const mobileSidebarVariants = {
-    open: { 
-      x: 0, 
-      transition: { duration: 0.3, ease: 'easeInOut' } 
+    open: {
+      x: 0,
+      transition: { duration: 0.3, ease: 'easeInOut' }
     },
-    closed: { 
-      x: '-100%', 
-      transition: { duration: 0.3, ease: 'easeInOut' } 
+    closed: {
+      x: '-100%',
+      transition: { duration: 0.3, ease: 'easeInOut' }
     },
   };
 
@@ -1331,9 +1245,9 @@ const MainLayout = () => {
                 <div className={`flex items-center gap-2 ${sidebarOpen ? 'w-full' : 'justify-center w-full'}`}>
                   <div className="relative flex-shrink-0">
                     {schoolLogo ? (
-                      <img 
-                        src={schoolLogo} 
-                        alt="School Logo" 
+                      <img
+                        src={schoolLogo}
+                        alt="School Logo"
                         className={`w-10 h-10 rounded-xl object-cover ${isPremium && showPremium ? 'ring-2 ring-amber-500/50' : ''}`}
                       />
                     ) : (
@@ -1379,7 +1293,7 @@ const MainLayout = () => {
                 {filteredNavigation.map((item, index) => {
                   const active = isActive(item.path);
                   const isPayBill = item.label === 'Pay Bill';
-                  
+
                   return (
                     <motion.div
                       key={item.path}
@@ -1399,13 +1313,13 @@ const MainLayout = () => {
                         title={!sidebarOpen ? item.label : ''}
                       >
                         <div className="relative flex-shrink-0">
-                            <item.icon className="w-5 h-5 transition-transform group-hover:scale-110" />
-                            {item.label === 'Messages' && unreadMessages > 0 && (
-                              <span className="absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-bold text-white shadow-sm">
-                                {unreadMessages > 99 ? '99+' : unreadMessages}
-                              </span>
-                            )}
-                          </div>
+                          <item.icon className="w-5 h-5 transition-transform group-hover:scale-110" />
+                          {item.label === 'Messages' && unreadMessages > 0 && (
+                            <span className="absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-bold text-white shadow-sm">
+                              {unreadMessages > 99 ? '99+' : unreadMessages}
+                            </span>
+                          )}
+                        </div>
                         {sidebarOpen && (
                           <>
                             {!(item.label === 'Messages' && !isAdminRole) && (
@@ -1489,15 +1403,15 @@ const MainLayout = () => {
                 initial="closed"
                 animate={sidebarOpen ? 'open' : 'closed'}
                 variants={mobileSidebarVariants}
-                className="fixed top-0 left-0 z-50 h-screen w-[280px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden flex flex-col"
+                className="fixed top-0 left-0 z-50 h-[100dvh] w-[min(86vw,320px)] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden flex flex-col"
               >
                 <div className="flex items-center justify-between h-20 px-4 border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0">
                   <div className="flex items-center gap-3">
                     <div className="relative flex-shrink-0">
                       {schoolLogo ? (
-                        <img 
-                          src={schoolLogo} 
-                          alt="School Logo" 
+                        <img
+                          src={schoolLogo}
+                          alt="School Logo"
                           className={`w-10 h-10 rounded-xl object-cover ${isPremium && showPremium ? 'ring-2 ring-amber-500/50' : ''}`}
                         />
                       ) : (
@@ -1532,7 +1446,7 @@ const MainLayout = () => {
                   {filteredNavigation.map((item) => {
                     const active = isActive(item.path);
                     const isPayBill = item.label === 'Pay Bill';
-                    
+
                     return (
                       <Link
                         key={item.path}
@@ -1605,7 +1519,6 @@ const MainLayout = () => {
               <header className="sticky top-0 z-40 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-b border-gray-200/50 dark:border-gray-800/50 shadow-sm">
                 <div className="h-16 px-4 sm:px-6 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    {/* Hamburger Menu Button - Only on larger screens for Student/Parent/Admin Asst */}
                     {!isMobile && (
                       <button
                         onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -1614,7 +1527,6 @@ const MainLayout = () => {
                         <Menu className="w-5 h-5" />
                       </button>
                     )}
-                    {/* Mobile Menu Button */}
                     {isMobile && (
                       <button
                         onClick={() => setSidebarOpen(true)}
@@ -1636,9 +1548,9 @@ const MainLayout = () => {
                       </span>
                     )}
                   </div>
-                  
+
                   <div className="flex items-center gap-2 sm:gap-3">
-                    <button 
+                    <button
                       onClick={() => setIsSearchOpen(!isSearchOpen)}
                       className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 hover:bg-gray-200/80 dark:hover:bg-gray-700/80 transition-all text-gray-500 dark:text-gray-400 text-sm"
                     >
@@ -1646,7 +1558,7 @@ const MainLayout = () => {
                       <span className="hidden lg:inline">Search...</span>
                     </button>
 
-                    <button 
+                    <button
                       onClick={() => setIsSearchOpen(!isSearchOpen)}
                       className="sm:hidden p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all"
                     >
@@ -1697,14 +1609,14 @@ const MainLayout = () => {
                                   </span>
                                 )}
                               </h3>
-                              <button 
+                              <button
                                 onClick={markAllRead}
                                 className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
                               >
                                 Mark all read
                               </button>
                             </div>
-                            
+
                             <div className="max-h-80 overflow-y-auto divide-y divide-gray-200/50 dark:divide-gray-800/50">
                               {loadingNotifications ? (
                                 <div className="flex items-center justify-center py-8">
@@ -1772,10 +1684,10 @@ const MainLayout = () => {
                                 ))
                               )}
                             </div>
-                            
+
                             {notifications.length > 0 && (
                               <div className="p-3 border-t border-gray-200/50 dark:border-gray-800/50">
-                                <button 
+                                <button
                                   onClick={() => {
                                     setShowNotifications(false);
                                     navigate('/announcements');
@@ -1886,7 +1798,7 @@ const MainLayout = () => {
                                 <Settings className="w-4 h-4" />
                                 Settings
                               </Link>
-                              
+
                               {!isPremium && showPremium && (
                                 <button
                                   onClick={() => {
@@ -1978,7 +1890,7 @@ const MainLayout = () => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + '/');
                   const isPayBill = item.label === 'Pay Bill';
-                  
+
                   return (
                     <button
                       key={item.path}
@@ -2024,9 +1936,9 @@ const MainLayout = () => {
                 <div className={`flex items-center gap-2 ${sidebarOpen ? 'w-full' : 'justify-center w-full'}`}>
                   <div className="relative flex-shrink-0">
                     {schoolLogo ? (
-                      <img 
-                        src={schoolLogo} 
-                        alt="School Logo" 
+                      <img
+                        src={schoolLogo}
+                        alt="School Logo"
                         className={`w-10 h-10 rounded-xl object-cover ${isPremium && showPremium ? 'ring-2 ring-amber-500/50' : ''}`}
                       />
                     ) : (
@@ -2142,7 +2054,7 @@ const MainLayout = () => {
 
                   const active = isActive(item.path);
                   const isPayBill = item.label === 'Pay Bill';
-                  
+
                   return (
                     <motion.div
                       key={item.path}
@@ -2162,13 +2074,13 @@ const MainLayout = () => {
                         title={!sidebarOpen ? item.label : ''}
                       >
                         <div className="relative flex-shrink-0">
-                            <item.icon className="w-5 h-5 transition-transform group-hover:scale-110" />
-                            {item.label === 'Messages' && unreadMessages > 0 && (
-                              <span className="absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-bold text-white shadow-sm">
-                                {unreadMessages > 99 ? '99+' : unreadMessages}
-                              </span>
-                            )}
-                          </div>
+                          <item.icon className="w-5 h-5 transition-transform group-hover:scale-110" />
+                          {item.label === 'Messages' && unreadMessages > 0 && (
+                            <span className="absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-bold text-white shadow-sm">
+                              {unreadMessages > 99 ? '99+' : unreadMessages}
+                            </span>
+                          )}
+                        </div>
                         {sidebarOpen && (
                           <>
                             {!(item.label === 'Messages' && !isAdminRole) && (
@@ -2252,15 +2164,16 @@ const MainLayout = () => {
                 initial="closed"
                 animate={sidebarOpen ? 'open' : 'closed'}
                 variants={mobileSidebarVariants}
-                className="fixed top-0 left-0 z-50 h-screen w-[280px] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden flex flex-col"
+                className="fixed top-0 left-0 z-50 h-[100dvh] w-[min(86vw,320px)] bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-800/50 shadow-2xl shadow-black/5 overflow-hidden flex flex-col"
               >
+                {/* Header */}
                 <div className="flex items-center justify-between h-20 px-4 border-b border-gray-200/50 dark:border-gray-800/50 flex-shrink-0">
                   <div className="flex items-center gap-3">
                     <div className="relative flex-shrink-0">
                       {schoolLogo ? (
-                        <img 
-                          src={schoolLogo} 
-                          alt="School Logo" 
+                        <img
+                          src={schoolLogo}
+                          alt="School Logo"
                           className={`w-10 h-10 rounded-xl object-cover ${isPremium && showPremium ? 'ring-2 ring-amber-500/50' : ''}`}
                         />
                       ) : (
@@ -2291,52 +2204,169 @@ const MainLayout = () => {
                   </button>
                 </div>
 
-                <nav className="px-3 py-4 space-y-1 overflow-y-auto flex-1">
+                {/* Navigation - Scrollable with Dropdown Support */}
+                <nav
+                  className="
+                    flex-1
+                    min-h-0
+                    overflow-y-auto
+                    overscroll-contain
+                    px-3
+                    py-4
+                    pb-8
+                    space-y-1
+                    scrollbar-thin
+                    scrollbar-thumb-gray-300
+                    dark:scrollbar-thumb-gray-700
+                    scrollbar-track-transparent
+                  "
+                  style={{ WebkitOverflowScrolling: 'touch' }}
+                >
                   {filteredNavigation.map((item) => {
+                    const hasChildren = !!item.children && item.children.length > 0;
+                    const isExpanded = expandedMenus.includes(item.label);
+                    const isActiveParent = item.children?.some((child) => isActive(child.path));
                     const active = isActive(item.path);
                     const isPayBill = item.label === 'Pay Bill';
-                    
+
+                    /* PARENT WITH DROPDOWN CHILDREN */
+                    if (hasChildren) {
+                      return (
+                        <motion.div
+                          key={item.label}
+                          initial={{ opacity: 0, x: -15 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          className="mb-1"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleMenu(item.label)}
+                            className={`
+                              w-full flex items-center gap-3 px-3 py-3 rounded-xl
+                              transition-all duration-200 active:scale-[0.98]
+                              ${
+                                isActiveParent
+                                  ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
+                                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-800/80'
+                              }
+                            `}
+                            aria-expanded={isExpanded}
+                            aria-controls={`mobile-submenu-${item.label}`}
+                          >
+                            <item.icon className="w-5 h-5 flex-shrink-0" />
+                            <span className="flex-1 text-left text-sm font-medium min-w-0">
+                              {item.label}
+                            </span>
+                            <ChevronDown
+                              className={`w-4 h-4 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                            />
+                          </button>
+
+                          <AnimatePresence initial={false}>
+                            {isExpanded && (
+                              <motion.div
+                                id={`mobile-submenu-${item.label}`}
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: 'auto' }}
+                                exit={{ opacity: 0, height: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="overflow-hidden ml-3 mt-1 pl-3 border-l-2 border-gray-200/70 dark:border-gray-700/70"
+                              >
+                                <div className="space-y-1 py-1">
+                                  {item.children.map((child) => {
+                                    const childActive = isActive(child.path);
+                                    return (
+                                      <Link
+                                        key={child.path}
+                                        to={child.path}
+                                        onClick={() => setSidebarOpen(false)}
+                                        className={`
+                                          group flex items-center gap-3 w-full min-h-[44px]
+                                          px-3 py-2.5 rounded-lg transition-all duration-200
+                                          ${
+                                            childActive
+                                              ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 shadow-sm'
+                                              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+                                          }
+                                        `}
+                                      >
+                                        <child.icon className="w-4 h-4 flex-shrink-0" />
+                                        <span className="flex-1 min-w-0 text-sm font-medium leading-5 break-words">
+                                          {child.label}
+                                        </span>
+                                        {child.badge && !childActive && (
+                                          <span className="flex-shrink-0 px-2 py-0.5 text-[9px] font-semibold bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full">
+                                            {child.badge}
+                                          </span>
+                                        )}
+                                        {childActive && (
+                                          <span className="w-1 h-5 flex-shrink-0 rounded-full bg-blue-500" />
+                                        )}
+                                      </Link>
+                                    );
+                                  })}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </motion.div>
+                      );
+                    }
+
+                    /* NORMAL ITEM */
                     return (
-                      <Link
+                      <motion.div
                         key={item.path}
-                        to={item.path}
-                        onClick={() => setSidebarOpen(false)}
-                        className={`group relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-300 ${
-                          active
-                            ? isPayBill
-                              ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
-                              : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
-                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
-                        }`}
+                        initial={{ opacity: 0, x: -15 }}
+                        animate={{ opacity: 1, x: 0 }}
                       >
-                        <div className="relative flex-shrink-0">
-                          <item.icon className="w-5 h-5" />
-                          {item.label === 'Messages' && unreadMessages > 0 && (
-                            <span className="absolute -top-2 -right-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[8px] font-bold text-white">
-                              {unreadMessages > 99 ? '99+' : unreadMessages}
+                        <Link
+                          to={item.path}
+                          onClick={() => setSidebarOpen(false)}
+                          className={`
+                            group relative flex items-center gap-3 w-full min-h-[46px]
+                            px-3 py-3 rounded-xl transition-all duration-200 active:scale-[0.98]
+                            ${
+                              active
+                                ? isPayBill
+                                  ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-500/25'
+                                  : 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/25'
+                                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100/80 dark:hover:bg-gray-800/80'
+                            }
+                          `}
+                        >
+                          <div className="relative flex-shrink-0">
+                            <item.icon className="w-5 h-5 transition-transform group-hover:scale-110" />
+                            {item.label === 'Messages' && unreadMessages > 0 && (
+                              <span className="absolute -top-2 -right-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[8px] font-bold text-white">
+                                {unreadMessages > 99 ? '99+' : unreadMessages}
+                              </span>
+                            )}
+                          </div>
+                          {!(item.label === 'Messages' && !isAdminRole) && (
+                            <span className="flex-1 min-w-0 text-sm font-medium leading-5 break-words">
+                              {item.label}
                             </span>
                           )}
-                        </div>
-                        {!(item.label === 'Messages' && !isAdminRole) && (
-                          <span className="text-sm font-medium">{item.label}</span>
-                        )}
-                        {item.badge && !active && (
-                          <span className="ml-auto px-2 py-0.5 text-[10px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full animate-pulse">
-                            {item.badge}
-                          </span>
-                        )}
-                        {active && (
-                          <motion.div
-                            layoutId="activeIndicatorMobile"
-                            className="ml-auto w-1 h-6 bg-white/50 rounded-full"
-                          />
-                        )}
-                      </Link>
+                          {item.badge && !active && (
+                            <span className="flex-shrink-0 px-2 py-0.5 text-[9px] font-medium bg-gradient-to-r from-green-400 to-emerald-500 text-white rounded-full">
+                              {item.badge}
+                            </span>
+                          )}
+                          {active && (
+                            <motion.div
+                              layoutId="activeIndicatorMobile"
+                              className="ml-auto w-1 h-6 flex-shrink-0 bg-white/50 rounded-full"
+                            />
+                          )}
+                        </Link>
+                      </motion.div>
                     );
                   })}
                 </nav>
 
-                <div className="p-4 border-t border-gray-200/50 dark:border-gray-800/50 bg-white/80 dark:bg-gray-900/80 flex-shrink-0">
+                {/* Footer with safe-area support */}
+                <div className="flex-shrink-0 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] border-t border-gray-200/50 dark:border-gray-800/50 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl">
                   <div className={`flex items-center gap-3 p-2 rounded-xl ${isPremium && showPremium ? 'bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border border-amber-200/50 dark:border-amber-800/50' : 'bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-950/30 dark:to-purple-950/30 border border-blue-100/50 dark:border-blue-800/50'}`}>
                     <ProfileImageWithUpload size="sm" />
                     <div className="flex-1 min-w-0">
@@ -2388,9 +2418,9 @@ const MainLayout = () => {
                     </span>
                   )}
                 </div>
-                
+
                 <div className="flex items-center gap-2 sm:gap-3">
-                  <button 
+                  <button
                     onClick={() => setIsSearchOpen(!isSearchOpen)}
                     className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 hover:bg-gray-200/80 dark:hover:bg-gray-700/80 transition-all text-gray-500 dark:text-gray-400 text-sm"
                   >
@@ -2398,7 +2428,7 @@ const MainLayout = () => {
                     <span className="hidden lg:inline">Search...</span>
                   </button>
 
-                  <button 
+                  <button
                     onClick={() => setIsSearchOpen(!isSearchOpen)}
                     className="sm:hidden p-2 rounded-xl hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition-all"
                   >
@@ -2449,14 +2479,14 @@ const MainLayout = () => {
                                 </span>
                               )}
                             </h3>
-                            <button 
+                            <button
                               onClick={markAllRead}
                               className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
                             >
                               Mark all read
                             </button>
                           </div>
-                          
+
                           <div className="max-h-80 overflow-y-auto divide-y divide-gray-200/50 dark:divide-gray-800/50">
                             {loadingNotifications ? (
                               <div className="flex items-center justify-center py-8">
@@ -2524,10 +2554,10 @@ const MainLayout = () => {
                               ))
                             )}
                           </div>
-                          
+
                           {notifications.length > 0 && (
                             <div className="p-3 border-t border-gray-200/50 dark:border-gray-800/50">
-                              <button 
+                              <button
                                 onClick={() => {
                                   setShowNotifications(false);
                                   navigate('/announcements');
@@ -2624,7 +2654,7 @@ const MainLayout = () => {
                               <Settings className="w-4 h-4" />
                               Settings
                             </Link>
-                            
+
                             {!isPremium && showPremium && (
                               <button
                                 onClick={() => {
