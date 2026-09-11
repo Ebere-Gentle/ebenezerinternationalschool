@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ResultTable } from '../../../components/results/shared/ResultTable';
-import { CumulativeResult, CumulativeCalculator, ResultData } from '../../../components/results/shared/CumulativeCalculator';
+import { CumulativeCalculator } from '../../../components/results/shared/CumulativeCalculator';
+import type { CumulativeResult, ResultData } from '../../../components/results/shared/CumulativeCalculator';
 import { supabase } from '../../../config/supabase/client';
 import { Loader2, Users, TrendingUp, Award } from 'lucide-react';
 import { useAuth } from '../../../hooks/useAuth';
