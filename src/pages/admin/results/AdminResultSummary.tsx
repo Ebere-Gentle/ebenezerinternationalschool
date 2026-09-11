@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ResultTable } from '../../../components/results/shared/ResultTable';
-import { CumulativeResult, CumulativeCalculator, ResultData } from '../../../components/results/shared/CumulativeCalculator';
+import { CumulativeCalculator } from '../../../components/results/shared/CumulativeCalculator';
+import type { CumulativeResult, ResultData } from '../../../components/results/shared/CumulativeCalculator';
 import { supabase } from '../../../config/supabase/client';
 import { Loader2, Filter, TrendingUp, Users, Award, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -45,7 +46,6 @@ const AdminResultSummary: React.FC = () => {
 
     setLoading(true);
     try {
-      // Fetch all results for the class
       const tables = ['test_results', 'exam_results', 'cbt_results'];
       let allResults: ResultData[] = [];
 
