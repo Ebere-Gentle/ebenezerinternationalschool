@@ -118,6 +118,10 @@ const navigation: NavigationItem[] = [
 
   // Admin Routes
   { label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard', roles: ['admin', 'super_admin', 'director', 'finance'] },
+  { label: 'JAMB CBT', icon: ClipboardCheck, path: '#', roles: ['admin', 'super_admin', 'director'], children: [
+      { label: 'JAMB Analytics', icon: BarChart3, path: '/admin/jamb-cbt', roles: ['admin', 'super_admin', 'director'] },
+      { label: 'Question Bank', icon: BookOpen, path: '/admin/jamb-cbt/questions', roles: ['admin', 'super_admin', 'director'] },
+    ] },
 
   // Academic Section
   {
@@ -203,6 +207,7 @@ const navigation: NavigationItem[] = [
   { label: 'Assignments', icon: FileText, path: '/teacher/assignments', roles: ['teacher'] },
   { label: 'Grades', icon: TrendingUp, path: '/teacher/grades', roles: ['teacher'] },
   { label: 'Timetable', icon: Calendar, path: '/teacher/timetable', roles: ['teacher'] },
+  { label: 'JAMB CBT', icon: ClipboardCheck, path: '/teacher/jamb-cbt', roles: ['teacher'] },
 
   // ============================================================
   // RESULTS SECTION - TEACHER
@@ -226,6 +231,7 @@ const navigation: NavigationItem[] = [
   // ============================================================
   { label: 'Dashboard', icon: LayoutDashboard, path: '/parent/dashboard', roles: ['parent'] },
   { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'] },
+  { label: 'JAMB CBT', icon: ClipboardCheck, path: '/parent/jamb-cbt', roles: ['parent'], badge: 'New' },
 
   // ============================================================
   // RESULTS SECTION - PARENT
@@ -251,6 +257,7 @@ const navigation: NavigationItem[] = [
   // ============================================================
   { label: 'Dashboard', icon: LayoutDashboard, path: '/student/dashboard', roles: ['student'] },
   { label: 'My Profile', icon: User, path: '/student/profile', roles: ['student'] },
+  { label: 'JAMB CBT', icon: ClipboardCheck, path: '/student/jamb-cbt', roles: ['student'], badge: 'New' },
 
   // ============================================================
   // RESULTS SECTION - STUDENT
@@ -295,6 +302,7 @@ const getDockNavigation = (role: string): NavigationItem[] => {
     return [
       { label: 'Dashboard', icon: LayoutDashboard, path: '/parent/dashboard', roles: ['parent'] },
       { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'] },
+      { label: 'JAMB CBT', icon: ClipboardCheck, path: '/parent/jamb-cbt', roles: ['parent'], badge: 'New' },
       { label: 'Results', icon: BarChart3, path: '/parent/results/test', roles: ['parent'] },
       { label: 'Pay Bill', icon: Wallet, path: '/parent/pay-bill', roles: ['parent'], badge: 'New' },
       { label: 'My Profile', icon: User, path: '/parent/profile', roles: ['parent'] },
