@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BookOpen, CheckCircle2, Clock3, Lock, Play, RefreshCw, Target, Trophy } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { jambCbtService, JambAttempt, JambRegistration, JambSubject } from '../../services/jamb/jambCbt.service';
+import { jambCbtService } from '../../services/jamb/jambCbt.service';
+import type { JambAttempt, JambRegistration, JambSubject } from '../../services/jamb/jambCbt.service';
 
 const JambCbt: React.FC = () => {
   const navigate = useNavigate();
