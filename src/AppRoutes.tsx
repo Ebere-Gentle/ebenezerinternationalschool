@@ -66,6 +66,7 @@ import JambCbt from './pages/student/JambCbt';
 import JambCbtTest from './pages/student/JambCbtTest';
 import JambCbtProgress from './pages/parent/JambCbtProgress';
 import JambCbtAnalytics from './pages/admin/JambCbtAnalytics';
+import JambQuestionBank from './pages/admin/JambQuestionBank';
 
 const ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper', 'finance'];
 const ATTENDANCE_ADMIN_ROLES = ['admin', 'branch_admin', 'director', 'super_admin', 'principal', 'record_keeper', 'finance'];
@@ -83,6 +84,7 @@ const AppRoutes: React.FC = () => (
       <Route path="messages/:conversationId" element={<MessagePage />} />
       <Route path="attendance" element={<AttendanceManagement />} />
       <Route path="jamb-cbt" element={<JambCbtAnalytics />} />
+      <Route path="jamb-cbt/questions" element={<JambQuestionBank />} />
       <Route path="results/enter-test" element={<AdminEnterTest />} />
       <Route path="results/enter-exam" element={<AdminEnterExam />} />
       <Route path="results/enter-cbt" element={<AdminEnterCBT />} />
