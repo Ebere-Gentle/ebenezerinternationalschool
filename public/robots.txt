@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /student
+Disallow: /parent
+Disallow: /teacher
+Disallow: /finance
+Disallow: /settings
+Sitemap: https://www.ebenezerinternationalschool.com.ng/sitemap.xml

@@ -13,6 +13,7 @@ import {
   Key,
   Send,
   ArrowLeft,
+  ExternalLink,
 } from 'lucide-react';
 
 import { useAuth } from '../../hooks/useAuth';
@@ -1118,9 +1119,9 @@ const Login: React.FC = () => {
       </div>
     );
 
-  // ==========================================================
+  // ============================================================
   // LOGIN SCREEN
-  // ==========================================================
+  // ============================================================
 
   const renderLogin = () => (
     <div className="grid min-h-screen lg:grid-cols-2">
@@ -1449,6 +1450,39 @@ const Login: React.FC = () => {
             </button>
 
           </form>
+
+          {/* ==================================================
+              NEW REGISTRATION / UPDATE
+          ================================================== */}
+
+          <div className="mt-6 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-4 shadow-sm">
+
+            <div className="text-center">
+
+              <p className="text-sm font-semibold text-gray-800">
+                New Student or Information Update?
+              </p>
+
+              <p className="mt-1 text-xs leading-relaxed text-gray-500">
+                Register a new student or submit updated
+                student information using our official
+                registration form.
+              </p>
+
+              <a
+                href="https://docs.google.com/forms/d/e/1FAIpQLSf2fJdBlVbsXFp0kDImNv_e_voiC9J3nSF_-hE2gPni0hyU9Q/viewform?usp=preview"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-4 text-sm font-semibold text-blue-700 shadow-sm transition-all hover:border-blue-300 hover:bg-blue-50 hover:shadow-md"
+              >
+                <ExternalLink className="h-4 w-4" />
+
+                New Registration / Update Details
+              </a>
+
+            </div>
+
+          </div>
 
           {/* FOOTER */}
 
