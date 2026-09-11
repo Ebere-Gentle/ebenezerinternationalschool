@@ -1,7 +1,8 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Download, Printer, FileText, TrendingUp, Users, Award } from 'lucide-react';
-import { CumulativeResult, CumulativeCalculator } from './CumulativeCalculator';
+import { Download, Printer, FileText, TrendingUp, Users, Award, AlertCircle } from 'lucide-react';
+import { CumulativeCalculator } from './CumulativeCalculator';
+import type { CumulativeResult } from './CumulativeCalculator';
 
 interface ResultTableProps {
   results: CumulativeResult[];
@@ -38,7 +39,6 @@ export const ResultTable: React.FC<ResultTableProps> = ({
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6">
-      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h2>
@@ -70,7 +70,6 @@ export const ResultTable: React.FC<ResultTableProps> = ({
         </div>
       </div>
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/30 rounded-xl p-4">
           <div className="flex items-center gap-3">
@@ -110,7 +109,6 @@ export const ResultTable: React.FC<ResultTableProps> = ({
         </div>
       </div>
 
-      {/* Grade Distribution */}
       <div className="mb-6">
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Grade Distribution</h3>
         <div className="flex flex-wrap gap-2">
@@ -125,7 +123,6 @@ export const ResultTable: React.FC<ResultTableProps> = ({
         </div>
       </div>
 
-      {/* Results Table */}
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
@@ -157,26 +154,16 @@ export const ResultTable: React.FC<ResultTableProps> = ({
                   className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-all"
                 >
                   <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{index + 1}</td>
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
-                    {result.studentName}
-                  </td>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{result.studentName}</td>
                   <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
                     {result.totalScore.toFixed(1)} / {result.totalMaxScore.toFixed(1)}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
-                    {result.averageScore.toFixed(1)}
-                  </td>
-                  <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white">
-                    {result.overallPercentage.toFixed(1)}%
-                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{result.averageScore.toFixed(1)}</td>
+                  <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white">{result.overallPercentage.toFixed(1)}%</td>
                   <td className="px-4 py-3">
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getGradeColor(result.grade)}`}>
-                      {result.grade}
-                    </span>
+                    <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getGradeColor(result.grade)}`}>{result.grade}</span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                    {result.remark}
-                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">{result.remark}</td>
                   <td className="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-white">
                     {result.position ? (
                       <span className={`px-3 py-1 rounded-full text-xs font-bold ${
