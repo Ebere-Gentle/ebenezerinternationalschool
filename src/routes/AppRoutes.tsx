@@ -1,6 +1,5 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-
 import Login from '../pages/auth/Login';
 import Landing from '../pages/landing/Landing';
 import ProtectedRoute from '../components/common/ProtectedRoute';
@@ -55,7 +54,6 @@ import StudentPromotion from '../pages/reports/StudentPromotion';
 import AdminAsst from '../pages/adminAsst';
 import AdminAsstProfile from '../pages/adminAsst/AdminAsstProfile';
 import AdminAsstPayment from '../pages/adminAsst/AdminAsstPayment';
-
 import StudentViewTest from '../pages/student/results/StudentViewTest';
 import StudentViewExam from '../pages/student/results/StudentViewExam';
 import StudentViewCBT from '../pages/student/results/StudentViewCBT';
@@ -71,11 +69,11 @@ import AdminViewResults from '../pages/admin/results/AdminViewResults';
 import AdminResultSummary from '../pages/admin/results/AdminResultSummary';
 import ResultAssessmentSettings from '../pages/admin/results/ResultAssessmentSettings';
 import TeacherEnterTest from '../pages/teacher/results/TeacherEnterTest';
+import TeacherEnterSecondTest from '../pages/teacher/results/TeacherEnterSecondTest';
 import TeacherEnterExam from '../pages/teacher/results/TeacherEnterExam';
 import TeacherEnterCBT from '../pages/teacher/results/TeacherEnterCBT';
 import TeacherViewResults from '../pages/teacher/results/TeacherViewResults';
 import TeacherResultSummary from '../pages/teacher/results/TeacherResultSummary';
-
 import JambCbt from '../pages/student/JambCbt';
 import JambCbtTest from '../pages/student/JambCbtTest';
 import JambCbtProgress from '../pages/parent/JambCbtProgress';
@@ -87,7 +85,6 @@ const AppRoutes: React.FC = () => (
     <Route path="/" element={<Landing />} />
     <Route path="/login" element={<Login />} />
     <Route path="/404" element={<NotFound />} />
-
     <Route path="/admin" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
       <Route path="dashboard" element={<AdminDashboard />} />
       <Route path="jamb-cbt" element={<JambCbtAnalytics />} />
@@ -101,7 +98,6 @@ const AppRoutes: React.FC = () => (
       <Route index element={<Navigate to="/admin/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
     </Route>
-
     <Route path="/student" element={<ProtectedRoute allowedRoles={['student']}><MainLayout /></ProtectedRoute>}>
       <Route path="dashboard" element={<StudentDashboard />} /><Route index element={<Navigate to="/student/dashboard" replace />} />
       <Route path="profile" element={<StudentProfile />} /><Route path="payments" element={<StudentPayments />} /><Route path="paybill" element={<StudentPayBill />} /><Route path="classes" element={<StudentClasses />} />
@@ -109,30 +105,25 @@ const AppRoutes: React.FC = () => (
       <Route path="results/test" element={<StudentViewTest />} /><Route path="results/exam" element={<StudentViewExam />} /><Route path="results/cbt" element={<StudentViewCBT />} /><Route path="results/summary" element={<StudentResultSummary />} />
       <Route path="*" element={<Navigate to="/student/dashboard" replace />} />
     </Route>
-
     <Route path="/teacher" element={<ProtectedRoute allowedRoles={['teacher']}><MainLayout /></ProtectedRoute>}>
       <Route path="dashboard" element={<TeacherDashboard />} /><Route index element={<Navigate to="/teacher/dashboard" replace />} />
       <Route path="classes" element={<TeacherClasses />} /><Route path="students" element={<TeacherStudents />} /><Route path="attendance" element={<AttendanceManagement />} /><Route path="assignments" element={<TeacherAssignments />} /><Route path="grades" element={<TeacherGrades />} /><Route path="timetable" element={<TimetablePage />} />
       <Route path="jamb-cbt" element={<JambCbtAnalytics />} />
-      <Route path="results/enter-test" element={<TeacherEnterTest />} /><Route path="results/enter-exam" element={<TeacherEnterExam />} /><Route path="results/enter-cbt" element={<TeacherEnterCBT />} /><Route path="results/view" element={<TeacherViewResults />} /><Route path="results/summary" element={<TeacherResultSummary />} />
+      <Route path="results/enter-test" element={<TeacherEnterTest />} /><Route path="results/enter-second-test" element={<TeacherEnterSecondTest />} /><Route path="results/enter-exam" element={<TeacherEnterExam />} /><Route path="results/enter-cbt" element={<TeacherEnterCBT />} /><Route path="results/view" element={<TeacherViewResults />} /><Route path="results/summary" element={<TeacherResultSummary />} />
       <Route path="*" element={<Navigate to="/teacher/dashboard" replace />} />
     </Route>
-
     <Route path="/parent" element={<ProtectedRoute allowedRoles={['parent']}><MainLayout /></ProtectedRoute>}>
       <Route path="dashboard" element={<ParentDashboard />} /><Route index element={<Navigate to="/parent/dashboard" replace />} />
       <Route path="pay-bill/:studentId" element={<ParentPayBill />} /><Route path="pay-bill" element={<ParentPayBill />} /><Route path="children" element={<MyChildren />} /><Route path="profile" element={<ParentProfile />} /><Route path="payment/:studentId" element={<ParentPaymentHistory />} /><Route path="payment" element={<ParentPaymentHistory />} /><Route path="jamb-cbt" element={<JambCbtProgress />} />
       <Route path="results/test" element={<ParentViewTest />} /><Route path="results/exam" element={<ParentViewExam />} /><Route path="results/cbt" element={<ParentViewCBT />} /><Route path="results/summary" element={<ParentResultSummary />} />
       <Route path="*" element={<Navigate to="/parent/dashboard" replace />} />
     </Route>
-
     <Route path="/admin-asst" element={<ProtectedRoute allowedRoles={['admin','director','admin_asst','record_keeper']}><MainLayout /></ProtectedRoute>}>
       <Route path="dashboard" element={<AdminAsst />} /><Route path="students" element={<AdminAsst />} /><Route path="classes" element={<AdminAsst />} /><Route path="sessions" element={<AdminAsst />} /><Route path="collections" element={<AdminAsst />} /><Route path="inventory" element={<AdminAsst />} /><Route path="reports" element={<AdminAsst />} /><Route path="activity" element={<AdminAsst />} /><Route path="payment" element={<AdminAsstPayment />} /><Route path="settings" element={<AdminAsst />} /><Route path="profile" element={<AdminAsstProfile />} />
       <Route index element={<Navigate to="/admin-asst/dashboard" replace />} /><Route path="*" element={<Navigate to="/admin-asst/dashboard" replace />} />
     </Route>
-
     <Route path="/school-backup" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}><Route index element={<SchoolBackup />} /></Route>
     <Route path="/promotion" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}><Route index element={<StudentPromotion />} /><Route path="*" element={<Navigate to="/promotion" replace />} /></Route>
-
     <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
       <Route path="students" element={<StudentsList />} /><Route path="students/:id" element={<StudentDetails />} /><Route path="students/edit/:id" element={<EditStudent />} /><Route path="students/register" element={<RegisterStudent />} />
       <Route path="teachers" element={<TeachersList />} /><Route path="teachers/add" element={<AddTeacher />} /><Route path="teachers/:id" element={<ViewTeacher />} /><Route path="teachers/edit/:id" element={<AddTeacher />} /><Route path="subjects" element={<SubjectsManagement />} /><Route path="timetable" element={<TimetablePage />} />
