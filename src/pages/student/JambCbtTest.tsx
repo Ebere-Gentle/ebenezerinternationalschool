@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Clock3, Flag, Loader2, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { jambCbtService, JambQuestion, JambSubject } from '../../services/jamb/jambCbt.service';
+import { jambCbtService } from '../../services/jamb/jambCbt.service';
+import type { JambQuestion, JambSubject } from '../../services/jamb/jambCbt.service';
 
 const TEST_MINUTES = 45;
 
