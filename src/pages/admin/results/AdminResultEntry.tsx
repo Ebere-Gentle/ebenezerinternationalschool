@@ -50,7 +50,38 @@ export default function AdminResultEntry({ assessmentType }: Props) {
       setTerm(currentTerm);
       const { data: classData, error: classError } = await supabase.from('classes').select('id,name,branch_id,academic_session,level,department').eq('status', 'active').order('name');
       if (classError) throw classError;
-      setClasses((classData || []).filter(item => !item.academic_session || normalise(item.academic_session) === normalise(currentSession.session_name)) as ClassRow[]);
+      const classOrder = (name: string) => {
+        const value = normalise(name);
+
+        if (value.includes('nursery')) return 10;
+        if (value.includes('kg silver')) return 20;
+        if (value.includes('kg gold')) return 30;
+        if (value.includes('transition') || value.includes('grader')) return 40;
+
+        const grade = value.match(/(?:grade|primary)\s*(\d+)/);
+        if (grade) return 50 + Number(grade[1]);
+
+        const jss = value.match(/jss\s*(\d+)/);
+        if (jss) return 60 + Number(jss[1]);
+
+        const ss = value.match(/ss\s*(\d+)/);
+        if (ss) return 70 + Number(ss[1]);
+
+        if (value.includes('graduate')) return 100;
+
+        return 90;
+      };
+
+      const allActiveClasses = (classData || []) as ClassRow[];
+
+      setClasses(
+        allActiveClasses.sort((a, b) => {
+          const orderDifference = classOrder(a.name) - classOrder(b.name);
+          return orderDifference !== 0
+            ? orderDifference
+            : a.name.localeCompare(b.name);
+        })
+      );
     } catch (error: any) {
       toast.error(error.message || 'Unable to load result context.');
     } finally { setLoading(false); }
