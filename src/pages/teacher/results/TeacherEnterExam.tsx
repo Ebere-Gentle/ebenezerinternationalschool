@@ -1,5 +1,10 @@
 import TeacherResultEntry from './TeacherResultEntry';
+import TeacherResultAssessmentTabs from './TeacherResultAssessmentTabs';
 
-const TeacherEnterExam = () => <TeacherResultEntry assessmentType="exam" />;
+const TeacherEnterExam = () => (
+  <TeacherResultAssessmentTabs>
+    <TeacherResultEntry assessmentType="exam" />
+  </TeacherResultAssessmentTabs>
+);
 
 export default TeacherEnterExam;
