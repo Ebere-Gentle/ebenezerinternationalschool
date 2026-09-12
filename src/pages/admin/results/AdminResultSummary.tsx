@@ -1,260 +1,229 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { ResultTable } from '../../../components/results/shared/ResultTable';
-import { CumulativeCalculator } from '../../../components/results/shared/CumulativeCalculator';
-import type { CumulativeResult, ResultData } from '../../../components/results/shared/CumulativeCalculator';
-import { supabase } from '../../../config/supabase/client';
-import { Loader2, Filter, TrendingUp, Users, Award, AlertCircle } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Award, BarChart3, CheckCircle2, ClipboardCheck, Loader2, RefreshCw, Save, Users, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { supabase } from '../../../config/supabase/client';
+import { useAuth } from '../../../hooks/useAuth';
 
-const AdminResultSummary: React.FC = () => {
-  const [filters, setFilters] = useState({
-    classId: '',
-    term: '',
-    session: ''
-  });
-  const [classes, setClasses] = useState<any[]>([]);
-  const [results, setResults] = useState<CumulativeResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [summary, setSummary] = useState<any>(null);
+type Session = { id: string; session_name: string; term_name: string | null };
+type Term = { id: string; session: string; term: string; is_active: boolean; is_closed: boolean };
+type ClassRow = { id: string; name: string; branch_id: string | null };
+type Student = { id: string; first_name: string; last_name: string; admission_number: string | null };
+type Batch = { id: string; subject_id: string; assessment_type: 'first_test' | 'second_test' | 'exam'; max_score: number; subject?: { name?: string | null } | null };
+type Entry = { batch_id: string; student_id: string; score: number | null };
+type StudentSummary = { student: Student; total: number; subjectCount: number; average: number; grade: string; remark: string; position?: number; published?: boolean };
 
-  const terms = ['First Term', 'Second Term', 'Third Term'];
-  const sessions = ['2023/2024', '2024/2025', '2025/2026'];
+const normalise = (value: string | null | undefined) => (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const grade = (value: number) => value >= 75 ? 'A' : value >= 65 ? 'B' : value >= 55 ? 'C' : value >= 45 ? 'D' : value >= 40 ? 'E' : 'F';
+const remark = (value: number) => value >= 75 ? 'Excellent' : value >= 65 ? 'Very Good' : value >= 55 ? 'Good' : value >= 45 ? 'Fair' : value >= 40 ? 'Pass' : 'Needs Improvement';
 
-  useEffect(() => {
-    fetchClasses();
-  }, []);
+export default function AdminResultSummary() {
+  const { user } = useAuth();
+  const [session, setSession] = useState<Session | null>(null);
+  const [term, setTerm] = useState<Term | null>(null);
+  const [classes, setClasses] = useState<ClassRow[]>([]);
+  const [classId, setClassId] = useState('');
+  const [students, setStudents] = useState<StudentSummary[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishedCount, setPublishedCount] = useState(0);
 
-  const fetchClasses = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('classes')
-        .select('id, name')
-        .order('name');
-      if (error) throw error;
-      setClasses(data || []);
-    } catch (error) {
-      console.error('Error fetching classes:', error);
-    }
-  };
+  const selectedClass = useMemo(() => classes.find((item) => item.id === classId) || null, [classes, classId]);
 
-  const fetchSummary = async () => {
-    if (!filters.classId || !filters.term || !filters.session) {
-      toast.error('Please select all filters');
-      return;
-    }
-
+  const loadContext = useCallback(async () => {
     setLoading(true);
     try {
-      const tables = ['test_results', 'exam_results', 'cbt_results'];
-      let allResults: ResultData[] = [];
+      const { data: currentSession, error: sessionError } = await supabase.from('academic_sessions').select('id,session_name,term_name').eq('is_current', true).order('start_date', { ascending: false }).limit(1).maybeSingle();
+      if (sessionError) throw sessionError;
+      if (!currentSession) throw new Error('No current academic session is configured.');
+      setSession(currentSession);
 
-      for (const table of tables) {
-        const { data, error } = await supabase
-          .from(table)
-          .select(`
-            student_id,
-            score,
-            max_score,
-            percentage,
-            grade,
-            remark,
-            subject_id,
-            students:student_id (
-              first_name,
-              last_name,
-              admission_number
-            )
-          `)
-          .eq('class_id', filters.classId)
-          .eq('term', filters.term)
-          .eq('session', filters.session);
+      const { data: terms, error: termError } = await supabase.from('terms').select('id,session,term,is_active,is_closed').eq('is_active', true).eq('is_closed', false).order('start_date', { ascending: false });
+      if (termError) throw termError;
+      const currentTerm = (terms || []).find((item) => normalise(item.session) === normalise(currentSession.session_name) && normalise(item.term) === normalise(currentSession.term_name));
+      if (!currentTerm) throw new Error(`No active term matches ${currentSession.session_name} / ${currentSession.term_name || 'current term'}.`);
+      setTerm(currentTerm);
 
-        if (!error && data) {
-          const subjectNames = await getSubjectNames(data.map((d: any) => d.subject_id));
-          const formattedData: ResultData[] = data.map((item: any) => ({
-            studentId: item.student_id,
-            studentName: `${item.students?.first_name || ''} ${item.students?.last_name || ''}`.trim() || 'Unknown',
-            subject: subjectNames[item.subject_id] || 'Unknown',
-            score: item.score,
-            maxScore: item.max_score || 100,
-            percentage: item.percentage || 0,
-            grade: item.grade || 'F',
-            remark: item.remark || 'N/A'
-          }));
-          allResults = [...allResults, ...formattedData];
-        }
-      }
-
-      if (allResults.length > 0) {
-        const cumulativeResults = CumulativeCalculator.calculateCumulative(allResults);
-        setResults(cumulativeResults);
-        setSummary(CumulativeCalculator.getCumulativeSummary(cumulativeResults));
-      } else {
-        setResults([]);
-        setSummary(null);
-        toast.info('No results found for the selected filters');
-      }
+      const { data: classData, error: classError } = await supabase.from('classes').select('id,name,branch_id,academic_session').eq('status', 'active').order('name');
+      if (classError) throw classError;
+      setClasses((classData || []).filter((item: any) => !item.academic_session || normalise(item.academic_session) === normalise(currentSession.session_name)));
     } catch (error: any) {
-      console.error('Error fetching summary:', error);
-      toast.error(error.message || 'Failed to fetch summary');
+      toast.error(error.message || 'Unable to load result context.');
+      setSession(null);
+      setTerm(null);
+      setClasses([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const getSubjectNames = async (subjectIds: string[]): Promise<Record<string, string>> => {
-    const uniqueIds = [...new Set(subjectIds)].filter(id => id);
-    if (uniqueIds.length === 0) return {};
+  useEffect(() => { void loadContext(); }, [loadContext]);
 
+  const generate = useCallback(async () => {
+    if (!session || !term || !selectedClass) {
+      toast.error('Select a class first.');
+      return;
+    }
+    setGenerating(true);
     try {
-      const { data, error } = await supabase
-        .from('subjects')
-        .select('id, name')
-        .in('id', uniqueIds);
+      const [{ data: studentData, error: studentError }, { data: batchData, error: batchError }] = await Promise.all([
+        supabase.from('students').select('id,first_name,last_name,admission_number').eq('class_id', selectedClass.id).eq('session_id', session.id).eq('current_status', 'active').order('last_name').order('first_name'),
+        supabase.from('result_batches').select('id,subject_id,assessment_type,max_score,subjects:subject_id(name)').eq('academic_session_id', session.id).eq('term_id', term.id).eq('class_id', selectedClass.id).in('assessment_type', ['first_test', 'second_test', 'exam']),
+      ]);
+      if (studentError) throw studentError;
+      if (batchError) throw batchError;
+      const activeStudents = (studentData || []) as Student[];
+      const currentBatches = (batchData || []) as any as Batch[];
+      setBatches(currentBatches);
+      if (!activeStudents.length) {
+        setStudents([]);
+        toast.info('There are no active students in this class for the current session.');
+        return;
+      }
+      if (!currentBatches.length) {
+        setStudents([]);
+        toast.info('No Test 1, Test 2 or Exam batches have been entered for this class yet.');
+        return;
+      }
 
-      if (error) throw error;
-      const map: Record<string, string> = {};
-      (data || []).forEach((s: any) => {
-        map[s.id] = s.name;
+      const batchIds = currentBatches.map((item) => item.id);
+      const { data: entryData, error: entryError } = await supabase.from('result_entries').select('batch_id,student_id,score').in('batch_id', batchIds);
+      if (entryError) throw entryError;
+      const entries = (entryData || []) as Entry[];
+      const entryMap = new Map(entries.map((entry) => [`${entry.student_id}:${entry.batch_id}`, entry.score == null ? null : Number(entry.score)]));
+
+      const computed = activeStudents.map((student) => {
+        const subjectIds = new Set(currentBatches.map((batch) => batch.subject_id));
+        let total = 0;
+        let subjectCount = 0;
+        subjectIds.forEach((subjectId) => {
+          const subjectBatches = currentBatches.filter((batch) => batch.subject_id === subjectId);
+          const hasAny = subjectBatches.some((batch) => entryMap.get(`${student.id}:${batch.id}`) != null);
+          if (!hasAny) return;
+          const subjectTotal = subjectBatches.reduce((sum, batch) => sum + Number(entryMap.get(`${student.id}:${batch.id}`) || 0), 0);
+          total += subjectTotal;
+          subjectCount += 1;
+        });
+        const average = subjectCount ? total / subjectCount : 0;
+        return { student, total, subjectCount, average, grade: grade(average), remark: remark(average) };
+      }).filter((item) => item.subjectCount > 0).sort((a, b) => b.average - a.average || b.total - a.total || `${a.student.last_name} ${a.student.first_name}`.localeCompare(`${b.student.last_name} ${b.student.first_name}`));
+
+      let previousAverage: number | null = null;
+      let currentPosition = 0;
+      const ranked = computed.map((item, index) => {
+        if (previousAverage === null || item.average < previousAverage) currentPosition = index + 1;
+        previousAverage = item.average;
+        return { ...item, position: currentPosition };
       });
-      return map;
-    } catch (error) {
-      console.error('Error fetching subject names:', error);
-      return {};
+
+      const existingIds = ranked.map((item) => item.student.id);
+      const { data: existingSummaries } = await supabase.from('result_summaries').select('id,student_id,published').eq('class_id', selectedClass.id).eq('session', session.session_name).eq('term', term.term).in('student_id', existingIds);
+      const existingMap = new Map((existingSummaries || []).map((item: any) => [item.student_id, item]));
+      setStudents(ranked.map((item) => ({ ...item, published: existingMap.get(item.student.id)?.published || false })));
+      setPublishedCount((existingSummaries || []).filter((item: any) => item.published).length);
+    } catch (error: any) {
+      toast.error(error.message || 'Unable to generate the cumulative summary.');
+      setStudents([]);
+    } finally {
+      setGenerating(false);
+    }
+  }, [session, term, selectedClass]);
+
+  useEffect(() => { if (classId) void generate(); else { setStudents([]); setBatches([]); } }, [classId, generate]);
+
+  const saveSummaries = async () => {
+    if (!user?.id || !session || !term || !selectedClass || !students.length) return;
+    setGenerating(true);
+    try {
+      const existing = await supabase.from('result_summaries').select('id,student_id').eq('class_id', selectedClass.id).eq('session', session.session_name).eq('term', term.term);
+      if (existing.error) throw existing.error;
+      const ids = new Map((existing.data || []).map((item: any) => [item.student_id, item.id]));
+      const rows = students.map((item) => ({
+        ...(ids.get(item.student.id) ? { id: ids.get(item.student.id) } : {}),
+        branch_id: selectedClass.branch_id,
+        student_id: item.student.id,
+        class_id: selectedClass.id,
+        term: term.term,
+        session: session.session_name,
+        total_subjects: item.subjectCount,
+        total_score: item.total,
+        total_max_score: item.subjectCount * 100,
+        average_percentage: item.average,
+        grade: item.grade,
+        position: item.position,
+        remark: item.remark,
+        generated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
+      const { error } = await supabase.from('result_summaries').upsert(rows);
+      if (error) throw error;
+      toast.success(`Saved ${rows.length} cumulative result summaries.`);
+      await generate();
+    } catch (error: any) {
+      toast.error(error.message || 'Unable to save result summaries.');
+    } finally {
+      setGenerating(false);
     }
   };
 
-  const handleExport = () => {
-    toast.success('Export functionality coming soon');
+  const publish = async () => {
+    if (!session || !term || !selectedClass || !students.length) return;
+    setPublishing(true);
+    try {
+      const { error } = await supabase.from('result_summaries').update({ published: true, published_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('class_id', selectedClass.id).eq('session', session.session_name).eq('term', term.term);
+      if (error) throw error;
+      toast.success('Official result summaries published for this class.');
+      await generate();
+    } catch (error: any) {
+      toast.error(error.message || 'Unable to publish summaries.');
+    } finally {
+      setPublishing(false);
+    }
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const stats = useMemo(() => {
+    const values = students.map((item) => item.average);
+    return { count: students.length, average: values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0, highest: values.length ? Math.max(...values) : 0, lowest: values.length ? Math.min(...values) : 0 };
+  }, [students]);
+
+  if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>;
 
   return (
-    <div className="container mx-auto p-4">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="space-y-6"
-      >
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Result Summary</h1>
+    <div className="mx-auto max-w-[1500px] space-y-6 p-4 md:p-6">
+      <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
+        <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-indigo-950 to-indigo-800 p-6 text-white shadow-xl">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-300">Academic Results Control</p>
+          <h1 className="mt-2 text-3xl font-black md:text-4xl">Cumulative Result Summary</h1>
+          <p className="mt-2 max-w-2xl text-sm text-indigo-100">Generate positions and official summaries from Test 1, Test 2 and Exam entries for the current academic session. No historical session or branch is hardcoded.</p>
+        </section>
+        <section className="grid grid-cols-2 gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900"><p className="text-xs text-slate-500">Current session</p><p className="mt-1 font-black">{session?.session_name || '—'}</p></div>
+          <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900"><p className="text-xs text-slate-500">Current term</p><p className="mt-1 font-black">{term?.term || '—'}</p></div>
+          <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900"><p className="text-xs text-slate-500">Students with results</p><p className="mt-1 font-black">{stats.count}</p></div>
+          <div className="rounded-2xl bg-slate-50 p-4 dark:bg-slate-900"><p className="text-xs text-slate-500">Published</p><p className="mt-1 font-black">{publishedCount}</p></div>
+        </section>
+      </div>
 
-        {/* Filters */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Filter className="w-5 h-5 text-gray-500" />
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Filters</h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <select
-              value={filters.classId}
-              onChange={(e) => setFilters(prev => ({ ...prev, classId: e.target.value }))}
-              className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Select Class</option>
-              {classes.map(cls => (
-                <option key={cls.id} value={cls.id}>{cls.name}</option>
-              ))}
-            </select>
+      <section className="grid gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-[1fr_auto_auto] dark:border-slate-700 dark:bg-slate-800">
+        <label className="text-sm font-semibold">Class<select value={classId} onChange={(event) => setClassId(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-3 dark:border-slate-600 dark:bg-slate-900"><option value="">Select class</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <button onClick={() => void generate()} disabled={!classId || generating} className="mt-auto flex h-12 items-center justify-center gap-2 rounded-xl border border-slate-300 px-5 font-bold disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${generating ? 'animate-spin' : ''}`} /> Refresh</button>
+        <button onClick={() => void saveSummaries()} disabled={!students.length || generating} className="mt-auto flex h-12 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 font-bold text-white disabled:opacity-50"><Save className="h-4 w-4" /> Save summaries</button>
+      </section>
 
-            <select
-              value={filters.term}
-              onChange={(e) => setFilters(prev => ({ ...prev, term: e.target.value }))}
-              className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Select Term</option>
-              {terms.map(term => (
-                <option key={term} value={term}>{term}</option>
-              ))}
-            </select>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Stat icon={<Users />} label="Students" value={stats.count} />
+        <Stat icon={<BarChart3 />} label="Class average" value={`${stats.average.toFixed(1)}%`} />
+        <Stat icon={<Award />} label="Highest" value={`${stats.highest.toFixed(1)}%`} />
+        <Stat icon={<ClipboardCheck />} label="Lowest" value={`${stats.lowest.toFixed(1)}%`} />
+      </div>
 
-            <select
-              value={filters.session}
-              onChange={(e) => setFilters(prev => ({ ...prev, session: e.target.value }))}
-              className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Select Session</option>
-              {sessions.map(session => (
-                <option key={session} value={session}>{session}</option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            onClick={fetchSummary}
-            disabled={loading}
-            className="mt-4 px-6 py-2.5 rounded-xl font-medium text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:shadow-lg hover:shadow-blue-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Loading...
-              </>
-            ) : (
-              'Generate Summary'
-            )}
-          </button>
-        </div>
-
-        {/* Summary Stats */}
-        {summary && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/30 rounded-xl p-4">
-              <div className="flex items-center gap-3">
-                <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Total Students</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{summary.totalStudents}</p>
-                </div>
-              </div>
-            </div>
-            <div className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950/30 dark:to-green-900/30 rounded-xl p-4">
-              <div className="flex items-center gap-3">
-                <TrendingUp className="w-5 h-5 text-green-600 dark:text-green-400" />
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Class Average</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{summary.averagePercentage.toFixed(1)}%</p>
-                </div>
-              </div>
-            </div>
-            <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/30 dark:to-purple-900/30 rounded-xl p-4">
-              <div className="flex items-center gap-3">
-                <Award className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Highest Score</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{summary.highestScore.toFixed(1)}%</p>
-                </div>
-              </div>
-            </div>
-            <div className="bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950/30 dark:to-red-900/30 rounded-xl p-4">
-              <div className="flex items-center gap-3">
-                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
-                <div>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">Lowest Score</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{summary.lowestScore.toFixed(1)}%</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Results Table */}
-        {!loading && results.length > 0 && (
-          <ResultTable
-            results={results}
-            title={`Cumulative Results Summary - ${filters.term} ${filters.session}`}
-            term={filters.term}
-            session={filters.session}
-            onExport={handleExport}
-            onPrint={handlePrint}
-          />
-        )}
-      </motion.div>
+      <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5 dark:border-slate-700"><div><h2 className="text-lg font-black">Class Ranking</h2><p className="text-sm text-slate-500">{selectedClass?.name || 'Select a class'} • {batches.length} assessment batches loaded</p></div><button onClick={() => void publish()} disabled={!students.length || publishing} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 font-bold text-white disabled:opacity-50"><CheckCircle2 className="h-4 w-4" />{publishing ? 'Publishing…' : 'Publish official results'}</button></div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[850px] text-sm"><thead className="bg-slate-50 text-left dark:bg-slate-900"><tr><th className="p-4">Position</th><th className="p-4">Student</th><th className="p-4">Admission No.</th><th className="p-4">Subjects</th><th className="p-4">Total</th><th className="p-4">Average</th><th className="p-4">Grade</th><th className="p-4">Remark</th><th className="p-4">Published</th></tr></thead><tbody>{students.map((item) => <tr key={item.student.id} className="border-t border-slate-100 dark:border-slate-700"><td className="p-4 font-black">{item.position}</td><td className="p-4 font-semibold">{item.student.last_name} {item.student.first_name}</td><td className="p-4 text-slate-500">{item.student.admission_number || '—'}</td><td className="p-4">{item.subjectCount}</td><td className="p-4 font-bold">{item.total.toFixed(1)}</td><td className="p-4 font-black">{item.average.toFixed(1)}%</td><td className="p-4 font-black">{item.grade}</td><td className="p-4">{item.remark}</td><td className="p-4">{item.published ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <XCircle className="h-5 w-5 text-slate-300" />}</td></tr>)}{!students.length && <tr><td colSpan={9} className="p-16 text-center text-slate-500">Select a class to generate its current-session cumulative result.</td></tr>}</tbody></table></div>
+      </section>
     </div>
   );
-};
+}
 
-export default AdminResultSummary;
+function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) { return <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/30">{React.cloneElement(icon as React.ReactElement, { className: 'h-5 w-5' })}</div><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{label}</p><p className="mt-1 text-2xl font-black">{value}</p></div>; }
