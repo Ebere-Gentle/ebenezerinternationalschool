@@ -1,5 +1,5 @@
 import { PublishedResults } from '../../../components/results/shared/PublishedResults';
 
 export default function StudentViewTest() {
-  return <PublishedResults assessmentType="test" audience="student" />;
+  return <PublishedResults assessmentType="first_test" audience="student" />;
 }
