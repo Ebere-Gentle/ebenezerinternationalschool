@@ -1,46 +1,11 @@
 import React from 'react';
-import { Award, CalendarDays, GraduationCap, MapPin, Phone, School, UserRound } from 'lucide-react';
+import { CalendarDays, GraduationCap, MapPin, Phone, School, UserRound } from 'lucide-react';
 
-type Assessment = {
-  subject: string;
-  test1?: number | null;
-  test2?: number | null;
-  ca?: number | null;
-  exam?: number | null;
-  total?: number | null;
-  percentage?: number | null;
-  grade?: string | null;
-  remark?: string | null;
-};
-
+type Assessment = { subject: string; test1?: number | null; test2?: number | null; ca?: number | null; exam?: number | null; total?: number | null; percentage?: number | null; grade?: string | null; remark?: string | null };
 type Student = { first_name?: string | null; last_name?: string | null; middle_name?: string | null; admission_number?: string | null; gender?: string | null; date_of_birth?: string | null; passport_url?: string | null };
 type School = { school_name?: string | null; branch_id?: string | null; address?: string | null; phone_number?: string | null; email?: string | null; logo_url?: string | null; stamp_url?: string | null };
 type Attendance = { present?: number; absent?: number; total?: number; percentage?: number; excused?: number };
-type Props = {
-  school: School;
-  student: Student;
-  className?: string | null;
-  session: string;
-  term: string;
-  assessments: Assessment[];
-  test1Max: number;
-  test2Max: number;
-  caMax?: number;
-  examMax: number;
-  totalMax?: number;
-  position?: number | null;
-  classSize?: number | null;
-  average?: number | null;
-  overallGrade?: string | null;
-  overallRemark?: string | null;
-  attendance?: Attendance;
-  psychomotor?: Record<string, string>;
-  affective?: Record<string, string>;
-  teacherComment?: string | null;
-  principalComment?: string | null;
-  directorComment?: string | null;
-  nextTermBegins?: string | null;
-};
+type Props = { school: School; student: Student; className?: string | null; session: string; term: string; assessments: Assessment[]; test1Max: number; test2Max: number; caMax?: number; examMax: number; totalMax?: number; position?: number | null; classSize?: number | null; average?: number | null; overallGrade?: string | null; overallRemark?: string | null; attendance?: Attendance; psychomotor?: Record<string, string>; affective?: Record<string, string>; teacherComment?: string | null; principalComment?: string | null; directorComment?: string | null; nextTermBegins?: string | null };
 
 const score = (value: number | null | undefined) => value == null ? '—' : Number(value).toFixed(Number(value) % 1 ? 1 : 0);
 
@@ -56,7 +21,7 @@ export default function OfficialResultSheet({ school, student, className, sessio
           {school.logo_url ? <img src={school.logo_url} alt="School logo" className="h-20 w-20 rounded-2xl object-contain" /> : <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-emerald-600 text-white"><School className="h-10 w-10" /></div>}
           <div><h1 className="text-xl uppercase tracking-wide text-slate-900 sm:text-2xl">{school.school_name || 'School'}</h1><div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600"><span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{school.address || 'School address'}</span>{school.phone_number && <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{school.phone_number}</span>}</div><p className="mt-2 text-xs uppercase tracking-[0.2em] text-emerald-700">Academic Performance Report</p></div>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm shadow-sm"><p>Branch: {school.branch_id || '—'}</p><p>Session: {session}</p><p>Term: {term}</p></div>
+        <div className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm shadow-sm"><p>Session: {session}</p><p>Term: {term}</p></div>
       </div>
     </div>
 
@@ -71,10 +36,7 @@ export default function OfficialResultSheet({ school, student, className, sessio
 
       <div className="mt-6 grid gap-5 lg:grid-cols-2"><AssessmentPanel title="Affective / Behavioural Development" items={affectiveItems} /><AssessmentPanel title="Psychomotor / Skills Development" items={psychomotorItems} /></div>
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-3">
-        <section className="rounded-2xl border bg-slate-50 p-4"><h3>Attendance</h3><div className="mt-3 grid grid-cols-2 gap-2 text-center text-sm sm:grid-cols-4"><Metric label="School Days" value={attendance?.total ?? '—'} /><Metric label="Present" value={attendance?.present ?? '—'} /><Metric label="Absent" value={attendance?.absent ?? '—'} /><Metric label="Attendance %" value={attendance?.percentage == null ? '—' : `${Number(attendance.percentage).toFixed(1)}%`} /></div></section>
-        <section className="rounded-2xl border bg-slate-50 p-4 lg:col-span-2"><h3>Comments</h3><div className="mt-3 grid gap-3 md:grid-cols-3"><p className="rounded-xl bg-white p-3 text-sm">Class Teacher<br />{teacherComment || '—'}</p><p className="rounded-xl bg-white p-3 text-sm">Principal<br />{principalComment || '—'}</p><p className="rounded-xl bg-white p-3 text-sm">Director<br />{directorComment || '—'}</p></div></section>
-      </div>
+      <div className="mt-5 grid gap-5 lg:grid-cols-3"><section className="rounded-2xl border bg-slate-50 p-4"><h3>Attendance</h3><div className="mt-3 grid grid-cols-2 gap-2 text-center text-sm sm:grid-cols-4"><Metric label="School Days" value={attendance?.total ?? '—'} /><Metric label="Present" value={attendance?.present ?? '—'} /><Metric label="Absent" value={attendance?.absent ?? '—'} /><Metric label="Attendance %" value={attendance?.percentage == null ? '—' : `${Number(attendance.percentage).toFixed(1)}%`} /></div></section><section className="rounded-2xl border bg-slate-50 p-4 lg:col-span-2"><h3>Comments</h3><div className="mt-3 grid gap-3 md:grid-cols-3"><p className="rounded-xl bg-white p-3 text-sm">Class Teacher<br />{teacherComment || '—'}</p><p className="rounded-xl bg-white p-3 text-sm">Principal<br />{principalComment || '—'}</p><p className="rounded-xl bg-white p-3 text-sm">Director<br />{directorComment || '—'}</p></div></section></div>
 
       <div className="mt-5 flex flex-wrap items-center gap-5 rounded-2xl border bg-white p-4 text-sm"><span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" /> Next Term Begins: {nextTermBegins ? new Date(nextTermBegins).toLocaleDateString() : '—'}</span><span>Generated: {new Date().toLocaleDateString()}</span>{school.stamp_url && <div className="ml-auto flex items-center gap-2"><span>School Stamp</span><img src={school.stamp_url} alt="School stamp" className="h-16 w-24 object-contain" /></div>}</div>
       <div className="mt-6 grid gap-8 border-t pt-8 sm:grid-cols-2"><div className="border-t border-slate-400 pt-2 text-xs text-slate-500">Class Teacher's Signature</div><div className="border-t border-slate-400 pt-2 text-xs text-slate-500">Director / Principal's Signature</div></div>
