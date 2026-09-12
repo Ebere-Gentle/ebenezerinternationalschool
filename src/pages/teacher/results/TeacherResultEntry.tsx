@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, CheckCircle2, Loader2, Save, Users } from 'lucide-react';
+import { CalendarDays, Loader2, Save, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../../../config/supabase/client';
 import { useAuth } from '../../../hooks/useAuth';
@@ -11,6 +11,7 @@ type Student = { id: string; first_name: string; last_name: string; admission_nu
 type Config = { maximum: number; total_max: number };
 const labels: Record<AssessmentType, string> = { first_test: 'Test 1', second_test: 'Test 2', ca: 'CA', exam: 'Exam' };
 const normalizeTerm = (v: string) => v.toLowerCase().replace('first', '1st').replace('second', '2nd').replace('third', '3rd');
+const batchType = (type: AssessmentType) => type === 'ca' ? 'continuous_assessment' : type;
 
 export default function TeacherResultEntry({ assessmentType }: { assessmentType: AssessmentType }) {
   const { user } = useAuth();
@@ -59,7 +60,7 @@ export default function TeacherResultEntry({ assessmentType }: { assessmentType:
   }
 
   async function loadConfig() {
-    const selectedClass = assignments.find(item => item.class_id === classId);
+    const selectedClass = assignments.find(x => x.class_id === classId);
     if (!selectedClass) return;
     const group = resolveAssessmentGroup({ id: selectedClass.class_id, name: selectedClass.class_name, level: selectedClass.level, department: selectedClass.department });
     setAssessmentGroup(group);
@@ -75,42 +76,40 @@ export default function TeacherResultEntry({ assessmentType }: { assessmentType:
   const loadStudents = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.from('students').select('id,first_name,last_name,admission_number').eq('class_id', classId).eq('session_id', sessionId).eq('current_status', 'active').order('last_name').order('first_name');
+      const { data, error } = await supabase.from('students').select('id,first_name,last_name,admission_number').eq('class_id', classId).eq('current_status', 'active').order('last_name').order('first_name');
       if (error) throw error;
       setStudents((data || []) as Student[]);
-      const batchType = assessmentType === 'ca' ? 'continuous_assessment' : assessmentType;
-      const { data: batch } = await supabase.from('result_batches').select('id').eq('academic_session_id', sessionId).eq('term_id', termId).eq('class_id', classId).eq('subject_id', subjectId).eq('assessment_type', batchType).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      const { data: batch } = await supabase.from('result_batches').select('id').eq('academic_session_id', sessionId).eq('term_id', termId).eq('class_id', classId).eq('subject_id', subjectId).eq('assessment_type', batchType(assessmentType)).order('created_at', { ascending: false }).limit(1).maybeSingle();
       if (batch?.id) { const { data: entries } = await supabase.from('result_entries').select('student_id,score').eq('batch_id', batch.id); setScores(Object.fromEntries((entries || []).map((x: any) => [x.student_id, x.score == null ? '' : String(x.score)]))); } else setScores({});
     } catch (e: any) { toast.error(e.message || 'Unable to load class register.'); }
     finally { setLoading(false); }
   }, [classId, subjectId, sessionId, termId, assessmentType]);
 
+  const validScore = (raw: string) => { if (raw.trim() === '') return false; const n = Number(raw); return Number.isInteger(n) && n >= 1 && n <= maximum; };
+
   async function save() {
-    if (!selected || !maximum || !students.length) return toast.error('Select one of your assigned class and subject combinations and ensure the component maximum is configured.');
+    if (!selected || !Number.isInteger(maximum) || maximum <= 0 || !students.length) return toast.error('Select an assigned class/subject and ensure a positive whole-number maximum is configured.');
     for (const student of students) {
-      const raw = scores[student.id];
-      if (raw === undefined || raw === '') return toast.error(`${student.first_name} ${student.last_name} needs a score. Minimum score is 1.`);
-      const n = Number(raw);
-      if (!Number.isFinite(n) || n < 1 || n > maximum) return toast.error(`${student.first_name} ${student.last_name}: score must be between 1 and ${maximum}.`);
+      if (!validScore(scores[student.id] ?? '')) return toast.error(`${student.first_name} ${student.last_name}: enter a whole-number score from 1 to ${maximum}. Decimals and zero are not accepted.`);
     }
     setSaving(true);
     try {
       const { data: cls, error: ce } = await supabase.from('classes').select('branch_id').eq('id', classId).single();
       if (ce) throw ce;
-      const batchType = assessmentType === 'ca' ? 'continuous_assessment' : assessmentType;
-      const { data: existing, error: be } = await supabase.from('result_batches').select('id,status').eq('academic_session_id', sessionId).eq('term_id', termId).eq('class_id', classId).eq('subject_id', subjectId).eq('assessment_type', batchType).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      const type = batchType(assessmentType);
+      const { data: existing, error: be } = await supabase.from('result_batches').select('id,status').eq('academic_session_id', sessionId).eq('term_id', termId).eq('class_id', classId).eq('subject_id', subjectId).eq('assessment_type', type).order('created_at', { ascending: false }).limit(1).maybeSingle();
       if (be) throw be;
       if (existing?.status === 'locked' || existing?.status === 'published') return toast.error('This result component is locked or published.');
       let batchId = existing?.id;
       if (!batchId) {
-        const { data: batch, error } = await supabase.from('result_batches').insert({ branch_id: cls.branch_id, academic_session_id: sessionId, term_id: termId, class_id: classId, subject_id: subjectId, assessment_type: batchType, title: labels[assessmentType], max_score: maximum, weight: maximum, assessment_date: new Date().toISOString().slice(0, 10), entered_by: user?.id, status: 'draft' }).select('id').single();
+        const { data: batch, error } = await supabase.from('result_batches').insert({ branch_id: cls.branch_id, academic_session_id: sessionId, term_id: termId, class_id: classId, subject_id: subjectId, assessment_type: type, title: labels[assessmentType], max_score: maximum, weight: maximum, assessment_date: new Date().toISOString().slice(0, 10), entered_by: user?.id, status: 'draft' }).select('id').single();
         if (error) throw error;
         batchId = batch.id;
       } else {
         const { error } = await supabase.from('result_batches').update({ max_score: maximum, weight: maximum, updated_at: new Date().toISOString() }).eq('id', batchId);
         if (error) throw error;
       }
-      const rows = students.map(student => { const value = Number(scores[student.id]); const percentage = maximum ? value / maximum * 100 : 0; return { batch_id: batchId, student_id: student.id, score: value, percentage, grade: percentage >= 75 ? 'A' : percentage >= 65 ? 'B' : percentage >= 55 ? 'C' : percentage >= 45 ? 'D' : percentage >= 40 ? 'E' : 'F', remark: percentage >= 75 ? 'Excellent' : percentage >= 65 ? 'Very Good' : percentage >= 55 ? 'Good' : percentage >= 45 ? 'Fair' : percentage >= 40 ? 'Pass' : 'Needs Improvement', entered_by: user?.id, updated_by: user?.id }; });
+      const rows = students.map(s => { const value = Number(scores[s.id]); const percentage = value / maximum * 100; return { batch_id: batchId, student_id: s.id, score: value, percentage, grade: percentage >= 75 ? 'A' : percentage >= 65 ? 'B' : percentage >= 55 ? 'C' : percentage >= 45 ? 'D' : percentage >= 40 ? 'E' : 'F', remark: percentage >= 75 ? 'Excellent' : percentage >= 65 ? 'Very Good' : percentage >= 55 ? 'Good' : percentage >= 45 ? 'Fair' : percentage >= 40 ? 'Pass' : 'Needs Improvement', entered_by: user?.id, updated_by: user?.id }; });
       const { error } = await supabase.from('result_entries').upsert(rows, { onConflict: 'batch_id,student_id' });
       if (error) throw error;
       toast.success(`${labels[assessmentType]} saved for ${selected.subject_name}.`);
@@ -120,9 +119,9 @@ export default function TeacherResultEntry({ assessmentType }: { assessmentType:
 
   if (loading && !assignments.length) return <div className="flex min-h-[55vh] items-center justify-center"><Loader2 className="h-9 w-9 animate-spin text-emerald-600" /></div>;
   return <div className="mx-auto max-w-[1500px] space-y-5 p-4 sm:p-6">
-    <div className="grid gap-4 lg:grid-cols-[1fr_360px]"><div><p className="text-xs uppercase tracking-[0.2em] text-emerald-600">Teacher Assessment Workspace</p><h1 className="mt-1 text-3xl">{labels[assessmentType]} Broadsheet</h1><p className="mt-2 text-slate-500">Enter marks only for subjects and classes assigned to you. Every required mark must be between 1 and the configured maximum.</p></div><div className="rounded-2xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-emerald-600" /> Academic Context</div><div className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><span className="text-slate-400">Session</span><p>{session || '—'}</p></div><div><span className="text-slate-400">Term</span><p>{term || '—'}</p></div></div></div></div>
+    <div className="grid gap-4 lg:grid-cols-[1fr_360px]"><div><p className="text-xs uppercase tracking-[0.2em] text-emerald-600">Teacher Assessment Workspace</p><h1 className="mt-1 text-3xl">{labels[assessmentType]} Broadsheet</h1><p className="mt-2 text-slate-500">Whole-number scores only. Minimum 1 and maximum {maximum || 'configured maximum'}.</p></div><div className="rounded-2xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-emerald-600" /> Academic Context</div><div className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><span className="text-slate-400">Session</span><p>{session || '—'}</p></div><div><span className="text-slate-400">Term</span><p>{term || '—'}</p></div></div></div></div>
     <section className="grid gap-4 lg:grid-cols-[1fr_1fr_280px]"><label className="rounded-2xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">Assigned Class<select value={classId} onChange={e => { setClassId(e.target.value); setSubjectId(''); }} className="mt-2 w-full rounded-xl border px-3 py-3 dark:border-slate-600 dark:bg-slate-900"><option value="">Select class</option>{availableClasses.map(x => <option key={x.class_id} value={x.class_id}>{x.class_name}</option>)}</select></label><label className="rounded-2xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">Assigned Subject<select value={subjectId} onChange={e => setSubjectId(e.target.value)} disabled={!classId} className="mt-2 w-full rounded-xl border px-3 py-3 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900"><option value="">Select subject</option>{availableSubjects.map(x => <option key={x.subject_id} value={x.subject_id}>{x.subject_name}</option>)}</select></label><div className="rounded-2xl border bg-gradient-to-br from-emerald-50 to-sky-50 p-4 shadow-sm dark:border-slate-700 dark:from-emerald-950/30 dark:to-sky-950/30"><p className="text-xs uppercase text-slate-500">Maximum</p><p className="mt-1 text-3xl">{maximum || '—'}</p><p className="text-xs text-slate-500">{assessmentGroup ? `${assessmentGroup.replace('_', ' ')} scheme` : 'Select a class'}</p></div></section>
-    {!config && classId && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">No active assessment scheme is configured for this class group. Ask an administrator/director to configure it.</div>}
-    <section className="overflow-hidden rounded-3xl border bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"><div className="flex flex-col gap-3 border-b p-5 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700"><div><div className="flex items-center gap-2"><Users className="h-5 w-5 text-emerald-600" /> Student Mark Sheet</div><p className="text-sm text-slate-500">{students.length} student(s) · valid range 1–{maximum || '—'}</p></div><button onClick={save} disabled={saving || loading || !students.length || !maximum} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{saving ? 'Saving…' : 'Save marks'}</button></div><div className="overflow-x-auto"><table className="w-full min-w-[850px] text-sm"><thead><tr className="bg-slate-900 text-white"><th className="p-3 text-left">#</th><th className="p-3 text-left">Student</th><th className="p-3 text-left">Admission No.</th><th className="p-3">Mark / {maximum || '—'}</th><th className="p-3">%</th><th className="p-3">Grade</th><th className="p-3">Status</th></tr></thead><tbody>{students.map((s, i) => { const raw = scores[s.id] ?? ''; const value = Number(raw); const p = raw === '' || !maximum ? 0 : value / maximum * 100; const valid = raw !== '' && value >= 1 && value <= maximum; const grade = raw === '' ? '—' : p >= 75 ? 'A' : p >= 65 ? 'B' : p >= 55 ? 'C' : p >= 45 ? 'D' : p >= 40 ? 'E' : 'F'; return <tr key={s.id} className="border-t dark:border-slate-700"><td className="p-3 text-slate-400">{i + 1}</td><td className="p-3">{s.last_name} {s.first_name}</td><td className="p-3 text-slate-500">{s.admission_number || '—'}</td><td className="p-2"><input aria-label={`${s.first_name} mark`} type="number" min="1" max={maximum || undefined} step="0.01" value={raw} onChange={e => setScores(cur => ({ ...cur, [s.id]: e.target.value }))} className={`w-28 rounded-lg border px-3 py-2 ${raw === '' || valid ? 'dark:border-slate-600' : 'border-red-500'} dark:bg-slate-900`} /></td><td className="p-3 text-center">{raw === '' ? '—' : `${p.toFixed(1)}%`}</td><td className="p-3 text-center">{grade}</td><td className="p-3 text-center">{raw === '' ? 'Pending' : valid ? 'Ready' : 'Invalid'}</td></tr>; })}</tbody></table></div></section>
+    {!config && classId && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">No active assessment scheme is configured for this class group.</div>}
+    <section className="overflow-hidden rounded-3xl border bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"><div className="flex flex-col gap-3 border-b p-5 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700"><div><div className="flex items-center gap-2"><Users className="h-5 w-5 text-emerald-600" /> Student Mark Sheet</div><p className="text-sm text-slate-500">{students.length} student(s) · valid whole-number range 1–{maximum || '—'}</p></div><button onClick={() => void save()} disabled={saving || loading || !students.length || !maximum} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{saving ? 'Saving…' : 'Save marks'}</button></div><div className="overflow-x-auto"><table className="w-full min-w-[850px] text-sm"><thead><tr className="bg-slate-900 text-white"><th className="p-3 text-left">#</th><th className="p-3 text-left">Student</th><th className="p-3 text-left">Admission No.</th><th className="p-3">Mark / {maximum || '—'}</th><th className="p-3">%</th><th className="p-3">Grade</th><th className="p-3">Status</th></tr></thead><tbody>{students.map((s, i) => { const raw = scores[s.id] ?? ''; const value = raw === '' ? null : Number(raw); const valid = value !== null && Number.isInteger(value) && value >= 1 && value <= maximum; const p = valid ? value! / maximum * 100 : null; const grade = p === null ? '—' : p >= 75 ? 'A' : p >= 65 ? 'B' : p >= 55 ? 'C' : p >= 45 ? 'D' : p >= 40 ? 'E' : 'F'; return <tr key={s.id} className="border-t dark:border-slate-700"><td className="p-3 text-slate-400">{i + 1}</td><td className="p-3">{s.last_name} {s.first_name}</td><td className="p-3 text-slate-500">{s.admission_number || '—'}</td><td className="p-2"><input aria-label={`${s.first_name} mark`} type="number" min="1" max={maximum || undefined} step={1} value={raw} onChange={e => { const next = e.target.value; if (next === '' || /^\d+$/.test(next)) setScores(cur => ({ ...cur, [s.id]: next })); }} className={`w-28 rounded-lg border px-3 py-2 ${raw === '' || valid ? 'dark:border-slate-600' : 'border-red-500'} dark:bg-slate-900`} /></td><td className="p-3 text-center">{p === null ? '—' : `${p.toFixed(1)}%`}</td><td className="p-3 text-center">{grade}</td><td className="p-3 text-center">{raw === '' ? 'Pending' : valid ? 'Ready' : `Invalid — whole number 1 to ${maximum}`}</td></tr>; })}</tbody></table></div></section>
   </div>;
 }
