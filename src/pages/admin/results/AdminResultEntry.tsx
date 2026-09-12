@@ -52,36 +52,23 @@ export default function AdminResultEntry({ assessmentType }: Props) {
       if (classError) throw classError;
       const classOrder = (name: string) => {
         const value = normalise(name);
-
         if (value.includes('nursery')) return 10;
         if (value.includes('kg silver')) return 20;
         if (value.includes('kg gold')) return 30;
         if (value.includes('transition') || value.includes('grader')) return 40;
-
         const grade = value.match(/(?:grade|primary)\s*(\d+)/);
         if (grade) return 50 + Number(grade[1]);
-
         const jss = value.match(/jss\s*(\d+)/);
         if (jss) return 60 + Number(jss[1]);
-
         const ss = value.match(/ss\s*(\d+)/);
         if (ss) return 70 + Number(ss[1]);
-
         if (value.includes('graduate')) return 100;
-
         return 90;
       };
-
-      const allActiveClasses = (classData || []) as ClassRow[];
-
-      setClasses(
-        allActiveClasses.sort((a, b) => {
-          const orderDifference = classOrder(a.name) - classOrder(b.name);
-          return orderDifference !== 0
-            ? orderDifference
-            : a.name.localeCompare(b.name);
-        })
-      );
+      setClasses(((classData || []) as ClassRow[]).sort((a, b) => {
+        const difference = classOrder(a.name) - classOrder(b.name);
+        return difference !== 0 ? difference : a.name.localeCompare(b.name);
+      }));
     } catch (error: any) {
       toast.error(error.message || 'Unable to load result context.');
     } finally { setLoading(false); }
@@ -105,10 +92,10 @@ export default function AdminResultEntry({ assessmentType }: Props) {
   }, [assessmentType, selectedClass, session, term]);
 
   const loadRegister = useCallback(async () => {
-    if (!session || !term || !classId) { setStudents([]); setSubjects([]); setScores({}); return; }
+    if (!classId) { setStudents([]); setSubjects([]); setScores({}); return; }
     try {
       const [studentResult, assignmentResult] = await Promise.all([
-        supabase.from('students').select('id,first_name,last_name,admission_number,class_id').eq('class_id', classId).eq('session_id', session.id).eq('current_status', 'active').order('last_name').order('first_name'),
+        supabase.from('students').select('id,first_name,last_name,admission_number,class_id').eq('class_id', classId).eq('current_status', 'active').order('last_name').order('first_name'),
         supabase.from('class_subjects').select('subject_id,subjects(id,name,code)').eq('class_id', classId).eq('status', 'active')
       ]);
       if (studentResult.error) throw studentResult.error;
@@ -117,7 +104,7 @@ export default function AdminResultEntry({ assessmentType }: Props) {
       setSubjects((assignmentResult.data || []).flatMap((item: any) => item.subjects ? [item.subjects] : []));
       setSubjectId(''); setScores({});
     } catch (error: any) { toast.error(error.message || 'Unable to load class register.'); }
-  }, [classId, session, term]);
+  }, [classId]);
 
   useEffect(() => { void loadRegister(); }, [loadRegister]);
 
@@ -185,8 +172,8 @@ export default function AdminResultEntry({ assessmentType }: Props) {
     </section>
     {!config && classId && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">No active assessment scheme is configured for this class group.</div>}
     <section className="overflow-hidden rounded-3xl border bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
-      <div className="flex flex-col gap-3 border-b p-5 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700"><div><div className="flex items-center gap-2"><Users className="h-5 w-5 text-indigo-600" /> Student Mark Sheet</div><p className="text-sm text-slate-500">{students.length} student(s) · valid range 1–{maximum || '—'}</p></div><button onClick={save} disabled={saving || !students.length || !maximum} className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{saving ? 'Saving…' : 'Save marks'}</button></div>
-      <div className="overflow-x-auto"><table className="w-full min-w-[820px] text-sm"><thead><tr className="bg-slate-900 text-white"><th className="p-3 text-left">#</th><th className="p-3 text-left">Student</th><th className="p-3 text-left">Admission No.</th><th className="p-3">Mark / {maximum || '—'}</th><th className="p-3">%</th><th className="p-3">Grade</th><th className="p-3">Status</th></tr></thead><tbody>{students.map((student, index) => { const raw = scores[student.id] ?? ''; const value = Number(raw); const percentage = raw === '' || !maximum ? 0 : value / maximum * 100; const valid = raw === '' || (value >= 1 && value <= maximum); const grade = percentage >= 75 ? 'A' : percentage >= 65 ? 'B' : percentage >= 55 ? 'C' : percentage >= 45 ? 'D' : percentage >= 40 ? 'E' : raw === '' ? '—' : 'F'; return <tr key={student.id} className="border-t dark:border-slate-700"><td className="p-3 text-slate-400">{index + 1}</td><td className="p-3">{student.last_name} {student.first_name}</td><td className="p-3 text-slate-500">{student.admission_number || '—'}</td><td className="p-2"><input aria-label={`${student.first_name} mark`} type="number" min="1" max={maximum || undefined} step="0.01" value={raw} onChange={event => setScores(current => ({ ...current, [student.id]: event.target.value }))} className={`w-28 rounded-lg border px-3 py-2 ${valid ? 'dark:border-slate-600' : 'border-red-500'} dark:bg-slate-900`} /></td><td className="p-3 text-center">{raw === '' ? '—' : `${percentage.toFixed(1)}%`}</td><td className="p-3 text-center">{grade}</td><td className="p-3 text-center">{raw === '' ? 'Pending' : valid ? 'Ready' : 'Invalid'}</td></tr>; })}</tbody></table></div>
+      <div className="flex flex-col gap-3 border-b p-5 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700"><div><div className="flex items-center gap-2"><Users className="h-5 w-5 text-indigo-600" /> Student Mark Sheet</div><p className="mt-1 text-sm text-slate-500">{students.length} student(s) · valid range 1–{maximum || '—'}</p></div><button type="button" onClick={() => void save()} disabled={saving || !subjectId || !students.length || !maximum} className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50"><Save className="h-4 w-4" />{saving ? 'Saving…' : 'Save marks'}</button></div>
+      <div className="overflow-x-auto"><table className="min-w-full text-sm"><thead className="bg-slate-50 dark:bg-slate-900"><tr><th className="px-4 py-3 text-left">#</th><th className="px-4 py-3 text-left">Student</th><th className="px-4 py-3 text-left">Admission No.</th><th className="px-4 py-3 text-left">Mark / {maximum || '—'}</th><th className="px-4 py-3 text-left">%</th><th className="px-4 py-3 text-left">Grade</th><th className="px-4 py-3 text-left">Status</th></tr></thead><tbody>{students.map((student, index) => { const raw = scores[student.id] ?? ''; const value = raw === '' ? null : Number(raw); const percentage = value == null || !maximum ? null : value / maximum * 100; const grade = percentage == null ? '—' : percentage >= 75 ? 'A' : percentage >= 65 ? 'B' : percentage >= 55 ? 'C' : percentage >= 45 ? 'D' : percentage >= 40 ? 'E' : 'F'; const valid = value == null || (Number.isFinite(value) && value >= 1 && value <= maximum); return <tr key={student.id} className="border-t dark:border-slate-700"><td className="px-4 py-3">{index + 1}</td><td className="px-4 py-3">{student.last_name} {student.first_name}</td><td className="px-4 py-3">{student.admission_number || '—'}</td><td className="px-4 py-3"><input type="number" min={1} max={maximum || undefined} step="0.01" value={raw} onChange={event => setScores(previous => ({ ...previous, [student.id]: event.target.value }))} disabled={!subjectId || !maximum} className={`w-28 rounded-xl border px-3 py-2 dark:border-slate-600 dark:bg-slate-900 ${!valid ? 'border-red-500' : ''}`} placeholder="1+" /></td><td className="px-4 py-3">{percentage == null ? '—' : percentage.toFixed(1)}</td><td className="px-4 py-3">{grade}</td><td className="px-4 py-3">{value == null ? 'Pending' : valid ? 'Ready' : 'Invalid'}</td></tr>; })}</tbody></table>{!students.length && <div className="p-10 text-center text-slate-500">{classId ? 'No active students are assigned to this class.' : 'Select a class to load the student register.'}</div>}</div>
     </section>
   </div>;
 }
