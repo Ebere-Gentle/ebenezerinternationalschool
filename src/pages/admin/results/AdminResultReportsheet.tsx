@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText, Loader2, Printer, RefreshCw } from 'lucide-react';
+import { FileText, Loader2, Printer, RefreshCw, Save, SlidersHorizontal } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../../../config/supabase/client';
 import OfficialResultSheet from '../../../components/results/shared/OfficialResultSheet';
@@ -10,143 +10,50 @@ type Term = { id: string; session: string; term: string; is_active: boolean; is_
 type ClassRow = { id: string; name: string; level: string | null; department: string | null; branch_id: string };
 type Student = { id: string; user_id?: string | null; first_name: string | null; middle_name: string | null; last_name: string | null; admission_number: string | null; gender: string | null; date_of_birth: string | null; passport_url: string | null; class_id: string; branch_id: string };
 type AssessmentRow = { subjectId: string; subject: string; test1: number | null; test2: number | null; ca: number | null; exam: number | null; total: number; percentage: number; grade: string; remark: string; position?: number | null; term1Percentage?: number | null; term2Percentage?: number | null; term3Percentage?: number | null; cumulativePercentage?: number | null };
-
 type TermPerformance = { subjectId: string; percentage: number };
+
+const PSYCHOMOTOR = ['Handwriting','Drawing / Creativity','Sports','Practical Skills','Manual Dexterity','Music / Performance','Artistic Expression','Coordination','Use of Tools','Neatness of Work'];
+const AFFECTIVE = ['Punctuality','Regularity','Neatness','Courtesy','Cooperation','Responsibility','Self-Control','Respect for Authority','Attitude to Learning','Leadership'];
 const gradeFrom = (p: number) => p >= 75 ? 'A' : p >= 65 ? 'B' : p >= 55 ? 'C' : p >= 45 ? 'D' : p >= 40 ? 'E' : 'F';
 const remarkFrom = (p: number) => p >= 75 ? 'Excellent' : p >= 65 ? 'Very Good' : p >= 55 ? 'Good' : p >= 45 ? 'Fair' : p >= 40 ? 'Pass' : 'Needs Improvement';
 const normalise = (v: string | null | undefined) => String(v || '').trim().toLowerCase().replace('first', '1st').replace('second', '2nd').replace('third', '3rd');
 const isThirdTerm = (term: Term | undefined) => /third|3rd/i.test(term?.term || '');
 const assessmentType = (value: string) => value === 'continuous_assessment' ? 'ca' : value;
+const emptyRatings = (names: string[]) => Object.fromEntries(names.map(name => [name, ''])) as Record<string,string>;
 
 export default function AdminResultReportsheet() {
   const [sessions, setSessions] = useState<Session[]>([]); const [terms, setTerms] = useState<Term[]>([]); const [classes, setClasses] = useState<ClassRow[]>([]); const [students, setStudents] = useState<Student[]>([]);
   const [sessionId, setSessionId] = useState(''); const [termId, setTermId] = useState(''); const [classId, setClassId] = useState(''); const [studentId, setStudentId] = useState('');
-  const [student, setStudent] = useState<Student | null>(null); const [className, setClassName] = useState(''); const [school, setSchool] = useState<any>(null); const [rows, setRows] = useState<AssessmentRow[]>([]); const [summary, setSummary] = useState<any>(null); const [max, setMax] = useState({ test1: 0, test2: 0, ca: 0, exam: 0, total: 0 }); const [loading, setLoading] = useState(true); const [working, setWorking] = useState(false);
+  const [student, setStudent] = useState<Student | null>(null); const [className, setClassName] = useState(''); const [school, setSchool] = useState<any>(null); const [rows, setRows] = useState<AssessmentRow[]>([]); const [summary, setSummary] = useState<any>(null);
+  const [max, setMax] = useState({ test1: 0, test2: 0, ca: 0, exam: 0, total: 0 }); const [loading, setLoading] = useState(true); const [working, setWorking] = useState(false); const [saving, setSaving] = useState(false);
+  const [psychomotor, setPsychomotor] = useState<Record<string,string>>(emptyRatings(PSYCHOMOTOR)); const [affective, setAffective] = useState<Record<string,string>>(emptyRatings(AFFECTIVE));
+  const [teacherComment, setTeacherComment] = useState(''); const [principalComment, setPrincipalComment] = useState(''); const [directorComment, setDirectorComment] = useState('');
 
   const session = sessions.find(s => s.id === sessionId); const term = terms.find(t => t.id === termId); const selectedClass = classes.find(c => c.id === classId);
-  const loadContext = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [{ data: s, error: se }, { data: c, error: ce }] = await Promise.all([
-        supabase.from('academic_sessions').select('id,session_name,term_name,is_current').order('start_date', { ascending: false }),
-        supabase.from('classes').select('id,name,level,department,branch_id').eq('status', 'active').order('name'),
-      ]);
-      if (se) throw se; if (ce) throw ce;
-      const ss = (s || []) as Session[]; setSessions(ss); setClasses((c || []) as ClassRow[]); const current = ss.find(x => x.is_current) || ss[0]; if (current) setSessionId(current.id);
-    } catch (e: any) { toast.error(e.message || 'Unable to load reportsheet context.'); }
-    finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void loadContext(); }, [loadContext]);
+  const loadContext = useCallback(async () => { setLoading(true); try { const [{ data: s, error: se }, { data: c, error: ce }] = await Promise.all([supabase.from('academic_sessions').select('id,session_name,term_name,is_current').order('start_date',{ascending:false}),supabase.from('classes').select('id,name,level,department,branch_id').eq('status','active').order('name')]); if(se) throw se; if(ce) throw ce; const ss=(s||[]) as Session[]; setSessions(ss); setClasses((c||[]) as ClassRow[]); const current=ss.find(x=>x.is_current)||ss[0]; if(current) setSessionId(current.id); } catch(e:any){toast.error(e.message||'Unable to load reportsheet context.');} finally{setLoading(false);} },[]);
+  useEffect(()=>{void loadContext();},[loadContext]);
+  useEffect(()=>{ if(!session) return; void (async()=>{ const {data,error}=await supabase.from('terms').select('id,session,term,is_active,is_closed').eq('session',session.session_name).order('start_date',{ascending:false}); if(error){toast.error(error.message);return;} const list=(data||[]) as Term[]; setTerms(list); setTermId(list.find(x=>normalise(x.term)===normalise(session.term_name))?.id||list.find(x=>x.is_active)?.id||list[0]?.id||''); })(); },[sessionId,session?.id]);
+  useEffect(()=>{ setStudentId('');setStudents([]);setRows([]);setSummary(null); if(!classId)return; void (async()=>{const {data,error}=await supabase.from('students').select('id,user_id,first_name,middle_name,last_name,admission_number,gender,date_of_birth,passport_url,class_id,branch_id').eq('class_id',classId).eq('current_status','active').order('last_name').order('first_name'); if(error){toast.error(error.message);return;} setStudents((data||[]) as Student[]);})(); },[classId]);
 
-  useEffect(() => {
-    if (!session) return;
-    void (async () => {
-      const { data, error } = await supabase.from('terms').select('id,session,term,is_active,is_closed').eq('session', session.session_name).order('start_date', { ascending: false });
-      if (error) { toast.error(error.message); return; }
-      const list = (data || []) as Term[]; setTerms(list);
-      setTermId(list.find(x => normalise(x.term) === normalise(session.term_name))?.id || list.find(x => x.is_active)?.id || list[0]?.id || '');
-    })();
-  }, [sessionId, session?.id]);
+  const loadTermPerformance=useCallback(async(termRecord:Term,classRecord:ClassRow,targetStudentId:string):Promise<TermPerformance[]>=>{const {data:batches,error:be}=await supabase.from('result_batches').select('id,subject_id,assessment_type,max_score,created_at').eq('academic_session_id',session?.id).eq('term_id',termRecord.id).eq('class_id',classRecord.id).in('assessment_type',['first_test','second_test','continuous_assessment','ca','exam']).order('created_at',{ascending:false});if(be)throw be;const list=(batches||[]) as any[];const ids=list.map(b=>b.id);if(!ids.length)return[];const {data:entries,error:ee}=await supabase.from('result_entries').select('batch_id,score').eq('student_id',targetStudentId).in('batch_id',ids);if(ee)throw ee;const em=new Map((entries||[]).map((e:any)=>[e.batch_id,Number(e.score)]));const latest=new Map<string,any>();for(const b of list){const type=assessmentType(b.assessment_type);const key=`${b.subject_id}:${type}`;if(!latest.has(key))latest.set(key,b);}const bySubject=new Map<string,{score:number;max:number}>();latest.forEach(b=>{const sc=em.get(b.id);if(sc==null)return;const x=bySubject.get(b.subject_id)||{score:0,max:0};x.score+=sc;x.max+=Number(b.max_score||0);bySubject.set(b.subject_id,x);});return Array.from(bySubject.entries()).map(([subjectId,v])=>({subjectId,percentage:v.max?v.score/v.max*100:0}));},[session?.id]);
 
-  useEffect(() => {
-    setStudentId(''); setStudents([]); setRows([]); setSummary(null);
-    if (!classId) return;
-    void (async () => {
-      const { data, error } = await supabase.from('students').select('id,user_id,first_name,middle_name,last_name,admission_number,gender,date_of_birth,passport_url,class_id,branch_id').eq('class_id', classId).eq('current_status', 'active').order('last_name').order('first_name');
-      if (error) { toast.error(error.message); return; }
-      setStudents((data || []) as Student[]);
-    })();
-  }, [classId]);
+  const loadReport=useCallback(async()=>{if(!session||!term||!selectedClass||!studentId){setRows([]);return;}setWorking(true);try{const st=students.find(x=>x.id===studentId);if(!st)throw new Error('Student not found.');setStudent(st);setClassName(selectedClass.name);const [{data:branch},{data:config,error:ce},{data:batches,error:be}]=await Promise.all([supabase.from('branches').select('school_name,branch_id,address,phone_number,email,logo_url,stamp_url').eq('id',st.branch_id).maybeSingle(),supabase.from('result_assessment_configs').select('first_test_max,second_test_max,exam_max,total_max,components,grading_system').eq('academic_session_id',session.id).eq('term_id',term.id).eq('academic_group',resolveAssessmentGroup({id:selectedClass.id,name:selectedClass.name,level:selectedClass.level,department:selectedClass.department})).eq('status','active').maybeSingle(),supabase.from('result_batches').select('id,subject_id,assessment_type,max_score,created_at,subjects:subject_id(name)').eq('academic_session_id',session.id).eq('term_id',term.id).eq('class_id',selectedClass.id).in('assessment_type',['first_test','second_test','continuous_assessment','ca','exam']).order('created_at',{ascending:false})]);if(ce)throw ce;if(be)throw be;const components=Array.isArray(config?.components)?config.components:[];const componentMax=(key:string,fallback:number)=>Number(components.find((x:any)=>x?.key===key)?.max_score??fallback??0);const test1Max=componentMax('first_test',Number(config?.first_test_max||0));const test2Max=componentMax('second_test',Number(config?.second_test_max||0));const caMax=componentMax('ca',0);const examMax=componentMax('exam',Number(config?.exam_max||0));const totalMax=Number(config?.total_max||test1Max+test2Max+caMax+examMax);setMax({test1:test1Max,test2:test2Max,ca:caMax,exam:examMax,total:totalMax});setSchool(branch||{});const list=(batches||[]) as any[];const ids=list.map(b=>b.id);const {data:entries,error:ee}=ids.length?await supabase.from('result_entries').select('batch_id,score,grade,remark,position').eq('student_id',studentId).in('batch_id',ids):{data:[],error:null};if(ee)throw ee;const em=new Map((entries||[]).map((e:any)=>[e.batch_id,e]));const latest=new Map<string,any>();for(const b of list){const type=assessmentType(b.assessment_type);const key=`${b.subject_id}:${type}`;if(!latest.has(key))latest.set(key,b);}const bySubject=new Map<string,AssessmentRow>();latest.forEach(b=>{const type=assessmentType(b.assessment_type);const x=bySubject.get(b.subject_id)||{subjectId:b.subject_id,subject:b.subjects?.name||'Subject',test1:null,test2:null,ca:null,exam:null,total:0,percentage:0,grade:'—',remark:'—'};const e=em.get(b.id);if(type==='first_test')x.test1=e?.score==null?null:Number(e.score);if(type==='second_test')x.test2=e?.score==null?null:Number(e.score);if(type==='ca')x.ca=e?.score==null?null:Number(e.score);if(type==='exam')x.exam=e?.score==null?null:Number(e.score);x.total=Number(x.test1||0)+Number(x.test2||0)+Number(x.ca||0)+Number(x.exam||0);x.percentage=totalMax?x.total/totalMax*100:0;x.grade=e?.grade||gradeFrom(x.percentage);x.remark=e?.remark||remarkFrom(x.percentage);x.position=e?.position??x.position;bySubject.set(b.subject_id,x);});const currentRows=Array.from(bySubject.values()).sort((a,b)=>a.subject.localeCompare(b.subject));if(isThirdTerm(term)){const first=terms.find(t=>/first|1st/i.test(t.term));const second=terms.find(t=>/second|2nd/i.test(t.term));const [p1,p2,p3]=await Promise.all([first?loadTermPerformance(first,selectedClass,studentId):Promise.resolve([]),second?loadTermPerformance(second,selectedClass,studentId):Promise.resolve([]),loadTermPerformance(term,selectedClass,studentId)]);const m=(a:TermPerformance[])=>new Map(a.map(x=>[x.subjectId,x.percentage]));const a=m(p1),b=m(p2),c=m(p3);currentRows.forEach(r=>{r.term1Percentage=a.get(r.subjectId)??null;r.term2Percentage=b.get(r.subjectId)??null;r.term3Percentage=c.get(r.subjectId)??r.percentage;const vals=[r.term1Percentage,r.term2Percentage,r.term3Percentage].filter((v):v is number=>v!=null);r.cumulativePercentage=vals.length?vals.reduce((x,y)=>x+y,0)/vals.length:null;});}setRows(currentRows);const {data:rs,error:re}=await supabase.from('result_summaries').select('position,remark,psychomotor,affective,attendance,teacher_comment,principal_comment,director_comment,next_term_begins,average_percentage,grade').eq('student_id',studentId).eq('class_id',selectedClass.id).eq('session',session.session_name).eq('term',term.term).maybeSingle();if(re)throw re;const s=rs||{};setSummary(s);setPsychomotor({...emptyRatings(PSYCHOMOTOR),...(s.psychomotor||{})});setAffective({...emptyRatings(AFFECTIVE),...(s.affective||{})});setTeacherComment(s.teacher_comment||'');setPrincipalComment(s.principal_comment||'');setDirectorComment(s.director_comment||'');}catch(e:any){toast.error(e.message||'Unable to load reportsheet.');setRows([]);}finally{setWorking(false);}},[session,term,selectedClass,studentId,students,terms,loadTermPerformance]);
+  useEffect(()=>{if(studentId)void loadReport();},[studentId,loadReport]);
 
-  const loadTermPerformance = useCallback(async (termRecord: Term, classRecord: ClassRow, targetStudentId: string): Promise<TermPerformance[]> => {
-    const { data: batches, error: batchError } = await supabase.from('result_batches').select('id,subject_id,assessment_type,max_score,created_at').eq('academic_session_id', session?.id).eq('term_id', termRecord.id).eq('class_id', classRecord.id).in('assessment_type', ['first_test','second_test','continuous_assessment','ca','exam']).order('created_at', { ascending: false });
-    if (batchError) throw batchError;
-    const batchList = (batches || []) as any[];
-    const ids = batchList.map(b => b.id);
-    if (!ids.length) return [];
-    const { data: entries, error: entryError } = await supabase.from('result_entries').select('batch_id,score').eq('student_id', targetStudentId).in('batch_id', ids);
-    if (entryError) throw entryError;
-    const entryMap = new Map((entries || []).map((e: any) => [e.batch_id, Number(e.score)]));
-    const latest = new Map<string, any>();
-    for (const b of batchList) {
-      const type = assessmentType(b.assessment_type);
-      const key = `${b.subject_id}:${type}`;
-      if (!latest.has(key)) latest.set(key, b);
-    }
-    const bySubject = new Map<string, { score: number; max: number }>();
-    latest.forEach(b => {
-      const score = entryMap.get(b.id);
-      if (score == null) return;
-      const existing = bySubject.get(b.subject_id) || { score: 0, max: 0 };
-      existing.score += score;
-      existing.max += Number(b.max_score || 0);
-      bySubject.set(b.subject_id, existing);
-    });
-    return Array.from(bySubject.entries()).map(([subjectId, value]) => ({ subjectId, percentage: value.max ? value.score / value.max * 100 : 0 }));
-  }, [session?.id]);
+  const average=useMemo(()=>rows.length&&max.total?rows.reduce((n,r)=>n+r.total,0)/rows.length/max.total*100:0,[rows,max.total]);
+  const cumulativeAverage=useMemo(()=>{const v=rows.map(r=>r.cumulativePercentage).filter((x):x is number=>x!=null);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;},[rows]);
+  const saveDomains=async()=>{if(!student||!selectedClass||!session||!term)return;setSaving(true);try{const payload={psychomotor,affective,teacher_comment:teacherComment||null,principal_comment:principalComment||null,director_comment:directorComment||null};const {data,error}=await supabase.from('result_summaries').update(payload).eq('student_id',student.id).eq('class_id',selectedClass.id).eq('session',session.session_name).eq('term',term.term).select('id').maybeSingle();if(error)throw error;if(!data){const {error:ie}=await supabase.from('result_summaries').insert({...payload,student_id:student.id,class_id:selectedClass.id,branch_id:student.branch_id,session:session.session_name,term:term.term,average_percentage:Number(summary?.average_percentage??(isThirdTerm(term)&&cumulativeAverage!=null?cumulativeAverage:average)),grade:summary?.grade||gradeFrom(Number(summary?.average_percentage??average))});if(ie)throw ie;}setSummary((s:any)=>({...s,...payload}));toast.success('Report domains and comments saved.');}catch(e:any){toast.error(e.message||'Unable to save report details.');}finally{setSaving(false);}};
 
-  const loadReport = useCallback(async () => {
-    if (!session || !term || !selectedClass || !studentId) { setRows([]); return; }
-    setWorking(true);
-    try {
-      const st = students.find(x => x.id === studentId); if (!st) throw new Error('Student not found.');
-      setStudent(st); setClassName(selectedClass.name);
-      const [{ data: branch }, { data: config, error: configError }, { data: batches, error: batchError }] = await Promise.all([
-        supabase.from('branches').select('school_name,branch_id,address,phone_number,email,logo_url,stamp_url').eq('id', st.branch_id).maybeSingle(),
-        supabase.from('result_assessment_configs').select('first_test_max,second_test_max,exam_max,total_max,components,grading_system').eq('academic_session_id', session.id).eq('term_id', term.id).eq('academic_group', resolveAssessmentGroup({ id: selectedClass.id, name: selectedClass.name, level: selectedClass.level, department: selectedClass.department })).eq('status', 'active').maybeSingle(),
-        supabase.from('result_batches').select('id,subject_id,assessment_type,max_score,created_at,subjects:subject_id(name)').eq('academic_session_id', session.id).eq('term_id', term.id).eq('class_id', selectedClass.id).in('assessment_type', ['first_test','second_test','continuous_assessment','ca','exam']).order('created_at', { ascending: false }),
-      ]);
-      if (configError) throw configError; if (batchError) throw batchError;
-      const components = Array.isArray(config?.components) ? config.components : [];
-      const componentMax = (key: string, fallback: number) => Number(components.find((x: any) => x?.key === key)?.max_score ?? fallback ?? 0);
-      const test1Max = componentMax('first_test', Number(config?.first_test_max || 0)); const test2Max = componentMax('second_test', Number(config?.second_test_max || 0)); const caMax = componentMax('ca', 0); const examMax = componentMax('exam', Number(config?.exam_max || 0)); const totalMax = Number(config?.total_max || test1Max + test2Max + caMax + examMax);
-      setMax({ test1: test1Max, test2: test2Max, ca: caMax, exam: examMax, total: totalMax }); setSchool(branch || {});
-      const batchList = (batches || []) as any[]; const ids = batchList.map(b => b.id); const { data: entries, error: entryError } = ids.length ? await supabase.from('result_entries').select('batch_id,score,grade,remark').eq('student_id', studentId).in('batch_id', ids) : { data: [], error: null }; if (entryError) throw entryError;
-      const entryMap = new Map((entries || []).map((e: any) => [e.batch_id, e])); const latest = new Map<string, any>();
-      for (const b of batchList) { const type = assessmentType(b.assessment_type); const key = `${b.subject_id}:${type}`; if (!latest.has(key)) latest.set(key, b); }
-      const bySubject = new Map<string, AssessmentRow>();
-      latest.forEach(b => { const type = assessmentType(b.assessment_type); const existing = bySubject.get(b.subject_id) || { subjectId: b.subject_id, subject: b.subjects?.name || 'Subject', test1: null, test2: null, ca: null, exam: null, total: 0, percentage: 0, grade: '—', remark: '—' }; const entry = entryMap.get(b.id); if (type === 'first_test') existing.test1 = entry?.score == null ? null : Number(entry.score); if (type === 'second_test') existing.test2 = entry?.score == null ? null : Number(entry.score); if (type === 'ca') existing.ca = entry?.score == null ? null : Number(entry.score); if (type === 'exam') existing.exam = entry?.score == null ? null : Number(entry.score); existing.total = Number(existing.test1 || 0) + Number(existing.test2 || 0) + Number(existing.ca || 0) + Number(existing.exam || 0); existing.percentage = totalMax ? existing.total / totalMax * 100 : 0; existing.grade = entry?.grade || gradeFrom(existing.percentage); existing.remark = entry?.remark || remarkFrom(existing.percentage); bySubject.set(b.subject_id, existing); });
-      const currentRows = Array.from(bySubject.values()).sort((a, b) => a.subject.localeCompare(b.subject));
-
-      if (isThirdTerm(term)) {
-        const first = terms.find(t => /first|1st/i.test(t.term));
-        const second = terms.find(t => /second|2nd/i.test(t.term));
-        const third = term;
-        const [firstPerf, secondPerf, thirdPerf] = await Promise.all([
-          first ? loadTermPerformance(first, selectedClass, studentId) : Promise.resolve([]),
-          second ? loadTermPerformance(second, selectedClass, studentId) : Promise.resolve([]),
-          loadTermPerformance(third, selectedClass, studentId),
-        ]);
-        const mapPerf = (items: TermPerformance[]) => new Map(items.map(x => [x.subjectId, x.percentage]));
-        const p1 = mapPerf(firstPerf); const p2 = mapPerf(secondPerf); const p3 = mapPerf(thirdPerf);
-        currentRows.forEach(row => {
-          row.term1Percentage = p1.get(row.subjectId) ?? null;
-          row.term2Percentage = p2.get(row.subjectId) ?? null;
-          row.term3Percentage = p3.get(row.subjectId) ?? row.percentage;
-          const values = [row.term1Percentage, row.term2Percentage, row.term3Percentage].filter((v): v is number => v != null);
-          row.cumulativePercentage = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
-        });
-      }
-
-      setRows(currentRows);
-      const { data: resultSummary } = await supabase.from('result_summaries').select('position,remark,psychomotor,affective,attendance,teacher_comment,principal_comment,director_comment,next_term_begins,average_percentage,grade').eq('student_id', studentId).eq('class_id', selectedClass.id).eq('session', session.session_name).eq('term', term.term).maybeSingle();
-      setSummary(resultSummary || {});
-    } catch (e: any) { toast.error(e.message || 'Unable to load reportsheet.'); setRows([]); }
-    finally { setWorking(false); }
-  }, [session, term, selectedClass, studentId, students, terms, loadTermPerformance]);
-
-  useEffect(() => { if (studentId) void loadReport(); }, [studentId, loadReport]);
-
-  const average = useMemo(() => rows.length && max.total ? rows.reduce((n, r) => n + r.total, 0) / rows.length / max.total * 100 : 0, [rows, max.total]);
-  const cumulativeAverage = useMemo(() => {
-    const values = rows.map(r => r.cumulativePercentage).filter((v): v is number => v != null);
-    return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
-  }, [rows]);
-
-  if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>;
-  return <div className="mx-auto max-w-[1500px] space-y-5 p-4 sm:p-6 print:p-0">
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between print:hidden"><div><p className="text-xs uppercase tracking-[0.2em] text-emerald-600">Official reports</p><h1 className="mt-2 text-3xl text-slate-900 dark:text-white">Result Reportsheet</h1><p className="mt-2 text-sm text-slate-500">Select a student to generate the complete printable academic report.</p></div><div className="flex gap-2"><button onClick={() => window.print()} disabled={!student} className="inline-flex items-center gap-2 border bg-white px-4 py-3 text-sm disabled:opacity-50"><Printer className="h-4 w-4" /> Print</button><button onClick={() => void loadReport()} disabled={!studentId || working} className="inline-flex items-center gap-2 bg-emerald-600 px-4 py-3 text-sm text-white disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${working ? 'animate-spin' : ''}`} /> Refresh</button></div></div>
-    <section className="grid gap-4 border bg-white p-5 shadow-sm md:grid-cols-4 print:hidden"><label className="text-sm">Session<select value={sessionId} onChange={e => setSessionId(e.target.value)} className="mt-2 w-full border px-3 py-3">{sessions.map(s => <option key={s.id} value={s.id}>{s.session_name}</option>)}</select></label><label className="text-sm">Term<select value={termId} onChange={e => setTermId(e.target.value)} className="mt-2 w-full border px-3 py-3">{terms.map(t => <option key={t.id} value={t.id}>{t.term}</option>)}</select></label><label className="text-sm">Class<select value={classId} onChange={e => setClassId(e.target.value)} className="mt-2 w-full border px-3 py-3"><option value="">Select class</option>{classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label className="text-sm">Student<select value={studentId} onChange={e => setStudentId(e.target.value)} disabled={!classId} className="mt-2 w-full border px-3 py-3 disabled:opacity-50"><option value="">Select student</option>{students.map(s => <option key={s.id} value={s.id}>{[s.last_name,s.first_name,s.middle_name].filter(Boolean).join(' ')}{s.admission_number ? ` — ${s.admission_number}` : ''}</option>)}</select></label></section>
-    {!student ? <div className="border bg-white p-12 text-center text-sm text-slate-500 print:hidden"><FileText className="mx-auto h-10 w-10 text-emerald-600" /><p className="mt-3">Choose a class and student to view the official reportsheet.</p></div> : <OfficialResultSheet school={school || {}} student={student} className={className} session={session?.session_name || ''} term={term?.term || ''} assessments={rows} test1Max={max.test1} test2Max={max.test2} caMax={max.ca} examMax={max.exam} totalMax={max.total} position={summary?.position} average={Number(summary?.average_percentage ?? (isThirdTerm(term) && cumulativeAverage != null ? cumulativeAverage : average))} overallGrade={summary?.grade || gradeFrom(Number(summary?.average_percentage ?? (isThirdTerm(term) && cumulativeAverage != null ? cumulativeAverage : average)))} overallRemark={summary?.remark || remarkFrom(Number(summary?.average_percentage ?? (isThirdTerm(term) && cumulativeAverage != null ? cumulativeAverage : average)))} attendance={summary?.attendance ? { total: summary.attendance.school_days_opened, present: summary.attendance.days_present, absent: summary.attendance.days_absent, excused: summary.attendance.days_excused, percentage: summary.attendance.attendance_percentage } : undefined} psychomotor={summary?.psychomotor || {}} affective={summary?.affective || {}} teacherComment={summary?.teacher_comment} principalComment={summary?.principal_comment} directorComment={summary?.director_comment} nextTermBegins={summary?.next_term_begins} />}
+  if(loading)return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary-600"/></div>;
+  return <div className="reports-page mx-auto max-w-[1500px] space-y-5 p-4 sm:p-6 print:p-0">
+    <style>{`@page{size:A4 portrait;margin:7mm} @media print{html,body{background:#fff!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}.reports-page{width:100%!important;max-width:none!important;padding:0!important;margin:0!important}.print-sheet{zoom:.70;width:142.85%!important;transform-origin:top left}.no-print{display:none!important}.result-sheet{border:0!important;box-shadow:none!important;max-width:none!important}table{break-inside:auto}.result-sheet section,.result-sheet header{break-inside:avoid}.result-sheet{page-break-inside:avoid}}`}</style>
+    <div className="no-print flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="text-xs uppercase tracking-[0.2em] text-primary-600">Official reports</p><h1 className="mt-2 text-3xl text-slate-900 dark:text-white">Result Reportsheet</h1><p className="mt-2 text-sm text-slate-500">Premium school report • editable assessment domains • A4 print layout</p></div><div className="flex flex-wrap gap-2"><button onClick={saveDomains} disabled={!student||saving} className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-3 text-sm text-white shadow-sm hover:bg-primary-700 disabled:opacity-50"><Save className="h-4 w-4"/>{saving?'Saving…':'Save Report Details'}</button><button onClick={()=>window.print()} disabled={!student} className="inline-flex items-center gap-2 rounded-lg border border-primary-200 bg-white px-4 py-3 text-sm text-primary-700 shadow-sm disabled:opacity-50"><Printer className="h-4 w-4"/>Print A4</button><button onClick={()=>void loadReport()} disabled={!studentId||working} className="inline-flex items-center gap-2 rounded-lg border bg-white px-4 py-3 text-sm disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${working?'animate-spin':''}`}/>Refresh</button></div></div>
+    <section className="no-print grid gap-4 rounded-xl border border-primary-100 bg-white p-5 shadow-sm md:grid-cols-4"><label className="text-sm text-slate-700">Session<select value={sessionId} onChange={e=>setSessionId(e.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-3 outline-none focus:border-primary-500">{sessions.map(s=><option key={s.id} value={s.id}>{s.session_name}</option>)}</select></label><label className="text-sm text-slate-700">Term<select value={termId} onChange={e=>setTermId(e.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-3 outline-none focus:border-primary-500">{terms.map(t=><option key={t.id} value={t.id}>{t.term}</option>)}</select></label><label className="text-sm text-slate-700">Class<select value={classId} onChange={e=>setClassId(e.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-3 outline-none focus:border-primary-500"><option value="">Select class</option>{classes.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label className="text-sm text-slate-700">Student<select value={studentId} onChange={e=>setStudentId(e.target.value)} disabled={!classId} className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-3 outline-none focus:border-primary-500 disabled:opacity-50"><option value="">Select student</option>{students.map(s=><option key={s.id} value={s.id}>{[s.last_name,s.first_name,s.middle_name].filter(Boolean).join(' ')}{s.admission_number?` — ${s.admission_number}`:''}</option>)}</select></label></section>
+    {!student?<div className="no-print rounded-xl border bg-white p-12 text-center text-sm text-slate-500"><FileText className="mx-auto h-10 w-10 text-primary-600"/><p className="mt-3">Choose a class and student to view the official reportsheet.</p></div>:<>
+      <div className="no-print grid gap-4 rounded-xl border border-primary-100 bg-primary-50/40 p-4 lg:grid-cols-2"><DomainEditor title="Psychomotor / Skills Development" items={PSYCHOMOTOR} values={psychomotor} setValues={setPsychomotor}/><DomainEditor title="Affective / Behavioural Development" items={AFFECTIVE} values={affective} setValues={setAffective}/><div className="lg:col-span-2 grid gap-3 md:grid-cols-3"><label className="text-sm">Class Teacher Comment<textarea value={teacherComment} onChange={e=>setTeacherComment(e.target.value)} rows={3} className="mt-1 w-full rounded-lg border bg-white p-2"/></label><label className="text-sm">Principal Comment<textarea value={principalComment} onChange={e=>setPrincipalComment(e.target.value)} rows={3} className="mt-1 w-full rounded-lg border bg-white p-2"/></label><label className="text-sm">Director Comment<textarea value={directorComment} onChange={e=>setDirectorComment(e.target.value)} rows={3} className="mt-1 w-full rounded-lg border bg-white p-2"/></label></div><div className="flex items-center gap-2 text-xs text-primary-700"><SlidersHorizontal className="h-4 w-4"/>Rate each skill from 1 (lowest) to 5 (highest), then save.</div></div>
+      <div className="print-sheet"><OfficialResultSheet school={school||{}} student={student} className={className} session={session?.session_name||''} term={term?.term||''} assessments={rows} test1Max={max.test1} test2Max={max.test2} caMax={max.ca} examMax={max.exam} totalMax={max.total} position={summary?.position} classSize={students.length} average={Number(summary?.average_percentage??(isThirdTerm(term)&&cumulativeAverage!=null?cumulativeAverage:average))} overallGrade={summary?.grade||gradeFrom(Number(summary?.average_percentage??(isThirdTerm(term)&&cumulativeAverage!=null?cumulativeAverage:average)))} overallRemark={summary?.remark||remarkFrom(Number(summary?.average_percentage??(isThirdTerm(term)&&cumulativeAverage!=null?cumulativeAverage:average)))} attendance={summary?.attendance?{total:summary.attendance.school_days_opened,present:summary.attendance.days_present,absent:summary.attendance.days_absent,excused:summary.attendance.days_excused,percentage:summary.attendance.attendance_percentage}:undefined} psychomotor={psychomotor} affective={affective} teacherComment={teacherComment} principalComment={principalComment} directorComment={directorComment} nextTermBegins={summary?.next_term_begins}/></div>
+    </>}
   </div>;
 }
+
+function DomainEditor({title,items,values,setValues}:{title:string;items:string[];values:Record<string,string>;setValues:React.Dispatch<React.SetStateAction<Record<string,string>>>}){return <section className="rounded-lg border border-primary-100 bg-white p-3"><div className="mb-2 flex items-center justify-between"><h3 className="text-sm text-primary-800">{title}</h3><span className="text-[10px] text-slate-500">1 = Lowest • 5 = Highest</span></div><div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-5">{items.map(item=><label key={item} className="rounded-md border border-slate-200 px-2 py-1.5 text-[11px] hover:border-primary-300"><span className="block truncate text-slate-700">{item}</span><select value={values[item]||''} onChange={e=>setValues(prev=>({...prev,[item]:e.target.value}))} className="mt-1 w-full rounded border border-slate-200 bg-white px-1.5 py-1 text-xs focus:border-primary-500"><option value="">Not rated</option>{[1,2,3,4,5].map(n=><option key={n} value={n}>{n}</option>)}</select></label>)}</div></section>}
