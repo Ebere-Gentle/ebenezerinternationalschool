@@ -2,138 +2,71 @@ import React from 'react';
 import { CalendarDays, GraduationCap, MapPin, Phone, School, UserRound } from 'lucide-react';
 
 type Assessment = {
-  subject: string;
-  test1?: number | null;
-  test2?: number | null;
-  ca?: number | null;
-  exam?: number | null;
-  total?: number | null;
-  percentage?: number | null;
-  grade?: string | null;
-  remark?: string | null;
-  term1Percentage?: number | null;
-  term2Percentage?: number | null;
-  term3Percentage?: number | null;
-  cumulativePercentage?: number | null;
+  subject: string; test1?: number | null; test2?: number | null; ca?: number | null; exam?: number | null;
+  total?: number | null; percentage?: number | null; grade?: string | null; remark?: string | null; position?: number | null;
+  term1Percentage?: number | null; term2Percentage?: number | null; term3Percentage?: number | null; cumulativePercentage?: number | null;
 };
 type Student = { first_name?: string | null; last_name?: string | null; middle_name?: string | null; admission_number?: string | null; gender?: string | null; date_of_birth?: string | null; passport_url?: string | null };
 type School = { school_name?: string | null; branch_id?: string | null; address?: string | null; phone_number?: string | null; email?: string | null; logo_url?: string | null; stamp_url?: string | null };
 type Attendance = { present?: number; absent?: number; total?: number; percentage?: number; excused?: number };
 type Props = {
-  school: School;
-  student: Student;
-  className?: string | null;
-  session: string;
-  term: string;
-  assessments: Assessment[];
-  test1Max: number;
-  test2Max: number;
-  caMax?: number;
-  examMax: number;
-  totalMax?: number;
-  position?: number | null;
-  classSize?: number | null;
-  average?: number | null;
-  overallGrade?: string | null;
-  overallRemark?: string | null;
-  attendance?: Attendance;
-  psychomotor?: Record<string, string>;
-  affective?: Record<string, string>;
-  teacherComment?: string | null;
-  principalComment?: string | null;
-  directorComment?: string | null;
-  nextTermBegins?: string | null;
+  school: School; student: Student; className?: string | null; session: string; term: string; assessments: Assessment[];
+  test1Max: number; test2Max: number; caMax?: number; examMax: number; totalMax?: number; position?: number | null; classSize?: number | null;
+  average?: number | null; overallGrade?: string | null; overallRemark?: string | null; attendance?: Attendance;
+  psychomotor?: Record<string, string>; affective?: Record<string, string>; teacherComment?: string | null; principalComment?: string | null;
+  directorComment?: string | null; nextTermBegins?: string | null;
 };
 
-const score = (value: number | null | undefined) => value == null ? '—' : Number(value).toFixed(0);
-const percent = (value: number | null | undefined) => value == null ? '—' : `${Number(value).toFixed(1)}%`;
-const isThirdTerm = (term: string) => /third|3rd/i.test(term);
+const score = (v: number | null | undefined) => v == null ? '—' : Number(v).toFixed(0);
+const pct = (v: number | null | undefined) => v == null ? '—' : `${Number(v).toFixed(1)}%`;
+const third = (term: string) => /third|3rd/i.test(term);
+const DEFAULT_PSYCH = ['Handwriting','Drawing / Creativity','Sports','Practical Skills','Manual Dexterity','Music / Performance','Artistic Expression','Coordination','Use of Tools','Neatness of Work'];
+const DEFAULT_AFFECTIVE = ['Punctuality','Regularity','Neatness','Courtesy','Cooperation','Responsibility','Self-Control','Respect for Authority','Attitude to Learning','Leadership'];
 
-export default function OfficialResultSheet({
-  school,
-  student,
-  className,
-  session,
-  term,
-  assessments,
-  test1Max,
-  test2Max,
-  caMax = 20,
-  examMax,
-  totalMax = 100,
-  position,
-  classSize,
-  average,
-  overallGrade,
-  overallRemark,
-  attendance,
-  psychomotor = {},
-  affective = {},
-  teacherComment,
-  principalComment,
-  directorComment,
-  nextTermBegins,
-}: Props) {
+export default function OfficialResultSheet({ school, student, className, session, term, assessments, test1Max, test2Max, caMax = 20, examMax, totalMax = 100, position, classSize, average, overallGrade, overallRemark, attendance, psychomotor = {}, affective = {}, teacherComment, principalComment, directorComment, nextTermBegins }: Props) {
   const fullName = [student.first_name, student.middle_name, student.last_name].filter(Boolean).join(' ');
-  const cumulative = isThirdTerm(term);
-  const psychomotorItems = Object.entries(psychomotor).length ? Object.entries(psychomotor) : [['Handwriting', ''], ['Sports', ''], ['Practical Skills', ''], ['Creativity', '']];
-  const affectiveItems = Object.entries(affective).length ? Object.entries(affective) : [['Punctuality', ''], ['Neatness', ''], ['Cooperation', ''], ['Responsibility', ''], ['Attitude to Learning', '']];
+  const psych = DEFAULT_PSYCH.map(k => [k, psychomotor[k] || ''] as [string,string]);
+  const affect = DEFAULT_AFFECTIVE.map(k => [k, affective[k] || ''] as [string,string]);
+  const totalObtained = assessments.reduce((n, x) => n + Number(x.total ?? ((x.test1 || 0) + (x.test2 || 0) + (x.ca || 0) + (x.exam || 0))), 0);
 
-  return <div className="overflow-hidden border border-slate-200 bg-white shadow-xl print:rounded-none print:border-0 print:shadow-none">
-    <div className="border-b-4 border-emerald-600 bg-white px-6 py-6 sm:px-8">
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
-          {school.logo_url ? <img src={school.logo_url} alt="School logo" className="h-20 w-20 object-contain" /> : <div className="flex h-20 w-20 items-center justify-center bg-emerald-600 text-white"><School className="h-10 w-10" /></div>}
-          <div>
-            <h1 className="text-xl uppercase tracking-wide text-slate-900 sm:text-2xl">{school.school_name || 'School'}</h1>
-            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600"><span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{school.address || 'School address'}</span>{school.phone_number && <span className="inline-flex items-center gap-1"><Phone className="h-3.5 w-3.5" />{school.phone_number}</span>}</div>
-            <p className="mt-2 text-xs uppercase tracking-[0.2em] text-emerald-700">Student Academic Report Sheet</p>
-          </div>
+  return <div className="result-sheet mx-auto w-full max-w-[1000px] overflow-hidden border border-slate-300 bg-white text-[10px] text-slate-800 shadow-xl print:max-w-none print:border-0 print:shadow-none">
+    <header className="brand-header border-b-4 border-primary-600 bg-white px-5 py-4 print:px-3 print:py-2">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          {school.logo_url ? <img src={school.logo_url} alt="School logo" className="h-16 w-16 shrink-0 object-contain print:h-12 print:w-12" /> : <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl bg-primary-600 text-white print:h-12 print:w-12"><School className="h-8 w-8" /></div>}
+          <div className="min-w-0"><h1 className="truncate text-xl uppercase tracking-wide text-primary-800 print:text-lg">{school.school_name || 'Ebenezer International School'}</h1><p className="mt-0.5 text-[9px] text-slate-600">{school.address || ''}{school.phone_number ? `  •  ${school.phone_number}` : ''}{school.email ? `  •  ${school.email}` : ''}</p><p className="mt-1 text-[10px] font-medium uppercase tracking-[0.22em] text-primary-700">Student Academic Report Sheet</p></div>
         </div>
-        <div className="border border-slate-300 px-4 py-3 text-sm"><p>Session: {session}</p><p>Term: {term}</p></div>
+        <div className="flex shrink-0 items-center gap-3"><div className="rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-right print:px-2 print:py-1.5"><p className="text-[8px] uppercase tracking-wide text-primary-600">Academic Session</p><p className="text-[11px] text-primary-900">{session}</p><p className="mt-0.5 text-[8px] uppercase tracking-wide text-primary-600">{term}</p></div>{student.passport_url ? <img src={student.passport_url} alt={fullName} className="h-16 w-14 rounded-md border-2 border-primary-100 object-cover print:h-12 print:w-10" /> : <div className="flex h-16 w-14 items-center justify-center rounded-md border bg-slate-50 text-slate-300 print:h-12 print:w-10"><UserRound className="h-6 w-6" /></div>}</div>
       </div>
-    </div>
+    </header>
 
-    <div className="grid gap-4 border-b bg-slate-50 p-5 sm:grid-cols-[1fr_auto]">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Info label="Student" value={fullName || '—'} icon={<UserRound className="h-4 w-4" />} />
-        <Info label="Admission No." value={student.admission_number || '—'} icon={<GraduationCap className="h-4 w-4" />} />
-        <Info label="Class" value={className || '—'} icon={<School className="h-4 w-4" />} />
-        <Info label="Gender" value={student.gender || '—'} icon={<UserRound className="h-4 w-4" />} />
-      </div>
-      {student.passport_url ? <img src={student.passport_url} alt={fullName} className="h-24 w-20 border object-cover" /> : <div className="flex h-24 w-20 items-center justify-center border bg-white text-slate-300"><UserRound className="h-8 w-8" /></div>}
-    </div>
+    <section className="grid grid-cols-6 gap-1 border-b border-slate-300 bg-slate-50 p-2 print:p-1.5">
+      <Info label="Student" value={fullName || '—'} span="col-span-2" /><Info label="Admission No." value={student.admission_number || '—'} /><Info label="Class" value={className || '—'} /><Info label="Gender" value={student.gender || '—'} /><Info label="Position" value={position ? `${position}${classSize ? ` / ${classSize}` : ''}` : '—'} />
+    </section>
 
-    <div className="p-5 sm:p-7">
-      <div className="mb-4 flex items-end justify-between">
-        <div><h2 className="text-lg text-slate-900">Scholastic Record</h2><p className="text-xs text-slate-500">CA is an independent teacher-assessed component and is not calculated from Test 1 or Test 2.</p></div>
-        <div className="hidden text-right text-xs text-slate-500 sm:block">Maximum: {test1Max} + {test2Max} + {caMax} + {examMax} = {totalMax}</div>
-      </div>
-      <div className="overflow-x-auto border border-slate-300">
-        <table className="w-full min-w-[950px] text-sm">
-          <thead><tr className="bg-slate-100 text-slate-900"><th className="border-r border-slate-300 px-3 py-3 text-left">S/N</th><th className="border-r border-slate-300 px-3 py-3 text-left">Subject</th><th className="border-r border-slate-300 px-3 py-3">Test 1 / {test1Max}</th><th className="border-r border-slate-300 px-3 py-3">Test 2 / {test2Max}</th><th className="border-r border-slate-300 px-3 py-3">CA / {caMax}</th><th className="border-r border-slate-300 px-3 py-3">Exam / {examMax}</th><th className="border-r border-slate-300 px-3 py-3">Total / {totalMax}</th><th className="border-r border-slate-300 px-3 py-3">%</th><th className="border-r border-slate-300 px-3 py-3">Position</th><th className="border-r border-slate-300 px-3 py-3">Grade</th><th className="px-3 py-3">Remark</th></tr></thead>
-          <tbody>{assessments.map((item, index) => { const calculatedTotal = item.total ?? ((item.test1 || 0) + (item.test2 || 0) + (item.ca || 0) + (item.exam || 0)); const percentage = item.percentage ?? (totalMax ? calculatedTotal / totalMax * 100 : 0); return <tr key={`${item.subject}-${index}`} className="border-t border-slate-300"><td className="border-r border-slate-300 px-3 py-3">{index + 1}</td><td className="border-r border-slate-300 px-3 py-3">{item.subject}</td><td className="border-r border-slate-300 px-3 py-3 text-center">{score(item.test1)}</td><td className="border-r border-slate-300 px-3 py-3 text-center">{score(item.test2)}</td><td className="border-r border-slate-300 px-3 py-3 text-center">{score(item.ca)}</td><td className="border-r border-slate-300 px-3 py-3 text-center">{score(item.exam)}</td><td className="border-r border-slate-300 px-3 py-3 text-center">{score(calculatedTotal)}</td><td className="border-r border-slate-300 px-3 py-3 text-center">{percentage.toFixed(1)}</td><td className="border-r border-slate-300 px-3 py-3 text-center">{(item as any).position || '—'}</td><td className="border-r border-slate-300 px-3 py-3 text-center">{item.grade || '—'}</td><td className="px-3 py-3">{item.remark || '—'}</td></tr>; })}</tbody>
-        </table>
-      </div>
+    <main className="p-3 print:p-2">
+      <div className="mb-1.5 flex items-end justify-between"><div><h2 className="text-[12px] text-primary-800">Scholastic Performance</h2><p className="text-[8px] text-slate-500">Periodic tests are independent assessments. CA is separately teacher-assessed.</p></div><p className="text-[8px] text-slate-500">Maximum: {test1Max} + {test2Max} + {caMax} + {examMax} = {totalMax}</p></div>
+      <table className="w-full border-collapse text-[8.5px]"><thead><tr className="bg-primary-700 text-white"><th className="w-6 border border-primary-600 px-1 py-1.5">S/N</th><th className="border border-primary-600 px-1.5 py-1.5 text-left">Subject</th><th className="border border-primary-600 px-1 py-1.5">First Periodic Test<br/><span className="opacity-80">({test1Max})</span></th><th className="border border-primary-600 px-1 py-1.5">Second Periodic Test<br/><span className="opacity-80">({test2Max})</span></th><th className="border border-primary-600 px-1 py-1.5">CA<br/><span className="opacity-80">({caMax})</span></th><th className="border border-primary-600 px-1 py-1.5">Exam<br/><span className="opacity-80">({examMax})</span></th><th className="border border-primary-600 px-1 py-1.5">Total<br/><span className="opacity-80">({totalMax})</span></th><th className="border border-primary-600 px-1 py-1.5">%</th><th className="border border-primary-600 px-1 py-1.5">Pos.</th><th className="border border-primary-600 px-1 py-1.5">Grade</th><th className="border border-primary-600 px-1 py-1.5 text-left">Remark</th></tr></thead><tbody>{assessments.map((item, i) => { const total = item.total ?? Number(item.test1 || 0)+Number(item.test2 || 0)+Number(item.ca || 0)+Number(item.exam || 0); const percentage = item.percentage ?? (totalMax ? total/totalMax*100 : 0); return <tr key={`${item.subject}-${i}`} className={i % 2 ? 'bg-slate-50' : 'bg-white'}><td className="border border-slate-300 px-1 py-1 text-center">{i+1}</td><td className="border border-slate-300 px-1.5 py-1">{item.subject}</td><td className="border border-slate-300 px-1 py-1 text-center">{score(item.test1)}</td><td className="border border-slate-300 px-1 py-1 text-center">{score(item.test2)}</td><td className="border border-slate-300 px-1 py-1 text-center">{score(item.ca)}</td><td className="border border-slate-300 px-1 py-1 text-center">{score(item.exam)}</td><td className="border border-slate-300 px-1 py-1 text-center">{score(total)}</td><td className="border border-slate-300 px-1 py-1 text-center">{percentage.toFixed(1)}</td><td className="border border-slate-300 px-1 py-1 text-center">{item.position || '—'}</td><td className="border border-slate-300 px-1 py-1 text-center">{item.grade || '—'}</td><td className="border border-slate-300 px-1.5 py-1">{item.remark || '—'}</td></tr>; })}</tbody></table>
 
-      {cumulative && <section className="mt-6 border border-slate-300">
-        <div className="border-b border-slate-300 bg-slate-100 px-4 py-2 text-sm">Term Performance and Cumulative Record</div>
-        <div className="overflow-x-auto"><table className="w-full min-w-[700px] text-sm"><thead><tr className="bg-slate-50"><th className="border-r border-slate-300 px-3 py-2 text-left">Subject</th><th className="border-r border-slate-300 px-3 py-2">1st Term</th><th className="border-r border-slate-300 px-3 py-2">2nd Term</th><th className="border-r border-slate-300 px-3 py-2">3rd Term</th><th className="px-3 py-2">Cumulative</th></tr></thead><tbody>{assessments.map((item, index) => <tr key={`cum-${item.subject}-${index}`} className="border-t border-slate-300"><td className="border-r border-slate-300 px-3 py-2">{item.subject}</td><td className="border-r border-slate-300 px-3 py-2 text-center">{percent(item.term1Percentage)}</td><td className="border-r border-slate-300 px-3 py-2 text-center">{percent(item.term2Percentage)}</td><td className="border-r border-slate-300 px-3 py-2 text-center">{percent(item.term3Percentage ?? item.percentage)}</td><td className="px-3 py-2 text-center">{percent(item.cumulativePercentage)}</td></tr>)}</tbody></table></div>
-      </section>}
+      <section className="mt-2 grid grid-cols-5 gap-1"><Metric label="Total Obtained" value={`${totalObtained} / ${assessments.length * totalMax}`} /><Metric label="Overall Average" value={average == null ? '—' : `${Number(average).toFixed(1)}%`} /><Metric label="Grade" value={overallGrade || '—'} /><Metric label="Position" value={position ? `${position}${classSize ? ` / ${classSize}` : ''}` : '—'} /><Metric label="Overall Remark" value={overallRemark || '—'} /></section>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-4"><Metric label="Score Obtained / Maximum" value={`${assessments.reduce((n, x) => n + Number(x.total ?? ((x.test1 || 0) + (x.test2 || 0) + (x.ca || 0) + (x.exam || 0))), 0).toFixed(0)} / ${(assessments.length * totalMax).toFixed(0)}`} /><Metric label="Overall Average" value={average == null ? '—' : `${average.toFixed(1)}%`} /><Metric label="Overall Grade" value={overallGrade || '—'} /><Metric label="Class Position" value={position ? `${position}${classSize ? ` / ${classSize}` : ''}` : '—'} /></div>
-      <div className="mt-3 border border-slate-300 bg-slate-50 p-3 text-sm">Overall remark: {overallRemark || '—'}</div>
+      {third(term) && <section className="mt-2 border border-primary-200"><div className="bg-primary-50 px-2 py-1 text-[9px] text-primary-800">Three-Term Performance & Cumulative Record</div><table className="w-full border-collapse text-[8px]"><thead><tr className="bg-slate-100"><th className="border border-slate-300 px-1 py-1 text-left">Subject</th><th className="border border-slate-300 px-1 py-1">1st Term</th><th className="border border-slate-300 px-1 py-1">2nd Term</th><th className="border border-slate-300 px-1 py-1">3rd Term</th><th className="border border-slate-300 px-1 py-1">Cumulative</th></tr></thead><tbody>{assessments.map((x,i)=><tr key={`cum-${i}`}><td className="border border-slate-300 px-1 py-0.5">{x.subject}</td><td className="border border-slate-300 px-1 py-0.5 text-center">{pct(x.term1Percentage)}</td><td className="border border-slate-300 px-1 py-0.5 text-center">{pct(x.term2Percentage)}</td><td className="border border-slate-300 px-1 py-0.5 text-center">{pct(x.term3Percentage ?? x.percentage)}</td><td className="border border-slate-300 px-1 py-0.5 text-center">{pct(x.cumulativePercentage)}</td></tr>)}</tbody></table></section>}
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-2"><AssessmentPanel title="Affective / Behavioural Development" items={affectiveItems} /><AssessmentPanel title="Psychomotor / Skills Development" items={psychomotorItems} /></div>
+      <div className="mt-2 grid grid-cols-2 gap-2"><Domain title="Psychomotor / Skills Development" items={psych} /><Domain title="Affective / Behavioural Development" items={affect} /></div>
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-2"><section className="border border-slate-300 bg-slate-50 p-4"><h3>Attendance</h3><div className="mt-3 grid grid-cols-2 gap-2 text-center text-sm sm:grid-cols-4"><Metric label="School Days" value={attendance?.total ?? '—'} /><Metric label="Present" value={attendance?.present ?? '—'} /><Metric label="Absent" value={attendance?.absent ?? '—'} /><Metric label="Attendance %" value={attendance?.percentage == null ? '—' : `${Number(attendance.percentage).toFixed(1)}%`} /></div></section><section className="border border-slate-300 bg-slate-50 p-4"><h3>Comments</h3><div className="mt-3 grid gap-3 md:grid-cols-3"><p className="border bg-white p-3 text-sm">Class Teacher<br />{teacherComment || '—'}</p><p className="border bg-white p-3 text-sm">Principal<br />{principalComment || '—'}</p><p className="border bg-white p-3 text-sm">Director<br />{directorComment || '—'}</p></div></section></div>
+      <div className="mt-2 grid grid-cols-4 gap-1"><Metric label="School Days Opened" value={attendance?.total ?? '—'} /><Metric label="Present" value={attendance?.present ?? '—'} /><Metric label="Absent" value={attendance?.absent ?? '—'} /><Metric label="Attendance" value={attendance?.percentage == null ? '—' : `${Number(attendance.percentage).toFixed(1)}%`} /></div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-5 border border-slate-300 bg-white p-4 text-sm"><span className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" /> Next Term Begins: {nextTermBegins ? new Date(nextTermBegins).toLocaleDateString() : '—'}</span><span>Generated: {new Date().toLocaleDateString()}</span>{school.stamp_url && <div className="ml-auto flex items-center gap-2"><span>School Stamp</span><img src={school.stamp_url} alt="School stamp" className="h-16 w-24 object-contain" /></div>}</div>
-      <div className="mt-6 grid gap-8 border-t pt-8 sm:grid-cols-2"><div className="border-t border-slate-400 pt-2 text-xs text-slate-500">Class Teacher's Signature</div><div className="border-t border-slate-400 pt-2 text-xs text-slate-500">Director / Principal's Signature</div></div>
-    </div>
+      <section className="mt-2 grid grid-cols-3 gap-1"><Comment title="Class Teacher" value={teacherComment} /><Comment title="Principal" value={principalComment} /><Comment title="Director" value={directorComment} /></section>
+
+      <section className="mt-2 grid grid-cols-[1fr_auto] items-end gap-2 border-t border-primary-200 pt-2"><div className="grid grid-cols-2 gap-8 text-[8px] text-slate-500"><div><div className="mb-4 border-b border-slate-400" />Class Teacher's Signature</div><div><div className="mb-4 border-b border-slate-400" />Director / Principal's Signature</div></div><div className="flex items-center gap-3 text-[8px] text-slate-500">{nextTermBegins && <span><CalendarDays className="mr-1 inline h-3 w-3" />Next Term: {new Date(nextTermBegins).toLocaleDateString()}</span>}{school.stamp_url && <img src={school.stamp_url} alt="School stamp" className="h-14 w-20 object-contain" />}</div></section>
+      <div className="mt-1 flex items-center justify-between border-t pt-1 text-[7px] text-slate-400"><span>Official school record • Generated {new Date().toLocaleDateString()}</span><span>{school.school_name || 'School'}</span></div>
+    </main>
   </div>;
 }
 
-function Info({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) { return <div className="border border-slate-300 bg-white p-3"><div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-400">{icon}{label}</div><p className="mt-1 truncate text-slate-800">{value}</p></div>; }
-function Metric({ label, value }: { label: string; value: React.ReactNode }) { return <div className="border border-slate-300 bg-white p-3 text-center"><p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 text-slate-900">{value}</p></div>; }
-function AssessmentPanel({ title, items }: { title: string; items: [string, string][] }) { return <section className="border border-slate-300 bg-slate-50 p-4"><h3 className="text-slate-900">{title}</h3><div className="mt-3 grid gap-2 sm:grid-cols-2">{items.map(([label, value]) => <div key={label} className="flex items-center justify-between border bg-white px-3 py-2 text-sm"><span>{label}</span><span className="min-w-12 border-b border-dashed text-center">{value || '—'}</span></div>)}</div></section>; }
+function Info({label,value,span=''}:{label:string;value:string;span?:string}){return <div className={`border border-slate-200 bg-white px-2 py-1.5 ${span}`}><div className="text-[7px] uppercase tracking-wide text-primary-600">{label}</div><div className="truncate text-[9px] text-slate-800">{value}</div></div>}
+function Metric({label,value}:{label:string;value:React.ReactNode}){return <div className="border border-slate-200 bg-white px-1.5 py-1 text-center"><div className="text-[6.5px] uppercase tracking-wide text-slate-500">{label}</div><div className="mt-0.5 truncate text-[9px] text-primary-900">{value}</div></div>}
+function Comment({title,value}:{title:string;value?:string|null}){return <div className="min-h-[45px] border border-slate-200 bg-slate-50 p-1.5"><div className="text-[7px] uppercase tracking-wide text-primary-700">{title}</div><p className="mt-0.5 text-[8px] leading-tight">{value || '—'}</p></div>}
+function Domain({title,items}:{title:string;items:[string,string][]}){return <section className="border border-slate-300"><div className="bg-primary-50 px-2 py-1 text-[9px] text-primary-800">{title}</div><table className="w-full border-collapse text-[7.5px]"><thead><tr className="bg-slate-50"><th className="border border-slate-200 px-1 py-0.5 text-left">Skill</th>{[1,2,3,4,5].map(n=><th key={n} className="w-5 border border-slate-200 px-0.5 py-0.5">{n}</th>)}</tr></thead><tbody>{items.map(([label,value])=><tr key={label}><td className="border border-slate-200 px-1 py-0.5">{label}</td>{[1,2,3,4,5].map(n=><td key={n} className="border border-slate-200 px-0.5 py-0.5 text-center">{String(value)===String(n) ? '●' : '○'}</td>)}</tr>)}</tbody></table></section>}
+
+export function printResultSheet(){window.print();}
