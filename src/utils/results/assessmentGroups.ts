@@ -25,12 +25,12 @@ export function resolveAssessmentGroup(input: ClassContext): AssessmentGroup {
 
   if (name.includes('kg silver')) return 'kg_silver';
   if (name.includes('kg gold')) return 'kg_gold';
-  if (name.includes('transition')) return 'transition_grader';
+  if (name.includes('transition') || name.includes('grader')) return 'transition_grader';
+  if (/^grade\s*[1-9]/i.test(name) || level === 'primary') return 'primary';
   if (name === 'graduate' || name.includes('graduate')) return 'ss';
   if (level === 'junior' || /^jss\s*[123]/i.test(name)) return 'jss';
   if (level === 'senior' || /^ss\s*[123]/i.test(name)) return 'ss';
   if (name.includes('nursery') || level === 'nursery' || department === 'nursery') return 'nursery';
-  if (level === 'primary' || /^grade\s*[1-9]/i.test(name)) return 'primary';
   return 'custom';
 }
 
