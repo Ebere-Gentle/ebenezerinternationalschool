@@ -6,7 +6,7 @@ import OfficialResultSheet from '../../../components/results/shared/OfficialResu
 import { resolveAssessmentGroup } from '../../../utils/results/assessmentGroups';
 
 type Session = { id: string; session_name: string; term_name: string | null; is_current: boolean };
-type Term = { id: string; session: string; term: string; sequence?: number | null; is_active: boolean; is_closed: boolean };
+type Term = { id: string; session: string; term: string; is_active: boolean; is_closed: boolean };
 type ClassRow = { id: string; name: string; level: string | null; department: string | null; branch_id: string };
 type Student = { id: string; user_id?: string | null; first_name: string | null; middle_name: string | null; last_name: string | null; admission_number: string | null; gender: string | null; date_of_birth: string | null; passport_url: string | null; class_id: string; branch_id: string };
 type AssessmentRow = { subjectId: string; subject: string; test1: number | null; test2: number | null; ca: number | null; exam: number | null; total: number; percentage: number; grade: string; remark: string; position?: number | null; term1Percentage?: number | null; term2Percentage?: number | null; term3Percentage?: number | null; cumulativePercentage?: number | null };
@@ -15,7 +15,7 @@ type TermPerformance = { subjectId: string; percentage: number };
 const gradeFrom = (p: number) => p >= 75 ? 'A' : p >= 65 ? 'B' : p >= 55 ? 'C' : p >= 45 ? 'D' : p >= 40 ? 'E' : 'F';
 const remarkFrom = (p: number) => p >= 75 ? 'Excellent' : p >= 65 ? 'Very Good' : p >= 55 ? 'Good' : p >= 45 ? 'Fair' : p >= 40 ? 'Pass' : 'Needs Improvement';
 const normalise = (v: string | null | undefined) => String(v || '').trim().toLowerCase().replace('first', '1st').replace('second', '2nd').replace('third', '3rd');
-const isThirdTerm = (term: Term | undefined) => Number(term?.sequence) === 3 || /third|3rd/i.test(term?.term || '');
+const isThirdTerm = (term: Term | undefined) => /third|3rd/i.test(term?.term || '');
 const assessmentType = (value: string) => value === 'continuous_assessment' ? 'ca' : value;
 
 export default function AdminResultReportsheet() {
@@ -41,7 +41,7 @@ export default function AdminResultReportsheet() {
   useEffect(() => {
     if (!session) return;
     void (async () => {
-      const { data, error } = await supabase.from('terms').select('id,session,term,sequence,is_active,is_closed').eq('session', session.session_name).order('start_date', { ascending: false });
+      const { data, error } = await supabase.from('terms').select('id,session,term,is_active,is_closed').eq('session', session.session_name).order('start_date', { ascending: false });
       if (error) { toast.error(error.message); return; }
       const list = (data || []) as Term[]; setTerms(list);
       setTermId(list.find(x => normalise(x.term) === normalise(session.term_name))?.id || list.find(x => x.is_active)?.id || list[0]?.id || '');
@@ -109,8 +109,8 @@ export default function AdminResultReportsheet() {
       const currentRows = Array.from(bySubject.values()).sort((a, b) => a.subject.localeCompare(b.subject));
 
       if (isThirdTerm(term)) {
-        const first = terms.find(t => Number(t.sequence) === 1 || /first|1st/i.test(t.term));
-        const second = terms.find(t => Number(t.sequence) === 2 || /second|2nd/i.test(t.term));
+        const first = terms.find(t => /first|1st/i.test(t.term));
+        const second = terms.find(t => /second|2nd/i.test(t.term));
         const third = term;
         const [firstPerf, secondPerf, thirdPerf] = await Promise.all([
           first ? loadTermPerformance(first, selectedClass, studentId) : Promise.resolve([]),
