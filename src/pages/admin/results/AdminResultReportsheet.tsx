@@ -5,15 +5,18 @@ import { supabase } from '../../../config/supabase/client';
 import OfficialResultSheet from '../../../components/results/shared/OfficialResultSheet';
 import { resolveAssessmentGroup } from '../../../utils/results/assessmentGroups';
 
-type Session = { id: string; session_name: string; term_name: string | null; is_current: boolean; };
-type Term = { id: string; session: string; term: string; is_active: boolean; is_closed: boolean; };
-type ClassRow = { id: string; name: string; level: string | null; department: string | null; branch_id: string; };
-type Student = { id: string; user_id?: string | null; first_name: string | null; middle_name: string | null; last_name: string | null; admission_number: string | null; gender: string | null; date_of_birth: string | null; passport_url: string | null; class_id: string; branch_id: string; };
+type Session = { id: string; session_name: string; term_name: string | null; is_current: boolean };
+type Term = { id: string; session: string; term: string; sequence?: number | null; is_active: boolean; is_closed: boolean };
+type ClassRow = { id: string; name: string; level: string | null; department: string | null; branch_id: string };
+type Student = { id: string; user_id?: string | null; first_name: string | null; middle_name: string | null; last_name: string | null; admission_number: string | null; gender: string | null; date_of_birth: string | null; passport_url: string | null; class_id: string; branch_id: string };
+type AssessmentRow = { subjectId: string; subject: string; test1: number | null; test2: number | null; ca: number | null; exam: number | null; total: number; percentage: number; grade: string; remark: string; position?: number | null; term1Percentage?: number | null; term2Percentage?: number | null; term3Percentage?: number | null; cumulativePercentage?: number | null };
 
-type AssessmentRow = { subject: string; test1: number | null; test2: number | null; ca: number | null; exam: number | null; total: number; percentage: number; grade: string; remark: string; };
+type TermPerformance = { subjectId: string; percentage: number };
 const gradeFrom = (p: number) => p >= 75 ? 'A' : p >= 65 ? 'B' : p >= 55 ? 'C' : p >= 45 ? 'D' : p >= 40 ? 'E' : 'F';
 const remarkFrom = (p: number) => p >= 75 ? 'Excellent' : p >= 65 ? 'Very Good' : p >= 55 ? 'Good' : p >= 45 ? 'Fair' : p >= 40 ? 'Pass' : 'Needs Improvement';
 const normalise = (v: string | null | undefined) => String(v || '').trim().toLowerCase().replace('first', '1st').replace('second', '2nd').replace('third', '3rd');
+const isThirdTerm = (term: Term | undefined) => Number(term?.sequence) === 3 || /third|3rd/i.test(term?.term || '');
+const assessmentType = (value: string) => value === 'continuous_assessment' ? 'ca' : value;
 
 export default function AdminResultReportsheet() {
   const [sessions, setSessions] = useState<Session[]>([]); const [terms, setTerms] = useState<Term[]>([]); const [classes, setClasses] = useState<ClassRow[]>([]); const [students, setStudents] = useState<Student[]>([]);
@@ -29,8 +32,7 @@ export default function AdminResultReportsheet() {
         supabase.from('classes').select('id,name,level,department,branch_id').eq('status', 'active').order('name'),
       ]);
       if (se) throw se; if (ce) throw ce;
-      const ss = (s || []) as Session[]; setSessions(ss); setClasses((c || []) as ClassRow[]);
-      const current = ss.find(x => x.is_current) || ss[0]; if (current) setSessionId(current.id);
+      const ss = (s || []) as Session[]; setSessions(ss); setClasses((c || []) as ClassRow[]); const current = ss.find(x => x.is_current) || ss[0]; if (current) setSessionId(current.id);
     } catch (e: any) { toast.error(e.message || 'Unable to load reportsheet context.'); }
     finally { setLoading(false); }
   }, []);
@@ -39,7 +41,7 @@ export default function AdminResultReportsheet() {
   useEffect(() => {
     if (!session) return;
     void (async () => {
-      const { data, error } = await supabase.from('terms').select('id,session,term,is_active,is_closed').eq('session', session.session_name).order('start_date', { ascending: false });
+      const { data, error } = await supabase.from('terms').select('id,session,term,sequence,is_active,is_closed').eq('session', session.session_name).order('start_date', { ascending: false });
       if (error) { toast.error(error.message); return; }
       const list = (data || []) as Term[]; setTerms(list);
       setTermId(list.find(x => normalise(x.term) === normalise(session.term_name))?.id || list.find(x => x.is_active)?.id || list[0]?.id || '');
@@ -47,7 +49,7 @@ export default function AdminResultReportsheet() {
   }, [sessionId, session?.id]);
 
   useEffect(() => {
-    setStudentId(''); setStudents([]); setRows([]);
+    setStudentId(''); setStudents([]); setRows([]); setSummary(null);
     if (!classId) return;
     void (async () => {
       const { data, error } = await supabase.from('students').select('id,user_id,first_name,middle_name,last_name,admission_number,gender,date_of_birth,passport_url,class_id,branch_id').eq('class_id', classId).eq('current_status', 'active').order('last_name').order('first_name');
@@ -55,6 +57,33 @@ export default function AdminResultReportsheet() {
       setStudents((data || []) as Student[]);
     })();
   }, [classId]);
+
+  const loadTermPerformance = useCallback(async (termRecord: Term, classRecord: ClassRow, targetStudentId: string): Promise<TermPerformance[]> => {
+    const { data: batches, error: batchError } = await supabase.from('result_batches').select('id,subject_id,assessment_type,max_score,created_at').eq('academic_session_id', session?.id).eq('term_id', termRecord.id).eq('class_id', classRecord.id).in('assessment_type', ['first_test','second_test','continuous_assessment','ca','exam']).order('created_at', { ascending: false });
+    if (batchError) throw batchError;
+    const batchList = (batches || []) as any[];
+    const ids = batchList.map(b => b.id);
+    if (!ids.length) return [];
+    const { data: entries, error: entryError } = await supabase.from('result_entries').select('batch_id,score').eq('student_id', targetStudentId).in('batch_id', ids);
+    if (entryError) throw entryError;
+    const entryMap = new Map((entries || []).map((e: any) => [e.batch_id, Number(e.score)]));
+    const latest = new Map<string, any>();
+    for (const b of batchList) {
+      const type = assessmentType(b.assessment_type);
+      const key = `${b.subject_id}:${type}`;
+      if (!latest.has(key)) latest.set(key, b);
+    }
+    const bySubject = new Map<string, { score: number; max: number }>();
+    latest.forEach(b => {
+      const score = entryMap.get(b.id);
+      if (score == null) return;
+      const existing = bySubject.get(b.subject_id) || { score: 0, max: 0 };
+      existing.score += score;
+      existing.max += Number(b.max_score || 0);
+      bySubject.set(b.subject_id, existing);
+    });
+    return Array.from(bySubject.entries()).map(([subjectId, value]) => ({ subjectId, percentage: value.max ? value.score / value.max * 100 : 0 }));
+  }, [session?.id]);
 
   const loadReport = useCallback(async () => {
     if (!session || !term || !selectedClass || !studentId) { setRows([]); return; }
@@ -74,22 +103,50 @@ export default function AdminResultReportsheet() {
       setMax({ test1: test1Max, test2: test2Max, ca: caMax, exam: examMax, total: totalMax }); setSchool(branch || {});
       const batchList = (batches || []) as any[]; const ids = batchList.map(b => b.id); const { data: entries, error: entryError } = ids.length ? await supabase.from('result_entries').select('batch_id,score,grade,remark').eq('student_id', studentId).in('batch_id', ids) : { data: [], error: null }; if (entryError) throw entryError;
       const entryMap = new Map((entries || []).map((e: any) => [e.batch_id, e])); const latest = new Map<string, any>();
-      for (const b of batchList) { const type = b.assessment_type === 'continuous_assessment' ? 'ca' : b.assessment_type; const key = `${b.subject_id}:${type}`; if (!latest.has(key)) latest.set(key, b); }
+      for (const b of batchList) { const type = assessmentType(b.assessment_type); const key = `${b.subject_id}:${type}`; if (!latest.has(key)) latest.set(key, b); }
       const bySubject = new Map<string, AssessmentRow>();
-      latest.forEach(b => { const type = b.assessment_type === 'continuous_assessment' ? 'ca' : b.assessment_type; const existing = bySubject.get(b.subject_id) || { subject: b.subjects?.name || 'Subject', test1: null, test2: null, ca: null, exam: null, total: 0, percentage: 0, grade: '—', remark: '—' }; const entry = entryMap.get(b.id); if (type === 'first_test') existing.test1 = entry?.score == null ? null : Number(entry.score); if (type === 'second_test') existing.test2 = entry?.score == null ? null : Number(entry.score); if (type === 'ca') existing.ca = entry?.score == null ? null : Number(entry.score); if (type === 'exam') existing.exam = entry?.score == null ? null : Number(entry.score); existing.total = Number(existing.test1 || 0) + Number(existing.test2 || 0) + Number(existing.ca || 0) + Number(existing.exam || 0); existing.percentage = totalMax ? existing.total / totalMax * 100 : 0; existing.grade = entry?.grade || gradeFrom(existing.percentage); existing.remark = entry?.remark || remarkFrom(existing.percentage); bySubject.set(b.subject_id, existing); });
-      setRows(Array.from(bySubject.values()).sort((a, b) => a.subject.localeCompare(b.subject)));
+      latest.forEach(b => { const type = assessmentType(b.assessment_type); const existing = bySubject.get(b.subject_id) || { subjectId: b.subject_id, subject: b.subjects?.name || 'Subject', test1: null, test2: null, ca: null, exam: null, total: 0, percentage: 0, grade: '—', remark: '—' }; const entry = entryMap.get(b.id); if (type === 'first_test') existing.test1 = entry?.score == null ? null : Number(entry.score); if (type === 'second_test') existing.test2 = entry?.score == null ? null : Number(entry.score); if (type === 'ca') existing.ca = entry?.score == null ? null : Number(entry.score); if (type === 'exam') existing.exam = entry?.score == null ? null : Number(entry.score); existing.total = Number(existing.test1 || 0) + Number(existing.test2 || 0) + Number(existing.ca || 0) + Number(existing.exam || 0); existing.percentage = totalMax ? existing.total / totalMax * 100 : 0; existing.grade = entry?.grade || gradeFrom(existing.percentage); existing.remark = entry?.remark || remarkFrom(existing.percentage); bySubject.set(b.subject_id, existing); });
+      const currentRows = Array.from(bySubject.values()).sort((a, b) => a.subject.localeCompare(b.subject));
+
+      if (isThirdTerm(term)) {
+        const first = terms.find(t => Number(t.sequence) === 1 || /first|1st/i.test(t.term));
+        const second = terms.find(t => Number(t.sequence) === 2 || /second|2nd/i.test(t.term));
+        const third = term;
+        const [firstPerf, secondPerf, thirdPerf] = await Promise.all([
+          first ? loadTermPerformance(first, selectedClass, studentId) : Promise.resolve([]),
+          second ? loadTermPerformance(second, selectedClass, studentId) : Promise.resolve([]),
+          loadTermPerformance(third, selectedClass, studentId),
+        ]);
+        const mapPerf = (items: TermPerformance[]) => new Map(items.map(x => [x.subjectId, x.percentage]));
+        const p1 = mapPerf(firstPerf); const p2 = mapPerf(secondPerf); const p3 = mapPerf(thirdPerf);
+        currentRows.forEach(row => {
+          row.term1Percentage = p1.get(row.subjectId) ?? null;
+          row.term2Percentage = p2.get(row.subjectId) ?? null;
+          row.term3Percentage = p3.get(row.subjectId) ?? row.percentage;
+          const values = [row.term1Percentage, row.term2Percentage, row.term3Percentage].filter((v): v is number => v != null);
+          row.cumulativePercentage = values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+        });
+      }
+
+      setRows(currentRows);
       const { data: resultSummary } = await supabase.from('result_summaries').select('position,remark,psychomotor,affective,attendance,teacher_comment,principal_comment,director_comment,next_term_begins,average_percentage,grade').eq('student_id', studentId).eq('class_id', selectedClass.id).eq('session', session.session_name).eq('term', term.term).maybeSingle();
       setSummary(resultSummary || {});
     } catch (e: any) { toast.error(e.message || 'Unable to load reportsheet.'); setRows([]); }
     finally { setWorking(false); }
-  }, [session, term, selectedClass, studentId, students]);
+  }, [session, term, selectedClass, studentId, students, terms, loadTermPerformance]);
+
   useEffect(() => { if (studentId) void loadReport(); }, [studentId, loadReport]);
 
   const average = useMemo(() => rows.length && max.total ? rows.reduce((n, r) => n + r.total, 0) / rows.length / max.total * 100 : 0, [rows, max.total]);
+  const cumulativeAverage = useMemo(() => {
+    const values = rows.map(r => r.cumulativePercentage).filter((v): v is number => v != null);
+    return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+  }, [rows]);
+
   if (loading) return <div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div>;
-  return <div className="mx-auto max-w-[1500px] space-y-5 p-4 sm:p-6">
-    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"><div><p className="text-xs uppercase tracking-[0.2em] text-emerald-600">Official reports</p><h1 className="mt-2 text-3xl text-slate-900 dark:text-white">Result Reportsheet</h1><p className="mt-2 text-sm text-slate-500">Select a student to generate the complete printable academic report.</p></div><div className="flex gap-2"><button onClick={() => window.print()} disabled={!student} className="inline-flex items-center gap-2 rounded-xl border bg-white px-4 py-3 text-sm disabled:opacity-50"><Printer className="h-4 w-4" /> Print</button><button onClick={() => void loadReport()} disabled={!studentId || working} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm text-white disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${working ? 'animate-spin' : ''}`} /> Refresh</button></div></div>
-    <section className="grid gap-4 rounded-2xl border bg-white p-5 shadow-sm md:grid-cols-4 dark:border-slate-700 dark:bg-slate-800"><label className="text-sm">Session<select value={sessionId} onChange={e => setSessionId(e.target.value)} className="mt-2 w-full rounded-xl border px-3 py-3 dark:border-slate-600 dark:bg-slate-900">{sessions.map(s => <option key={s.id} value={s.id}>{s.session_name}</option>)}</select></label><label className="text-sm">Term<select value={termId} onChange={e => setTermId(e.target.value)} className="mt-2 w-full rounded-xl border px-3 py-3 dark:border-slate-600 dark:bg-slate-900">{terms.map(t => <option key={t.id} value={t.id}>{t.term}</option>)}</select></label><label className="text-sm">Class<select value={classId} onChange={e => setClassId(e.target.value)} className="mt-2 w-full rounded-xl border px-3 py-3 dark:border-slate-600 dark:bg-slate-900"><option value="">Select class</option>{classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label className="text-sm">Student<select value={studentId} onChange={e => setStudentId(e.target.value)} disabled={!classId} className="mt-2 w-full rounded-xl border px-3 py-3 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900"><option value="">Select student</option>{students.map(s => <option key={s.id} value={s.id}>{[s.last_name,s.first_name,s.middle_name].filter(Boolean).join(' ')}{s.admission_number ? ` — ${s.admission_number}` : ''}</option>)}</select></label></section>
-    {!student ? <div className="rounded-2xl border bg-white p-12 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800"><FileText className="mx-auto h-10 w-10 text-emerald-600" /><p className="mt-3">Choose a class and student to view the official reportsheet.</p></div> : <OfficialResultSheet school={school || {}} student={student} className={className} session={session?.session_name || ''} term={term?.term || ''} assessments={rows} test1Max={max.test1} test2Max={max.test2} caMax={max.ca} examMax={max.exam} totalMax={max.total} position={summary?.position} average={Number(summary?.average_percentage ?? average)} overallGrade={summary?.grade || gradeFrom(Number(summary?.average_percentage ?? average))} overallRemark={summary?.remark || remarkFrom(Number(summary?.average_percentage ?? average))} attendance={summary?.attendance ? { total: summary.attendance.school_days_opened, present: summary.attendance.days_present, absent: summary.attendance.days_absent, excused: summary.attendance.days_excused, percentage: summary.attendance.attendance_percentage } : undefined} psychomotor={summary?.psychomotor || {}} affective={summary?.affective || {}} teacherComment={summary?.teacher_comment} principalComment={summary?.principal_comment} directorComment={summary?.director_comment} nextTermBegins={summary?.next_term_begins} />}
+  return <div className="mx-auto max-w-[1500px] space-y-5 p-4 sm:p-6 print:p-0">
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between print:hidden"><div><p className="text-xs uppercase tracking-[0.2em] text-emerald-600">Official reports</p><h1 className="mt-2 text-3xl text-slate-900 dark:text-white">Result Reportsheet</h1><p className="mt-2 text-sm text-slate-500">Select a student to generate the complete printable academic report.</p></div><div className="flex gap-2"><button onClick={() => window.print()} disabled={!student} className="inline-flex items-center gap-2 border bg-white px-4 py-3 text-sm disabled:opacity-50"><Printer className="h-4 w-4" /> Print</button><button onClick={() => void loadReport()} disabled={!studentId || working} className="inline-flex items-center gap-2 bg-emerald-600 px-4 py-3 text-sm text-white disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${working ? 'animate-spin' : ''}`} /> Refresh</button></div></div>
+    <section className="grid gap-4 border bg-white p-5 shadow-sm md:grid-cols-4 print:hidden"><label className="text-sm">Session<select value={sessionId} onChange={e => setSessionId(e.target.value)} className="mt-2 w-full border px-3 py-3">{sessions.map(s => <option key={s.id} value={s.id}>{s.session_name}</option>)}</select></label><label className="text-sm">Term<select value={termId} onChange={e => setTermId(e.target.value)} className="mt-2 w-full border px-3 py-3">{terms.map(t => <option key={t.id} value={t.id}>{t.term}</option>)}</select></label><label className="text-sm">Class<select value={classId} onChange={e => setClassId(e.target.value)} className="mt-2 w-full border px-3 py-3"><option value="">Select class</option>{classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label><label className="text-sm">Student<select value={studentId} onChange={e => setStudentId(e.target.value)} disabled={!classId} className="mt-2 w-full border px-3 py-3 disabled:opacity-50"><option value="">Select student</option>{students.map(s => <option key={s.id} value={s.id}>{[s.last_name,s.first_name,s.middle_name].filter(Boolean).join(' ')}{s.admission_number ? ` — ${s.admission_number}` : ''}</option>)}</select></label></section>
+    {!student ? <div className="border bg-white p-12 text-center text-sm text-slate-500 print:hidden"><FileText className="mx-auto h-10 w-10 text-emerald-600" /><p className="mt-3">Choose a class and student to view the official reportsheet.</p></div> : <OfficialResultSheet school={school || {}} student={student} className={className} session={session?.session_name || ''} term={term?.term || ''} assessments={rows} test1Max={max.test1} test2Max={max.test2} caMax={max.ca} examMax={max.exam} totalMax={max.total} position={summary?.position} average={Number(summary?.average_percentage ?? (isThirdTerm(term) && cumulativeAverage != null ? cumulativeAverage : average))} overallGrade={summary?.grade || gradeFrom(Number(summary?.average_percentage ?? (isThirdTerm(term) && cumulativeAverage != null ? cumulativeAverage : average)))} overallRemark={summary?.remark || remarkFrom(Number(summary?.average_percentage ?? (isThirdTerm(term) && cumulativeAverage != null ? cumulativeAverage : average)))} attendance={summary?.attendance ? { total: summary.attendance.school_days_opened, present: summary.attendance.days_present, absent: summary.attendance.days_absent, excused: summary.attendance.days_excused, percentage: summary.attendance.attendance_percentage } : undefined} psychomotor={summary?.psychomotor || {}} affective={summary?.affective || {}} teacherComment={summary?.teacher_comment} principalComment={summary?.principal_comment} directorComment={summary?.director_comment} nextTermBegins={summary?.next_term_begins} />}
   </div>;
 }
