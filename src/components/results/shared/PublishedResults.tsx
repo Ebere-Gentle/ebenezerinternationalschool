@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Loader2 } from 'lucide-react';
+import { BookOpen, Clock3, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../../../config/supabase/client';
 import { useAuth } from '../../../hooks/useAuth';
@@ -63,18 +63,12 @@ const normalizeAssessmentType = (type: AssessmentType): StoredAssessmentType => 
 
 const labelFor = (type: AssessmentType) => {
   switch (normalizeAssessmentType(type)) {
-    case 'first_test':
-      return 'Test 1';
-    case 'second_test':
-      return 'Test 2';
-    case 'ca':
-      return 'CA';
-    case 'exam':
-      return 'Exam';
-    case 'assignment':
-      return 'Assignment';
-    case 'cbt':
-      return 'CBT';
+    case 'first_test': return 'Test 1';
+    case 'second_test': return 'Test 2';
+    case 'ca': return 'CA';
+    case 'exam': return 'Exam';
+    case 'assignment': return 'Assignment';
+    case 'cbt': return 'CBT';
   }
 };
 
@@ -83,6 +77,7 @@ export function PublishedResults({ assessmentType, audience }: Props) {
   const [students, setStudents] = useState<Student[]>([]);
   const [studentId, setStudentId] = useState('');
   const [rows, setRows] = useState<ResultRow[]>([]);
+  const [hasPendingPublication, setHasPendingPublication] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const loadStudents = useCallback(async () => {
@@ -136,19 +131,27 @@ export function PublishedResults({ assessmentType, audience }: Props) {
   const loadResults = useCallback(async () => {
     if (!studentId || !user?.branch_id) {
       setRows([]);
+      setHasPendingPublication(false);
       return;
     }
 
     setLoading(true);
+    setHasPendingPublication(false);
+
     try {
       const storedType = normalizeAssessmentType(assessmentType);
 
+      // Students and parents should only see marks after publication.
+      // For students we also check draft batches so the UI can explain why
+      // a saved result is not visible instead of incorrectly saying no result exists.
+      const statuses = audience === 'student' ? ['published', 'draft'] : ['published'];
+
       const { data: batches, error: batchError } = await supabase
         .from('result_batches')
-        .select('id,title,assessment_type,assessment_date,max_score,classes(name),subjects(name)')
+        .select('id,title,assessment_type,assessment_date,max_score,status,classes(name),subjects(name)')
         .eq('branch_id', user.branch_id)
         .eq('assessment_type', storedType)
-        .eq('status', 'published')
+        .in('status', statuses)
         .order('assessment_date', { ascending: false });
 
       if (batchError) throw batchError;
@@ -167,15 +170,23 @@ export function PublishedResults({ assessmentType, audience }: Props) {
 
       if (entryError) throw entryError;
 
-      const batchById = new Map(
-        (batches || []).map((batch: any) => [batch.id, batch]),
+      const batchById = new Map((batches || []).map((batch: any) => [batch.id, batch]));
+      const studentEntries = (entries || []) as any[];
+      const draftBatchIds = new Set(
+        (batches || [])
+          .filter((batch: any) => batch.status === 'draft')
+          .map((batch: any) => batch.id),
+      );
+
+      setHasPendingPublication(
+        audience === 'student' && studentEntries.some((entry) => draftBatchIds.has(entry.batch_id)),
       );
 
       setRows(
-        (entries || [])
+        studentEntries
           .flatMap((entry: any) => {
             const batch = batchById.get(entry.batch_id);
-            if (!batch) return [];
+            if (!batch || batch.status !== 'published') return [];
 
             return [{
               id: `${entry.batch_id}:${entry.student_id}`,
@@ -197,113 +208,67 @@ export function PublishedResults({ assessmentType, audience }: Props) {
       console.error('Unable to load published results:', error);
       toast.error(error?.message || 'Unable to load published results');
       setRows([]);
+      setHasPendingPublication(false);
     } finally {
       setLoading(false);
     }
-  }, [assessmentType, studentId, user?.branch_id]);
+  }, [assessmentType, audience, studentId, user?.branch_id]);
 
-  useEffect(() => {
-    void loadStudents();
-  }, [loadStudents]);
-
-  useEffect(() => {
-    void loadResults();
-  }, [loadResults]);
+  useEffect(() => { void loadStudents(); }, [loadStudents]);
+  useEffect(() => { void loadResults(); }, [loadResults]);
 
   const average = useMemo(() => {
     if (!rows.length) return null;
     return rows.reduce((sum, row) => sum + (row.score / row.max_score) * 100, 0) / rows.length;
   }, [rows]);
 
-  const heading = audience === 'student'
-    ? `My ${labelFor(assessmentType)} Results`
-    : `${labelFor(assessmentType)} Results`;
+  const heading = audience === 'student' ? `My ${labelFor(assessmentType)} Results` : `${labelFor(assessmentType)} Results`;
 
   return (
     <div className="container mx-auto space-y-6 p-4">
       <div>
-        <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">Published assessments</p>
+        <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">Results</p>
         <h1 className="text-3xl font-bold text-slate-900 dark:text-white">{heading}</h1>
       </div>
 
       {audience === 'parent' && students.length > 0 && (
         <label className="block max-w-md">
           <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Child</span>
-          <select
-            value={studentId}
-            onChange={(event) => setStudentId(event.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 dark:border-slate-700 dark:bg-slate-900"
-          >
-            {students.map((student) => (
-              <option key={student.id} value={student.id}>
-                {student.last_name} {student.first_name}
-              </option>
-            ))}
+          <select value={studentId} onChange={(event) => setStudentId(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 dark:border-slate-700 dark:bg-slate-900">
+            {students.map((student) => <option key={student.id} value={student.id}>{student.last_name} {student.first_name}</option>)}
           </select>
         </label>
       )}
 
       {loading ? (
-        <div className="flex min-h-48 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
-        </div>
+        <div className="flex min-h-48 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-indigo-600" /></div>
       ) : rows.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center dark:border-slate-700 dark:bg-slate-800">
-          <BookOpen className="mx-auto mb-3 h-10 w-10 text-slate-400" />
-          <p className="font-medium text-slate-700 dark:text-slate-200">
-            No published {labelFor(assessmentType)} results yet.
-          </p>
-          <p className="mt-1 text-sm text-slate-500">
-            Results appear here after the school publishes the assessment.
-          </p>
+          {hasPendingPublication ? (
+            <>
+              <Clock3 className="mx-auto mb-3 h-10 w-10 text-amber-500" />
+              <p className="font-medium text-slate-700 dark:text-slate-200">Your {labelFor(assessmentType)} result has been recorded.</p>
+              <p className="mt-1 text-sm text-slate-500">The school has not published this assessment yet. Your score will appear here immediately after publication.</p>
+              <div className="mx-auto mt-4 inline-flex items-center rounded-full bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">Awaiting publication</div>
+            </>
+          ) : (
+            <>
+              <BookOpen className="mx-auto mb-3 h-10 w-10 text-slate-400" />
+              <p className="font-medium text-slate-700 dark:text-slate-200">No {labelFor(assessmentType)} result is available yet.</p>
+              <p className="mt-1 text-sm text-slate-500">Your result will appear here after the school records and publishes the assessment.</p>
+            </>
+          )}
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5 dark:border-slate-700">
-            <p className="font-semibold text-slate-900 dark:text-white">
-              {rows.length} published assessment{rows.length === 1 ? '' : 's'}
-            </p>
-            {average !== null && (
-              <p className="rounded-lg bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
-                Average: {average.toFixed(1)}%
-              </p>
-            )}
+            <p className="font-semibold text-slate-900 dark:text-white">{rows.length} published assessment{rows.length === 1 ? '' : 's'}</p>
+            {average !== null && <p className="rounded-lg bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">Average: {average.toFixed(1)}%</p>}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-600 dark:bg-slate-900/50 dark:text-slate-300">
-                <tr>
-                  <th className="p-4">Assessment</th>
-                  <th className="p-4">Subject</th>
-                  <th className="p-4">Class</th>
-                  <th className="p-4">Date</th>
-                  <th className="p-4">Score</th>
-                  <th className="p-4">Grade</th>
-                  <th className="p-4">Remark</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id} className="border-t border-slate-100 dark:border-slate-700">
-                    <td className="p-4 font-medium text-slate-900 dark:text-white">{row.title}</td>
-                    <td className="p-4">{row.subject_name}</td>
-                    <td className="p-4">{row.class_name}</td>
-                    <td className="p-4">
-                      {row.assessment_date
-                        ? new Date(`${row.assessment_date}T00:00:00`).toLocaleDateString()
-                        : '—'}
-                    </td>
-                    <td className="p-4 font-semibold">
-                      {row.score} / {row.max_score}{' '}
-                      <span className="text-slate-500">
-                        ({((row.score / row.max_score) * 100).toFixed(1)}%)
-                      </span>
-                    </td>
-                    <td className="p-4 font-bold">{row.grade || '—'}</td>
-                    <td className="p-4">{row.remark || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
+              <thead className="bg-slate-50 text-left text-slate-600 dark:bg-slate-900/50 dark:text-slate-300"><tr><th className="p-4">Assessment</th><th className="p-4">Subject</th><th className="p-4">Class</th><th className="p-4">Date</th><th className="p-4">Score</th><th className="p-4">Grade</th><th className="p-4">Remark</th></tr></thead>
+              <tbody>{rows.map((row) => <tr key={row.id} className="border-t border-slate-100 dark:border-slate-700"><td className="p-4 font-medium text-slate-900 dark:text-white">{row.title}</td><td className="p-4">{row.subject_name}</td><td className="p-4">{row.class_name}</td><td className="p-4">{row.assessment_date ? new Date(`${row.assessment_date}T00:00:00`).toLocaleDateString() : '—'}</td><td className="p-4 font-semibold">{row.score} / {row.max_score} <span className="text-slate-500">({((row.score / row.max_score) * 100).toFixed(1)}%)</span></td><td className="p-4 font-bold">{row.grade || '—'}</td><td className="p-4">{row.remark || '—'}</td></tr>)}</tbody>
             </table>
           </div>
         </div>
