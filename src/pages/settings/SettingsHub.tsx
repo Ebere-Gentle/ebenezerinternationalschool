@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { BarChart3, Settings as SettingsIcon } from 'lucide-react';
 import Settings from './Settings';
-import AssessmentSettings from './AssessmentSettings';
+import AssessmentSettingsAdmin from './AssessmentSettingsAdmin';
 
 const SettingsHub: React.FC = () => {
   const [tab, setTab] = useState<'general' | 'assessment'>('general');
@@ -18,7 +18,7 @@ const SettingsHub: React.FC = () => {
           </button>
         </div>
       </div>
-      {tab === 'general' ? <Settings /> : <AssessmentSettings />}
+      {tab === 'general' ? <Settings /> : <AssessmentSettingsAdmin />}
     </div>
   );
 };
