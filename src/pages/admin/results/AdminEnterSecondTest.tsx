@@ -1,5 +1,10 @@
 import AdminResultEntry from './AdminResultEntry';
+import AdminResultAssessmentTabs from './AdminResultAssessmentTabs';
 
-const AdminEnterSecondTest = () => <AdminResultEntry assessmentType="second_test" />;
+const AdminEnterSecondTest = () => (
+  <AdminResultAssessmentTabs>
+    <AdminResultEntry assessmentType="second_test" />
+  </AdminResultAssessmentTabs>
+);
 
 export default AdminEnterSecondTest;
