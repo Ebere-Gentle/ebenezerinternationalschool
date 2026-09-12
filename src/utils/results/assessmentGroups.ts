@@ -26,10 +26,16 @@ export function resolveAssessmentGroup(input: ClassContext): AssessmentGroup {
   if (name.includes('kg silver')) return 'kg_silver';
   if (name.includes('kg gold')) return 'kg_gold';
   if (name.includes('transition') || name.includes('grader')) return 'transition_grader';
-  if (/^grade\s*[1-9]/i.test(name) || level === 'primary') return 'primary';
   if (name === 'graduate' || name.includes('graduate')) return 'ss';
-  if (level === 'junior' || /^jss\s*[123]/i.test(name)) return 'jss';
-  if (level === 'senior' || /^ss\s*[123]/i.test(name)) return 'ss';
+
+  // Match explicit JSS/SS names before looking at the legacy level value.
+  // Some older class records incorrectly store JSS as level="primary".
+  if (/^jss\s*[1-3]/i.test(name) || name.startsWith('jss')) return 'jss';
+  if (/^ss\s*[1-3]/i.test(name) || name.startsWith('ss ')) return 'ss';
+  if (level === 'junior') return 'jss';
+  if (level === 'senior') return 'ss';
+
+  if (/^grade\s*[1-9]/i.test(name) || level === 'primary') return 'primary';
   if (name.includes('nursery') || level === 'nursery' || department === 'nursery') return 'nursery';
   return 'custom';
 }
