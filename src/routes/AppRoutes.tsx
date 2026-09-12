@@ -69,6 +69,8 @@ import AdminEnterExam from '../pages/admin/results/AdminEnterExam';
 import AdminEnterCBT from '../pages/admin/results/AdminEnterCBT';
 import AdminViewResultsFixed from '../pages/admin/results/AdminViewResultsFixed';
 import AdminResultSummaryV2 from '../pages/admin/results/AdminResultSummaryV2';
+import AdminClassBroadsheet from '../pages/admin/results/AdminClassBroadsheet';
+import AdminResultReportsheet from '../pages/admin/results/AdminResultReportsheet';
 import ResultAssessmentSettings from '../pages/admin/results/ResultAssessmentSettings';
 import TeacherEnterTest from '../pages/teacher/results/TeacherEnterTest';
 import TeacherEnterSecondTest from '../pages/teacher/results/TeacherEnterSecondTest';
@@ -89,7 +91,7 @@ const AppRoutes: React.FC = () => (
     <Route path="/" element={<Landing />} /><Route path="/login" element={<Login />} /><Route path="/404" element={<NotFound />} />
     <Route path="/admin" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
       <Route path="dashboard" element={<AdminDashboard />} /><Route path="jamb-cbt" element={<JambCbtAnalytics />} /><Route path="jamb-cbt/questions" element={<JambQuestionBank />} /><Route path="results/settings" element={<ResultAssessmentSettings />} />
-      <Route path="results/enter-test" element={<AdminEnterTest />} /><Route path="results/enter-second-test" element={<AdminEnterSecondTest />} /><Route path="results/enter-ca" element={<AdminEnterCA />} /><Route path="results/enter-exam" element={<AdminEnterExam />} /><Route path="results/enter-cbt" element={<AdminEnterCBT />} /><Route path="results/view" element={<AdminViewResultsFixed />} /><Route path="results/summary" element={<AdminResultSummaryV2 />} />
+      <Route path="results/enter-test" element={<AdminEnterTest />} /><Route path="results/enter-second-test" element={<AdminEnterSecondTest />} /><Route path="results/enter-ca" element={<AdminEnterCA />} /><Route path="results/enter-exam" element={<AdminEnterExam />} /><Route path="results/enter-cbt" element={<AdminEnterCBT />} /><Route path="results/view" element={<AdminViewResultsFixed />} /><Route path="results/summary" element={<AdminResultSummaryV2 />} /><Route path="results/broadsheet" element={<AdminClassBroadsheet />} /><Route path="results/reportsheet" element={<AdminResultReportsheet />} />
       <Route index element={<Navigate to="/admin/dashboard" replace />} /><Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
     </Route>
     <Route path="/student" element={<ProtectedRoute allowedRoles={['student']}><MainLayout /></ProtectedRoute>}>
