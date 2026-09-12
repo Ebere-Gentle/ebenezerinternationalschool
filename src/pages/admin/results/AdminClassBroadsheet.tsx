@@ -12,9 +12,8 @@ type Student = { id: string; first_name: string | null; middle_name: string | nu
 type Batch = { id: string; class_id: string; subject_id: string; assessment_type: string; max_score: number; created_at: string; subject?: { name?: string | null } | null };
 type SubjectCell = { score: number; max: number; percentage: number; grade: string };
 type BoardRow = Student & { total: number; max: number; percentage: number; grade: string; position: number; subjects: Record<string, SubjectCell> };
-type SubjectRecord = { id: string; name: string };
 
-type ConfiguredSubject = { class_id: string; subject_id: string; is_compulsory: boolean; status: string | null; subjects?: { id?: string; name?: string | null } | null };
+type SubjectRecord = { id: string; name: string };
 
 const gradeFrom = (p: number) => p >= 75 ? 'A' : p >= 65 ? 'B' : p >= 55 ? 'C' : p >= 45 ? 'D' : p >= 40 ? 'E' : 'F';
 const assessmentTypes = ['first_test', 'second_test', 'continuous_assessment', 'ca', 'exam'];
@@ -109,18 +108,15 @@ export default function AdminClassBroadsheet() {
     setWorking(true);
     try {
       const classIds = filteredClasses.map(c => c.id);
-      const [{ data: students, error: studentError }, { data: batches, error: batchError }, { data: configuredSubjects, error: configuredSubjectError }] = await Promise.all([
+      const [{ data: students, error: studentError }, { data: batches, error: batchError }] = await Promise.all([
         supabase.from('students').select('id,first_name,middle_name,last_name,admission_number,class_id').in('class_id', classIds).eq('current_status', 'active').order('last_name').order('first_name'),
         supabase.from('result_batches').select('id,class_id,subject_id,assessment_type,max_score,created_at,subjects:subject_id(name)').eq('academic_session_id', sessionId).eq('term_id', termId).in('class_id', classIds).in('assessment_type', assessmentTypes).order('created_at', { ascending: false }),
-        supabase.from('class_subjects').select('class_id,subject_id,is_compulsory,status,subjects:subject_id(id,name)').in('class_id', classIds).eq('status', 'active'),
       ]);
       if (studentError) throw studentError;
       if (batchError) throw batchError;
-      if (configuredSubjectError) throw configuredSubjectError;
 
       const studentList = (students || []) as Student[];
       const batchList = (batches || []) as Batch[];
-      const configuredSubjectList = (configuredSubjects || []) as ConfiguredSubject[];
       const batchIds = batchList.map(b => b.id);
 
       const { data: entries, error: entryError } = batchIds.length
@@ -128,19 +124,15 @@ export default function AdminClassBroadsheet() {
         : { data: [], error: null };
       if (entryError) throw entryError;
 
-      const subjectMap = new Map<string, string>();
-      for (const item of configuredSubjectList) {
-        if (item.subject_id && item.subjects?.name) subjectMap.set(item.subject_id, item.subjects.name);
-      }
-
       const subjectIds = Array.from(new Set(batchList.map(b => b.subject_id).filter(Boolean)));
       const { data: subjectRows, error: subjectError } = subjectIds.length
         ? await supabase.from('subjects').select('id,name').in('id', subjectIds)
         : { data: [], error: null };
       if (subjectError) throw subjectError;
 
+      const subjectNameMap = new Map<string, string>();
       for (const subject of (subjectRows || []) as { id: string; name: string | null }[]) {
-        if (subject.name) subjectMap.set(subject.id, subject.name);
+        if (subject.name) subjectNameMap.set(subject.id, subject.name);
       }
 
       const latest = new Map<string, Batch>();
@@ -150,6 +142,12 @@ export default function AdminClassBroadsheet() {
       }
 
       const entryMap = new Map((entries || []).map((e: any) => [`${e.student_id}:${e.batch_id}`, Number(e.score)]));
+      const subjectMap = new Map<string, string>();
+      latest.forEach(b => {
+        const name = b.subject?.name || subjectNameMap.get(b.subject_id);
+        if (name) subjectMap.set(b.subject_id, name);
+      });
+
       const nextRows: BoardRow[] = [];
 
       for (const student of studentList) {
@@ -178,7 +176,7 @@ export default function AdminClassBroadsheet() {
           total,
           max,
           percentage,
-          grade: max ? gradeFrom(percentage) : '—',
+          grade: gradeFrom(percentage),
           position: 0,
           subjects: Object.fromEntries(bySubject),
         });
@@ -296,7 +294,7 @@ export default function AdminClassBroadsheet() {
     </section>}
 
     <section className="overflow-hidden rounded-2xl border bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-      <div className="flex items-center justify-between border-b p-5 dark:border-slate-700"><div><h2 className="text-lg text-slate-900 dark:text-white">Ranked student broadsheet</h2><p className="text-xs text-slate-500">Overall positions use standard competition ranking. Subject columns come from class subject configuration plus existing results.</p></div><BarChart3 className="h-5 w-5 text-indigo-600" /></div>
+      <div className="flex items-center justify-between border-b p-5 dark:border-slate-700"><div><h2 className="text-lg text-slate-900 dark:text-white">Ranked student broadsheet</h2><p className="text-xs text-slate-500">Overall positions use standard competition ranking. Subject columns use the actual subject names from the configured results.</p></div><BarChart3 className="h-5 w-5 text-indigo-600" /></div>
       {!rows.length ? <div className="p-10 text-center text-sm text-slate-500">No scored students were found for this selection.</div> : <div className="overflow-auto">
         <table className="min-w-[1550px] w-full text-xs">
           <thead className="bg-slate-900 text-white"><tr><th className="sticky left-0 z-10 bg-slate-900 px-3 py-3 text-left">Pos.</th><th className="sticky left-12 z-10 bg-slate-900 px-3 py-3 text-left">Student</th><th className="px-3 py-3">Admission</th>{subjects.map(s => <th key={s.id} className="min-w-[125px] px-3 py-3 text-left">{s.name}</th>)}<th className="px-3 py-3">Total</th><th className="px-3 py-3">%</th><th className="px-3 py-3">Grade</th><th className="sticky right-0 z-10 bg-slate-900 px-3 py-3">Report</th></tr></thead>
@@ -306,7 +304,12 @@ export default function AdminClassBroadsheet() {
             <td className="px-3 py-3">{row.admission_number || '—'}</td>
             {subjects.map(subject => { const cell = row.subjects[subject.id]; return <td key={subject.id} className="px-3 py-3">{cell ? <><div className="font-medium">{cell.score}/{cell.max}</div><div className="text-slate-500">{cell.percentage.toFixed(1)}% · {cell.grade}</div></> : <span className="text-slate-400">—</span>}</td>; })}
             <td className="px-3 py-3 font-medium">{row.total}/{row.max}</td><td className="px-3 py-3">{row.percentage.toFixed(1)}%</td><td className="px-3 py-3 font-semibold">{row.grade}</td>
-            <td className="sticky right-0 z-10 bg-white px-3 py-3 dark:bg-slate-800"><Link to={`/admin/results/reportsheet?sessionId=${encodeURIComponent(sessionId)}&termId=${encodeURIComponent(termId)}&classId=${encodeURIComponent(row.class_id)}&studentId=${encodeURIComponent(row.id)}`} className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300"><Eye className="h-3.5 w-3.5" /> View</Link></td>
+            <td className="sticky right-0 z-10 bg-white px-3 py-3 dark:bg-slate-800"><Link
+  to={`/admin/results/reportsheet?sessionId=${encodeURIComponent(sessionId)}&termId=${encodeURIComponent(termId)}&classId=${encodeURIComponent(row.class_id)}&studentId=${encodeURIComponent(row.id)}`}
+  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300"
+>
+  <Eye className="h-3.5 w-3.5" /> View
+</Link></td>
           </tr>)}</tbody>
         </table>
       </div>}

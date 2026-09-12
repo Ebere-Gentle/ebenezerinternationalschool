@@ -4,7 +4,19 @@ import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../config/supabase/client';
 import toast from 'react-hot-toast';
 import dayjs from 'dayjs';
-import { Eye, Package, CalendarDays, User, HandHelping, Box, ChevronRight, School, PenTool, CheckCircle, Clock, AlertCircle, X } from 'lucide-react';
+import {
+  Eye,
+  Package,
+  CalendarDays,
+  HandHelping,
+  Box,
+  School,
+  PenTool,
+  CheckCircle,
+  Clock,
+  AlertCircle,
+  X,
+} from 'lucide-react';
 
 // Dashboard Components
 import HeroBanner from './components/HeroBanner';
@@ -41,10 +53,11 @@ const AdminDashboard: React.FC = () => {
   const [activeStudents, setActiveStudents] = useState(0);
   const [lowStockItems, setLowStockItems] = useState(0);
   const [pendingAdmissions, setPendingAdmissions] = useState(0);
-  
+
   // Modal state
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
-  const [selectedStudentCollections, setSelectedStudentCollections] = useState<any[]>([]);
+  const [selectedStudentCollections, setSelectedStudentCollections] =
+    useState<any[]>([]);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
 
   const branchId = user?.branch_id || null;
@@ -81,20 +94,30 @@ const AdminDashboard: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from('students')
-        .select('id, first_name, last_name, class_id, current_status, admission_status, gender')
+        .select(
+          'id, first_name, last_name, class_id, current_status, admission_status, gender',
+        )
         .eq('branch_id', branchId);
 
       if (error) {
         console.error('Error fetching students:', error);
         return;
       }
-      
+
       const studentsData = data || [];
       setStudents(studentsData);
-      setActiveStudents(studentsData.filter((s: any) => s.current_status === 'active').length || 0);
-      setPendingAdmissions(studentsData.filter((s: any) => s.admission_status === 'pending').length || 0);
-      
-      setStats(prev => ({
+      setActiveStudents(
+        studentsData.filter(
+          (s: any) => s.current_status === 'active',
+        ).length || 0,
+      );
+      setPendingAdmissions(
+        studentsData.filter(
+          (s: any) => s.admission_status === 'pending',
+        ).length || 0,
+      );
+
+      setStats((prev) => ({
         ...prev,
         students: studentsData.length,
       }));
@@ -105,10 +128,10 @@ const AdminDashboard: React.FC = () => {
 
   const fetchCollections = async () => {
     try {
-      // Collections table doesn't have branch_id, so we fetch all and filter by student branch
       const { data, error } = await supabase
         .from('collections')
-        .select(`
+        .select(
+          `
           *,
           students (
             first_name,
@@ -116,30 +139,34 @@ const AdminDashboard: React.FC = () => {
             class_id,
             branch_id
           )
-        `)
+        `,
+        )
         .order('collection_date', { ascending: false });
 
       if (error) {
         console.error('Error fetching collections:', error);
         return;
       }
-      
-      // Filter collections by branch_id through the student relation
-      const filteredData = (data || []).filter((collection: any) => 
-        collection.students?.branch_id === branchId
+
+      const filteredData = (data || []).filter(
+        (collection: any) =>
+          collection.students?.branch_id === branchId,
       );
-      
-      const formattedCollections = filteredData.map((collection: any) => ({
-        ...collection,
-        student_name: collection.students 
-          ? `${collection.students.first_name} ${collection.students.last_name}`
-          : 'Unknown Student',
-        class_at_collection: collection.class_at_collection || 'N/A',
-        recorded_by_name: collection.recorded_by || 'System',
-      }));
+
+      const formattedCollections = filteredData.map(
+        (collection: any) => ({
+          ...collection,
+          student_name: collection.students
+            ? `${collection.students.first_name} ${collection.students.last_name}`
+            : 'Unknown Student',
+          class_at_collection:
+            collection.class_at_collection || 'N/A',
+          recorded_by_name: collection.recorded_by || 'System',
+        }),
+      );
 
       setCollections(formattedCollections);
-      setStats(prev => ({
+      setStats((prev) => ({
         ...prev,
         collections: formattedCollections.length,
       }));
@@ -160,16 +187,19 @@ const AdminDashboard: React.FC = () => {
         console.error('Error fetching inventory:', error);
         return;
       }
-      
+
       const inventoryData = data || [];
       setInventory(inventoryData);
-      
+
       const lowStock = inventoryData.filter(
-        (item: any) => (item.quantity_added || 0) - (item.quantity_distributed || 0) <= (item.minimum_stock || 0)
+        (item: any) =>
+          (item.quantity_added || 0) -
+            (item.quantity_distributed || 0) <=
+          (item.minimum_stock || 0),
       ).length;
       setLowStockItems(lowStock);
-      
-      setStats(prev => ({
+
+      setStats((prev) => ({
         ...prev,
         inventory: inventoryData.length,
       }));
@@ -191,10 +221,10 @@ const AdminDashboard: React.FC = () => {
         console.error('Error fetching classes:', error);
         return;
       }
-      
+
       const classesData = data || [];
       setClasses(classesData);
-      setStats(prev => ({
+      setStats((prev) => ({
         ...prev,
         classes: classesData.length,
       }));
@@ -215,10 +245,10 @@ const AdminDashboard: React.FC = () => {
         console.error('Error fetching sessions:', error);
         return;
       }
-      
+
       const sessionsData = data || [];
       setSessions(sessionsData);
-      setStats(prev => ({
+      setStats((prev) => ({
         ...prev,
         sessions: sessionsData.length,
       }));
@@ -238,19 +268,22 @@ const AdminDashboard: React.FC = () => {
         console.error('Error fetching users:', error);
         return;
       }
-      
+
       setUsers(data || []);
     } catch (error) {
       console.error('Error fetching users:', error);
     }
   };
 
-  // View collection details - gets all collections for a student
-  const handleViewStudentCollections = async (studentId: string, studentName: string) => {
+  const handleViewStudentCollections = async (
+    studentId: string,
+    studentName: string,
+  ) => {
     try {
       const { data, error } = await supabase
         .from('collections')
-        .select(`
+        .select(
+          `
           *,
           students (
             first_name,
@@ -258,7 +291,8 @@ const AdminDashboard: React.FC = () => {
             class_id,
             branch_id
           )
-        `)
+        `,
+        )
         .eq('student_id', studentId)
         .order('collection_date', { ascending: false });
 
@@ -268,17 +302,22 @@ const AdminDashboard: React.FC = () => {
         return;
       }
 
-      // Get student details including class
-      const student = students.find(s => s.id === studentId);
-      const className = student ? classes.find(c => c.id === student.class_id)?.name || 'N/A' : 'N/A';
+      const student = students.find((s) => s.id === studentId);
+      const className = student
+        ? classes.find((c) => c.id === student.class_id)?.name ||
+          'N/A'
+        : 'N/A';
 
-      const formattedCollections = (data || []).map((collection: any) => ({
-        ...collection,
-        student_name: collection.students 
-          ? `${collection.students.first_name} ${collection.students.last_name}`
-          : studentName,
-        class_at_collection: collection.class_at_collection || className || 'N/A',
-      }));
+      const formattedCollections = (data || []).map(
+        (collection: any) => ({
+          ...collection,
+          student_name: collection.students
+            ? `${collection.students.first_name} ${collection.students.last_name}`
+            : studentName,
+          class_at_collection:
+            collection.class_at_collection || className || 'N/A',
+        }),
+      );
 
       setSelectedStudent({
         id: studentId,
@@ -301,37 +340,39 @@ const AdminDashboard: React.FC = () => {
     );
   }
 
-  // Group collections by student for display
-  const groupedCollections = collections.reduce((acc: any, curr: any) => {
-    const key = curr.student_id;
-    if (!acc[key]) {
-      acc[key] = {
-        student_id: curr.student_id,
-        student_name: curr.student_name,
-        class_at_collection: curr.class_at_collection,
-        items: [],
+  const groupedCollections = collections.reduce(
+    (acc: any, curr: any) => {
+      const key = curr.student_id;
+      if (!acc[key]) {
+        acc[key] = {
+          student_id: curr.student_id,
+          student_name: curr.student_name,
+          class_at_collection: curr.class_at_collection,
+          items: [],
+          collection_date: curr.collection_date,
+          term_name: curr.term_name,
+          session_name: curr.session_name,
+          signature_url: curr.signature_url,
+          status: curr.status || 'completed',
+          total_items: 0,
+          recorded_by: curr.recorded_by_name,
+        };
+      }
+      acc[key].items.push({
+        item_name: curr.item_name,
+        quantity: curr.quantity,
         collection_date: curr.collection_date,
         term_name: curr.term_name,
         session_name: curr.session_name,
-        signature_url: curr.signature_url,
         status: curr.status || 'completed',
-        total_items: 0,
-        recorded_by: curr.recorded_by_name,
-      };
-    }
-    acc[key].items.push({
-      item_name: curr.item_name,
-      quantity: curr.quantity,
-      collection_date: curr.collection_date,
-      term_name: curr.term_name,
-      session_name: curr.session_name,
-      status: curr.status || 'completed',
-      remarks: curr.remarks,
-      signature_url: curr.signature_url,
-    });
-    acc[key].total_items += curr.quantity || 0;
-    return acc;
-  }, {});
+        remarks: curr.remarks,
+        signature_url: curr.signature_url,
+      });
+      acc[key].total_items += curr.quantity || 0;
+      return acc;
+    },
+    {},
+  );
 
   const groupedCollectionsList = Object.values(groupedCollections);
 
@@ -340,90 +381,116 @@ const AdminDashboard: React.FC = () => {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
-      className="space-y-6"
+      className="w-full min-w-0 space-y-6"
     >
       <HeroBanner />
 
-      <StatsGrid 
+      <StatsGrid
         stats={stats}
         studentsCount={students.length}
         activeStudents={activeStudents}
         lowStockItems={lowStockItems}
         pendingAdmissions={pendingAdmissions}
       />
-      <RevenueChart/>
+      <RevenueChart />
 
-
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <AttendanceChart />
-        <AcademicPerformance />
+      {/* Attendance only — full width */}
+      <div className="grid grid-cols-1 gap-6">
+        <div className="min-w-0">
+          <AttendanceChart />
+        </div>
       </div>
 
-      {/* Live Activity Log & Payment Audit Feed */}
+      {/* Live Activity + sidebar */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 space-y-6">
+        <div className="min-w-0 lg:col-span-2 space-y-6">
           <LiveActivityLog />
           <RecentPayments />
           <Announcements />
         </div>
 
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           <QuickActions />
-          
-          {/* Collections List - Compact & Responsive */}
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 p-4">
+
+          {/* Collections List */}
+          <div className="w-full min-w-0 bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-2 mb-3">
               <HandHelping className="w-4 h-4 text-teal-500" />
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Recent Collections</h3>
-              <span className="text-xs text-gray-400 dark:text-gray-500">({groupedCollectionsList.length})</span>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Recent Collections
+              </h3>
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                ({groupedCollectionsList.length})
+              </span>
             </div>
 
             {groupedCollectionsList.length === 0 ? (
-              <div className="text-center py-6 text-gray-500 dark:text-gray-400 text-sm">No collections recorded</div>
+              <div className="text-center py-6 text-gray-500 dark:text-gray-400 text-sm">
+                No collections recorded
+              </div>
             ) : (
               <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-                {groupedCollectionsList.slice(0, 5).map((collection: any) => (
-                  <div
-                    key={collection.student_id}
-                    onClick={() => handleViewStudentCollections(collection.student_id, collection.student_name)}
-                    className="flex items-center justify-between p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer transition-all border border-transparent hover:border-gray-200 dark:hover:border-gray-600 group"
-                  >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-teal-400 to-cyan-400 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                        {collection.student_name?.[0] || 'S'}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                          {collection.student_name || 'Unknown'}
-                        </p>
-                        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                          <span className="truncate">{collection.items.length} item(s)</span>
-                          <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
-                          <span>{collection.class_at_collection || 'N/A'}</span>
-                          <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
-                          <span className="text-[10px] text-gray-400">{collection.term_name || 'N/A'}</span>
+                {groupedCollectionsList
+                  .slice(0, 5)
+                  .map((collection: any) => (
+                    <div
+                      key={collection.student_id}
+                      onClick={() =>
+                        handleViewStudentCollections(
+                          collection.student_id,
+                          collection.student_name,
+                        )
+                      }
+                      className="flex items-center justify-between p-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700/30 cursor-pointer transition-all border border-transparent hover:border-gray-200 dark:hover:border-gray-600 group"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-teal-400 to-cyan-400 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                          {collection.student_name?.[0] || 'S'}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                            {collection.student_name || 'Unknown'}
+                          </p>
+                          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                            <span className="truncate">
+                              {collection.items.length} item(s)
+                            </span>
+                            <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
+                            <span>
+                              {collection.class_at_collection ||
+                                'N/A'}
+                            </span>
+                            <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
+                            <span className="text-[10px] text-gray-400">
+                              {collection.term_name || 'N/A'}
+                            </span>
+                          </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500">
+                          {dayjs(
+                            collection.collection_date,
+                          ).format('MMM D')}
+                        </span>
+                        <Eye className="w-3.5 h-3.5 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-[10px] text-gray-400 dark:text-gray-500">
-                        {dayjs(collection.collection_date).format('MMM D')}
-                      </span>
-                      <Eye className="w-3.5 h-3.5 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             )}
           </div>
 
-          {/* Inventory List - Compact & Responsive */}
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 p-4">
+          {/* Inventory List */}
+          <div className="w-full min-w-0 bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-2 mb-3">
               <Box className="w-4 h-4 text-orange-500" />
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Inventory</h3>
-              <span className="text-xs text-gray-400 dark:text-gray-500">({inventory.length})</span>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Inventory
+              </h3>
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                ({inventory.length})
+              </span>
               {lowStockItems > 0 && (
                 <span className="px-1.5 py-0.5 rounded-full text-[8px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
                   {lowStockItems} low
@@ -432,28 +499,47 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             {inventory.length === 0 ? (
-              <div className="text-center py-6 text-gray-500 dark:text-gray-400 text-sm">No inventory items</div>
+              <div className="text-center py-6 text-gray-500 dark:text-gray-400 text-sm">
+                No inventory items
+              </div>
             ) : (
               <div className="grid grid-cols-2 gap-2 max-h-[280px] overflow-y-auto pr-1">
                 {inventory.slice(0, 6).map((item: any) => {
-                  const remaining = (item.quantity_added || 0) - (item.quantity_distributed || 0);
-                  const isLow = remaining <= (item.minimum_stock || 0);
+                  const remaining =
+                    (item.quantity_added || 0) -
+                    (item.quantity_distributed || 0);
+                  const isLow =
+                    remaining <= (item.minimum_stock || 0);
                   return (
                     <div
                       key={item.id}
                       className={`p-2.5 rounded-xl border transition-all ${
-                        isLow 
-                          ? 'border-red-200 dark:border-red-700 bg-red-50/50 dark:bg-red-900/10' 
+                        isLow
+                          ? 'border-red-200 dark:border-red-700 bg-red-50/50 dark:bg-red-900/10'
                           : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <Package className={`w-4 h-4 flex-shrink-0 ${isLow ? 'text-red-500' : 'text-orange-500'}`} />
-                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{item.item_name}</p>
+                        <Package
+                          className={`w-4 h-4 flex-shrink-0 ${
+                            isLow ? 'text-red-500' : 'text-orange-500'
+                          }`}
+                        />
+                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                          {item.item_name}
+                        </p>
                       </div>
                       <div className="flex items-center justify-between mt-1 text-xs">
-                        <span className="text-gray-500 dark:text-gray-400">Remaining:</span>
-                        <span className={`font-semibold ${isLow ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>
+                        <span className="text-gray-500 dark:text-gray-400">
+                          Remaining:
+                        </span>
+                        <span
+                          className={`font-semibold ${
+                            isLow
+                              ? 'text-red-600 dark:text-red-400'
+                              : 'text-gray-900 dark:text-white'
+                          }`}
+                        >
                           {remaining}
                         </span>
                       </div>
@@ -478,7 +564,15 @@ const AdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Collection Detail Modal - Comprehensive with Class and Term */}
+      {/* ============================================
+          Academic Performance — ALWAYS LAST
+          Full width, isolated, cannot overlap
+          ============================================ */}
+      <div className="w-full min-w-0">
+        <AcademicPerformance />
+      </div>
+
+      {/* Collection Detail Modal */}
       <CollectionDetailModal
         open={showCollectionModal}
         onClose={() => {
@@ -494,7 +588,7 @@ const AdminDashboard: React.FC = () => {
 };
 
 // ============================================
-// COLLECTION DETAIL MODAL - Comprehensive with Class & Term
+// COLLECTION DETAIL MODAL
 // ============================================
 const CollectionDetailModal: React.FC<{
   open: boolean;
@@ -506,47 +600,62 @@ const CollectionDetailModal: React.FC<{
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'completed': return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
-      case 'pending': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
-      case 'failed': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
-      default: return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400';
+      case 'completed':
+        return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400';
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400';
+      case 'failed':
+        return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+      default:
+        return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400';
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'completed': return <CheckCircle className="w-4 h-4" />;
-      case 'pending': return <Clock className="w-4 h-4" />;
-      case 'failed': return <AlertCircle className="w-4 h-4" />;
-      default: return <Clock className="w-4 h-4" />;
+      case 'completed':
+        return <CheckCircle className="w-4 h-4" />;
+      case 'pending':
+        return <Clock className="w-4 h-4" />;
+      case 'failed':
+        return <AlertCircle className="w-4 h-4" />;
+      default:
+        return <Clock className="w-4 h-4" />;
     }
   };
 
-  // Group collections by session and term
-  const groupedBySession = collections.reduce((acc: any, curr: any) => {
-    const key = `${curr.session_name || 'N/A'} - ${curr.term_name || 'N/A'}`;
-    if (!acc[key]) {
-      acc[key] = {
-        session: curr.session_name || 'N/A',
-        term: curr.term_name || 'N/A',
-        items: [],
-      };
-    }
-    acc[key].items.push({
-      item_name: curr.item_name,
-      quantity: curr.quantity,
-      date: curr.collection_date,
-      signature: curr.signature_url,
-      remarks: curr.remarks,
-      status: curr.status || 'completed',
-      class_at_collection: curr.class_at_collection || 'N/A',
-    });
-    return acc;
-  }, {});
+  const groupedBySession = collections.reduce(
+    (acc: any, curr: any) => {
+      const key = `${curr.session_name || 'N/A'} - ${
+        curr.term_name || 'N/A'
+      }`;
+      if (!acc[key]) {
+        acc[key] = {
+          session: curr.session_name || 'N/A',
+          term: curr.term_name || 'N/A',
+          items: [],
+        };
+      }
+      acc[key].items.push({
+        item_name: curr.item_name,
+        quantity: curr.quantity,
+        date: curr.collection_date,
+        signature: curr.signature_url,
+        remarks: curr.remarks,
+        status: curr.status || 'completed',
+        class_at_collection: curr.class_at_collection || 'N/A',
+      });
+      return acc;
+    },
+    {},
+  );
 
   const groupedList = Object.values(groupedBySession);
 
-  const totalItems = collections.reduce((sum, c) => sum + (c.quantity || 0), 0);
+  const totalItems = collections.reduce(
+    (sum, c) => sum + (c.quantity || 0),
+    0,
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -556,7 +665,6 @@ const CollectionDetailModal: React.FC<{
         exit={{ scale: 0.9, opacity: 0, y: 20 }}
         className="bg-white dark:bg-gray-900 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
       >
-        {/* Header - Student Info with Class */}
         <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -593,8 +701,10 @@ const CollectionDetailModal: React.FC<{
             </div>
           ) : (
             groupedList.map((group: any, groupIndex: number) => (
-              <div key={groupIndex} className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-                {/* Session/Term Header */}
+              <div
+                key={groupIndex}
+                className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden"
+              >
                 <div className="bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/20 p-3 border-b border-gray-200 dark:border-gray-700">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -602,8 +712,12 @@ const CollectionDetailModal: React.FC<{
                       <span className="font-semibold text-gray-900 dark:text-white">
                         {group.session}
                       </span>
-                      <span className="text-sm text-gray-500 dark:text-gray-400">•</span>
-                      <span className="text-sm text-gray-600 dark:text-gray-300">{group.term}</span>
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        •
+                      </span>
+                      <span className="text-sm text-gray-600 dark:text-gray-300">
+                        {group.term}
+                      </span>
                     </div>
                     <span className="text-xs text-gray-500 dark:text-gray-400">
                       {group.items.length} item(s)
@@ -611,10 +725,12 @@ const CollectionDetailModal: React.FC<{
                   </div>
                 </div>
 
-                {/* Items List */}
                 <div className="divide-y divide-gray-100 dark:divide-gray-700">
                   {group.items.map((item: any, itemIndex: number) => (
-                    <div key={itemIndex} className="p-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
+                    <div
+                      key={itemIndex}
+                      className="p-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors"
+                    >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3 min-w-0 flex-1">
                           <Package className="w-4 h-4 text-gray-400 flex-shrink-0" />
@@ -624,27 +740,41 @@ const CollectionDetailModal: React.FC<{
                             </p>
                             <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                               <span className="flex items-center gap-1">
-                                <span className="font-medium text-gray-700 dark:text-gray-300">×{item.quantity}</span>
+                                <span className="font-medium text-gray-700 dark:text-gray-300">
+                                  ×{item.quantity}
+                                </span>
                               </span>
                               <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
-                              <span>{dayjs(item.date).format('MMM D, YYYY')}</span>
-                              {item.class_at_collection && item.class_at_collection !== 'N/A' && (
-                                <>
-                                  <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
-                                  <span className="text-gray-400">{item.class_at_collection}</span>
-                                </>
-                              )}
+                              <span>
+                                {dayjs(item.date).format('MMM D, YYYY')}
+                              </span>
+                              {item.class_at_collection &&
+                                item.class_at_collection !==
+                                  'N/A' && (
+                                  <>
+                                    <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
+                                    <span className="text-gray-400">
+                                      {item.class_at_collection}
+                                    </span>
+                                  </>
+                                )}
                               {item.remarks && (
                                 <>
                                   <span className="w-1 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
-                                  <span className="text-gray-400 italic truncate max-w-[100px]">{item.remarks}</span>
+                                  <span className="text-gray-400 italic truncate max-w-[100px]">
+                                    {item.remarks}
+                                  </span>
                                 </>
                               )}
                             </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium flex items-center gap-1 ${getStatusColor(item.status)}`}>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-medium flex items-center gap-1 ${getStatusColor(
+                              item.status,
+                            )}`}
+                          >
                             {getStatusIcon(item.status)}
                             {item.status || 'Completed'}
                           </span>
@@ -660,15 +790,17 @@ const CollectionDetailModal: React.FC<{
             ))
           )}
 
-          {/* Summary Footer */}
           {collections.length > 0 && (
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 flex items-center justify-between text-sm">
-              <span className="text-gray-500 dark:text-gray-400">Total Collections</span>
-              <span className="font-semibold text-gray-900 dark:text-white">{collections.length}</span>
+              <span className="text-gray-500 dark:text-gray-400">
+                Total Collections
+              </span>
+              <span className="font-semibold text-gray-900 dark:text-white">
+                {collections.length}
+              </span>
             </div>
           )}
 
-          {/* Close Button */}
           <button
             onClick={onClose}
             className="w-full px-4 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl font-medium hover:opacity-90 transition-all text-sm"
