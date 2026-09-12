@@ -33,7 +33,7 @@ import ViewTeacher from '../pages/teachers/viewTeacher';
 import StudentPayBill from '../pages/student/StudentPayBill';
 import StudentProfile from '../pages/student/StudentProfile';
 import StudentPayments from '../pages/student/StudentPayments';
-import StudentClasses from '../pages/student/StudentClasses';
+import StudentClasses from '../pages/student/StudentClassesFixed';
 import ParentManagement from '../pages/parents/createParent';
 import ParentPayBill from '../pages/parent/ParentPayBill';
 import MyChildren from '../pages/parent/MyChildren';
