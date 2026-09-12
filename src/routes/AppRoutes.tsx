@@ -25,8 +25,7 @@ import CreateFee from '../pages/fees/CreateFee';
 import ClassesList from '../pages/classes/ClassesList';
 import BranchesList from '../pages/branches/BranchesList';
 import ReportsDashboard from '../pages/reports/ReportsDashboard';
-import Settings from '../pages/settings/Settings';
-import AssessmentSettings from '../pages/settings/AssessmentSettings';
+import SettingsHub from '../pages/settings/SettingsHub';
 import Profile from '../pages/profile/Profile';
 import NotFound from '../pages/error/NotFound';
 import AddTeacher from '../pages/teachers/AddTeacher';
@@ -67,7 +66,7 @@ import AdminEnterTest from '../pages/admin/results/AdminEnterTest';
 import AdminEnterSecondTest from '../pages/admin/results/AdminEnterSecondTest';
 import AdminEnterExam from '../pages/admin/results/AdminEnterExam';
 import AdminEnterCBT from '../pages/admin/results/AdminEnterCBT';
-import AdminViewResults from '../pages/admin/results/AdminViewResults';
+import AdminViewResultsFixed from '../pages/admin/results/AdminViewResultsFixed';
 import AdminResultSummary from '../pages/admin/results/AdminResultSummary';
 import ResultAssessmentSettings from '../pages/admin/results/ResultAssessmentSettings';
 import TeacherEnterTest from '../pages/teacher/results/TeacherEnterTest';
@@ -97,7 +96,7 @@ const AppRoutes: React.FC = () => (
       <Route path="results/enter-second-test" element={<AdminEnterSecondTest />} />
       <Route path="results/enter-exam" element={<AdminEnterExam />} />
       <Route path="results/enter-cbt" element={<AdminEnterCBT />} />
-      <Route path="results/view" element={<AdminViewResults />} />
+      <Route path="results/view" element={<AdminViewResultsFixed />} />
       <Route path="results/summary" element={<AdminResultSummary />} />
       <Route index element={<Navigate to="/admin/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
@@ -214,8 +213,8 @@ const AppRoutes: React.FC = () => (
       <Route path="notices" element={<NoticesPage />} />
       <Route path="notifications" element={<NotificationsCenter />} />
       <Route path="reports" element={<ReportsDashboard />} />
-      <Route path="settings" element={<Settings />} />
-      <Route path="settings/assessment" element={<AssessmentSettings />} />
+      <Route path="settings" element={<SettingsHub />} />
+      <Route path="settings/assessment" element={<Navigate to="/settings" replace />} />
       <Route path="profile" element={<Profile />} />
       <Route index element={<DashboardRouter />} />
       <Route path="*" element={<DashboardRouter />} />
