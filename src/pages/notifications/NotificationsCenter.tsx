@@ -58,7 +58,7 @@ export interface NotificationItem {
   metadata?: {
     sender_name?: string;
     sender_role?: string;
-    priority?: 'low' | 'medium' | 'high';
+    priority?: 'low' | 'medium' | 'high' | 'urgent';
     action_url?: string;
     action_label?: string;
     reference_id?: string;
@@ -341,7 +341,7 @@ export const NotificationsCenter: React.FC = () => {
         message: 'Student records for the new session need to be updated. Please verify all student information.',
         type: 'system',
         is_read: false,
-        created_at: dayjs().subtrib(2, 'hours').toISOString(),
+        created_at: dayjs().subtract(2, 'hours').toISOString(),
         link: '/admin-asst/students',
         metadata: {
           priority: 'medium',

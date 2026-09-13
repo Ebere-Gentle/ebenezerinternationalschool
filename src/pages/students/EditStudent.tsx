@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -19,7 +18,6 @@ import {
   GraduationCap,
   ShieldCheck,
   Bus,
-  Home,
   Stethoscope,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -81,9 +79,155 @@ const UUID_FIELDS = [
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/**
+ * These values were verified against the actual Supabase enums.
+ *
+ * admission_status_type:
+ *   pending
+ *   admitted
+ *   rejected
+ *   waitlisted
+ *
+ * student_status_type:
+ *   active
+ *   inactive
+ *   graduated
+ *   transferred
+ *   suspended
+ *   expelled
+ *
+ * IMPORTANT:
+ * "withdrawn" is NOT a valid value in either enum.
+ */
+const ADMISSION_STATUS_OPTIONS = [
+  {
+    value: '',
+    label: 'Select admission status',
+  },
+  {
+    value: 'pending',
+    label: 'Pending',
+  },
+  {
+    value: 'admitted',
+    label: 'Admitted',
+  },
+  {
+    value: 'rejected',
+    label: 'Rejected',
+  },
+  {
+    value: 'waitlisted',
+    label: 'Waitlisted',
+  },
+] as const;
+
+const CURRENT_STATUS_OPTIONS = [
+  {
+    value: '',
+    label: 'Select current status',
+  },
+  {
+    value: 'active',
+    label: 'Active',
+  },
+  {
+    value: 'inactive',
+    label: 'Inactive',
+  },
+  {
+    value: 'graduated',
+    label: 'Graduated',
+  },
+  {
+    value: 'transferred',
+    label: 'Transferred',
+  },
+  {
+    value: 'suspended',
+    label: 'Suspended',
+  },
+  {
+    value: 'expelled',
+    label: 'Expelled',
+  },
+] as const;
+
+const ADMISSION_STATUS_VALUES = [
+  'pending',
+  'admitted',
+  'rejected',
+  'waitlisted',
+] as const;
+
+const CURRENT_STATUS_VALUES = [
+  'active',
+  'inactive',
+  'graduated',
+  'transferred',
+  'suspended',
+  'expelled',
+] as const;
+
+type AdmissionStatus =
+  (typeof ADMISSION_STATUS_VALUES)[number];
+
+type CurrentStatus =
+  (typeof CURRENT_STATUS_VALUES)[number];
+
 const isValidUUID = (value: unknown): value is string => {
   if (typeof value !== 'string') return false;
   return UUID_REGEX.test(value.trim());
+};
+
+const isAdmissionStatus = (
+  value: unknown,
+): value is AdmissionStatus => {
+  return (
+    typeof value === 'string' &&
+    ADMISSION_STATUS_VALUES.includes(
+      value as AdmissionStatus,
+    )
+  );
+};
+
+const isCurrentStatus = (
+  value: unknown,
+): value is CurrentStatus => {
+  return (
+    typeof value === 'string' &&
+    CURRENT_STATUS_VALUES.includes(
+      value as CurrentStatus,
+    )
+  );
+};
+
+const normalizeAdmissionStatus = (
+  value: unknown,
+): AdmissionStatus | null => {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) return null;
+
+  return isAdmissionStatus(normalized)
+    ? normalized
+    : null;
+};
+
+const normalizeCurrentStatus = (
+  value: unknown,
+): CurrentStatus | null => {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) return null;
+
+  return isCurrentStatus(normalized)
+    ? normalized
+    : null;
 };
 
 const nullable = (value: unknown): unknown => {
@@ -98,7 +242,9 @@ const nullable = (value: unknown): unknown => {
   return value;
 };
 
-const safeUUID = (value: unknown): string | null | undefined => {
+const safeUUID = (
+  value: unknown,
+): string | null | undefined => {
   if (value === undefined) return undefined;
   if (value === null) return null;
 
@@ -112,7 +258,9 @@ const safeUUID = (value: unknown): string | null | undefined => {
   return trimmed;
 };
 
-const safeDate = (value: unknown): string | null | undefined => {
+const safeDate = (
+  value: unknown,
+): string | null | undefined => {
   if (value === undefined) return undefined;
   if (value === null) return null;
 
@@ -128,7 +276,9 @@ const safeDate = (value: unknown): string | null | undefined => {
 
   const [year, month, day] = trimmed.split('-').map(Number);
 
-  const date = new Date(Date.UTC(year, month - 1, day));
+  const date = new Date(
+    Date.UTC(year, month - 1, day),
+  );
 
   if (
     date.getUTCFullYear() !== year ||
@@ -141,28 +291,44 @@ const safeDate = (value: unknown): string | null | undefined => {
   return trimmed;
 };
 
-const cleanObject = (object: Record<string, any>) => {
+const cleanObject = (
+  object: Record<string, any>,
+) => {
   const result: Record<string, any> = {};
 
-  Object.entries(object).forEach(([key, value]) => {
-    if (value !== undefined) {
-      result[key] = value;
-    }
-  });
+  Object.entries(object).forEach(
+    ([key, value]) => {
+      if (value !== undefined) {
+        result[key] = value;
+      }
+    },
+  );
 
   return result;
 };
 
-const formatDateForInput = (value: unknown): string => {
-  if (!value || typeof value !== 'string') return '';
+const formatDateForInput = (
+  value: unknown,
+): string => {
+  if (!value || typeof value !== 'string') {
+    return '';
+  }
 
-  const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  const match = value.match(
+    /^(\d{4}-\d{2}-\d{2})/,
+  );
 
   return match ? match[1] : '';
 };
 
-const displayValue = (value: unknown): string => {
-  if (value === null || value === undefined || value === '') {
+const displayValue = (
+  value: unknown,
+): string => {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ''
+  ) {
     return 'Not provided';
   }
 
@@ -170,22 +336,27 @@ const displayValue = (value: unknown): string => {
 };
 
 /**
- * Normalize gender for PostgreSQL enum.
+ * Normalize gender to the actual gender_type enum.
  *
- * The UI displays "Male" / "Female", while PostgreSQL normally
- * stores enum values as lowercase "male" / "female".
- *
- * This also handles older records containing "Male" / "Female".
+ * Supabase:
+ * male
+ * female
+ * other
  */
-const normalizeGender = (value: unknown): string | null => {
-  const v = String(value ?? '').trim().toLowerCase();
+const normalizeGender = (
+  value: unknown,
+): 'male' | 'female' | 'other' | null => {
+  const v = String(value ?? '')
+    .trim()
+    .toLowerCase();
 
   if (!v) return null;
 
   if (v === 'male') return 'male';
   if (v === 'female') return 'female';
+  if (v === 'other') return 'other';
 
-  return v;
+  return null;
 };
 
 /**
@@ -196,18 +367,32 @@ const buildGuardianInfo = (data: any) =>
     father_name: nullable(data.father_name),
     father_phone: nullable(data.father_phone),
     father_email: nullable(data.father_email),
-    father_occupation: nullable(data.father_occupation),
+    father_occupation: nullable(
+      data.father_occupation,
+    ),
 
     mother_name: nullable(data.mother_name),
     mother_phone: nullable(data.mother_phone),
     mother_email: nullable(data.mother_email),
-    mother_occupation: nullable(data.mother_occupation),
+    mother_occupation: nullable(
+      data.mother_occupation,
+    ),
 
-    guardian_name: nullable(data.guardian_name),
-    guardian_phone: nullable(data.guardian_phone),
-    guardian_email: nullable(data.guardian_email),
-    guardian_address: nullable(data.guardian_address),
-    relationship: nullable(data.guardian_relationship),
+    guardian_name: nullable(
+      data.guardian_name,
+    ),
+    guardian_phone: nullable(
+      data.guardian_phone,
+    ),
+    guardian_email: nullable(
+      data.guardian_email,
+    ),
+    guardian_address: nullable(
+      data.guardian_address,
+    ),
+    relationship: nullable(
+      data.guardian_relationship,
+    ),
   });
 
 /**
@@ -215,8 +400,12 @@ const buildGuardianInfo = (data: any) =>
  */
 const buildEmergencyContact = (data: any) =>
   cleanObject({
-    name: nullable(data.emergency_contact_name),
-    phone: nullable(data.emergency_contact_phone),
+    name: nullable(
+      data.emergency_contact_name,
+    ),
+    phone: nullable(
+      data.emergency_contact_phone,
+    ),
     relationship: nullable(
       data.emergency_contact_relationship ??
         data.guardian_relationship,
@@ -225,11 +414,10 @@ const buildEmergencyContact = (data: any) =>
 
 /**
  * Automatically find the most useful class display name.
- *
- * This allows the page to work with common class schemas such as:
- * name, class_name, className, title, label.
  */
-const getClassDisplayName = (classItem: any): string => {
+const getClassDisplayName = (
+  classItem: any,
+): string => {
   if (!classItem) return 'Unknown Class';
 
   const candidates = [
@@ -243,13 +431,17 @@ const getClassDisplayName = (classItem: any): string => {
 
   const found = candidates.find(
     (value) =>
-      typeof value === 'string' && value.trim().length > 0,
+      typeof value === 'string' &&
+      value.trim().length > 0,
   );
 
   if (found) return found.trim();
 
   return classItem.id
-    ? `Class ${String(classItem.id).slice(0, 8)}`
+    ? `Class ${String(classItem.id).slice(
+        0,
+        8,
+      )}`
     : 'Unknown Class';
 };
 
@@ -259,7 +451,9 @@ interface FieldProps {
   value: any;
   onChange: (
     event: React.ChangeEvent<
-      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      | HTMLInputElement
+      | HTMLSelectElement
+      | HTMLTextAreaElement
     >,
   ) => void;
   type?: string;
@@ -289,8 +483,11 @@ function Field({
         className="mb-2 block text-sm font-bold text-slate-700"
       >
         {label}
+
         {required && (
-          <span className="ml-1 text-rose-500">*</span>
+          <span className="ml-1 text-rose-500">
+            *
+          </span>
         )}
       </label>
 
@@ -325,10 +522,15 @@ interface SelectFieldProps {
   value: any;
   onChange: (
     event: React.ChangeEvent<
-      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      | HTMLInputElement
+      | HTMLSelectElement
+      | HTMLTextAreaElement
     >,
   ) => void;
-  options: { value: string; label: string }[];
+  options: {
+    value: string;
+    label: string;
+  }[];
   icon?: React.ReactNode;
   disabled?: boolean;
 }
@@ -369,7 +571,10 @@ function SelectField({
           }`}
         >
           {options.map((option) => (
-            <option key={option.value} value={option.value}>
+            <option
+              key={option.value}
+              value={option.value}
+            >
               {option.label}
             </option>
           ))}
@@ -392,14 +597,21 @@ function Section({
   description?: string;
   icon: React.ReactNode;
   children: React.ReactNode;
-  accent?: 'indigo' | 'blue' | 'emerald' | 'rose' | 'violet';
+  accent?:
+    | 'indigo'
+    | 'blue'
+    | 'emerald'
+    | 'rose'
+    | 'violet';
 }) {
   const styles = {
     indigo: 'bg-indigo-50 text-indigo-600',
     blue: 'bg-blue-50 text-blue-600',
-    emerald: 'bg-emerald-50 text-emerald-600',
+    emerald:
+      'bg-emerald-50 text-emerald-600',
     rose: 'bg-rose-50 text-rose-600',
-    violet: 'bg-violet-50 text-violet-600',
+    violet:
+      'bg-violet-50 text-violet-600',
   };
 
   return (
@@ -426,41 +638,57 @@ function Section({
         </div>
       </div>
 
-      <div className="p-5 sm:p-6">{children}</div>
+      <div className="p-5 sm:p-6">
+        {children}
+      </div>
     </section>
   );
 }
 
 export default function EditStudent() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useParams<{
+    id: string;
+  }>();
+
   const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [student, setStudent] = useState<any>(null);
-  const [formData, setFormData] = useState<any>({});
+  const fileInputRef =
+    useRef<HTMLInputElement | null>(null);
 
-  const [classes, setClasses] = useState<any[]>([]);
-  const [classesLoading, setClassesLoading] = useState(false);
+  const [student, setStudent] =
+    useState<any>(null);
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] =
+    useState<any>({});
 
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(
-    null,
-  );
+  const [classes, setClasses] =
+    useState<any[]>([]);
 
-  const [activeTab, setActiveTab] = useState<
-    'personal' | 'academic' | 'guardian' | 'medical'
-  >('personal');
+  const [classesLoading, setClassesLoading] =
+    useState(false);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [saving, setSaving] =
+    useState(false);
+
+  const [photoFile, setPhotoFile] =
+    useState<File | null>(null);
+
+  const [photoPreview, setPhotoPreview] =
+    useState<string | null>(null);
+
+  const [activeTab, setActiveTab] =
+    useState<
+      | 'personal'
+      | 'academic'
+      | 'guardian'
+      | 'medical'
+    >('personal');
 
   /**
    * Load classes.
-   *
-   * We select * so this works with different class schemas,
-   * then automatically determine the display name.
-   *
-   * The actual UUID remains the option value.
    */
   useEffect(() => {
     let cancelled = false;
@@ -469,29 +697,36 @@ export default function EditStudent() {
       setClassesLoading(true);
 
       try {
-        const { data, error } = await supabase
-          .from('classes')
-          .select('*')
-          .order('name', { ascending: true });
+        const { data, error } =
+          await supabase
+            .from('classes')
+            .select('*')
+            .order('name', {
+              ascending: true,
+            });
 
         if (cancelled) return;
 
         if (error) {
-          console.error('Failed to load classes:', error);
+          console.error(
+            'Failed to load classes:',
+            error,
+          );
 
-          /**
-           * Some databases may not have a "name" column.
-           * Retry without ordering so we can still load the data.
-           */
-          const retry = await supabase
-            .from('classes')
-            .select('*');
+          const retry =
+            await supabase
+              .from('classes')
+              .select('*');
 
-          if (!retry.error && retry.data) {
+          if (
+            !retry.error &&
+            retry.data
+          ) {
             setClasses(retry.data);
           } else {
             toast.error(
-              error.message || 'Failed to load classes.',
+              error.message ||
+                'Failed to load classes.',
             );
           }
 
@@ -500,10 +735,14 @@ export default function EditStudent() {
 
         setClasses(data || []);
       } catch (error: any) {
-        console.error('Unexpected class loading error:', error);
+        console.error(
+          'Unexpected class loading error:',
+          error,
+        );
 
         toast.error(
-          error?.message || 'Failed to load classes.',
+          error?.message ||
+            'Failed to load classes.',
         );
       } finally {
         if (!cancelled) {
@@ -534,19 +773,24 @@ export default function EditStudent() {
       setLoading(true);
 
       try {
-        const { data, error } = await supabase
-          .from('students')
-          .select('*')
-          .eq('id', id)
-          .maybeSingle();
+        const { data, error } =
+          await supabase
+            .from('students')
+            .select('*')
+            .eq('id', id)
+            .maybeSingle();
 
         if (cancelled) return;
 
         if (error) {
-          console.error('Failed to load student:', error);
+          console.error(
+            'Failed to load student:',
+            error,
+          );
 
           toast.error(
-            error.message || 'Failed to load student.',
+            error.message ||
+              'Failed to load student.',
           );
 
           setLoading(false);
@@ -554,58 +798,106 @@ export default function EditStudent() {
         }
 
         if (!data) {
-          toast.error('Student record not found.');
+          toast.error(
+            'Student record not found.',
+          );
+
           setLoading(false);
           return;
         }
 
         setStudent(data);
 
-        const guardian = data.guardian_info || {};
-        const emergency = data.emergency_contact || {};
+        const guardian =
+          data.guardian_info || {};
+
+        const emergency =
+          data.emergency_contact || {};
 
         setFormData({
           ...data,
 
-          /**
-           * Normalize gender immediately.
-           */
-          gender: normalizeGender(data.gender),
-
-          date_of_birth: formatDateForInput(
-            data.date_of_birth,
+          gender: normalizeGender(
+            data.gender,
           ),
 
-          admission_date: formatDateForInput(
-            data.admission_date,
-          ),
+          admission_status:
+            normalizeAdmissionStatus(
+              data.admission_status,
+            ),
 
-          father_name: guardian.father_name ?? '',
-          father_phone: guardian.father_phone ?? '',
-          father_email: guardian.father_email ?? '',
-          father_occupation: guardian.father_occupation ?? '',
+          current_status:
+            normalizeCurrentStatus(
+              data.current_status,
+            ),
 
-          mother_name: guardian.mother_name ?? '',
-          mother_phone: guardian.mother_phone ?? '',
-          mother_email: guardian.mother_email ?? '',
-          mother_occupation: guardian.mother_occupation ?? '',
+          date_of_birth:
+            formatDateForInput(
+              data.date_of_birth,
+            ),
 
-          guardian_name: guardian.guardian_name ?? '',
-          guardian_phone: guardian.guardian_phone ?? '',
-          guardian_email: guardian.guardian_email ?? '',
-          guardian_address: guardian.guardian_address ?? '',
-          guardian_relationship: guardian.relationship ?? '',
+          admission_date:
+            formatDateForInput(
+              data.admission_date,
+            ),
 
-          emergency_contact_name: emergency.name ?? '',
-          emergency_contact_phone: emergency.phone ?? '',
+          father_name:
+            guardian.father_name ?? '',
+
+          father_phone:
+            guardian.father_phone ?? '',
+
+          father_email:
+            guardian.father_email ?? '',
+
+          father_occupation:
+            guardian.father_occupation ?? '',
+
+          mother_name:
+            guardian.mother_name ?? '',
+
+          mother_phone:
+            guardian.mother_phone ?? '',
+
+          mother_email:
+            guardian.mother_email ?? '',
+
+          mother_occupation:
+            guardian.mother_occupation ?? '',
+
+          guardian_name:
+            guardian.guardian_name ?? '',
+
+          guardian_phone:
+            guardian.guardian_phone ?? '',
+
+          guardian_email:
+            guardian.guardian_email ?? '',
+
+          guardian_address:
+            guardian.guardian_address ?? '',
+
+          guardian_relationship:
+            guardian.relationship ?? '',
+
+          emergency_contact_name:
+            emergency.name ?? '',
+
+          emergency_contact_phone:
+            emergency.phone ?? '',
+
           emergency_contact_relationship:
             emergency.relationship ?? '',
         });
       } catch (error: any) {
-        console.error('Unexpected load error:', error);
+        console.error(
+          'Unexpected load error:',
+          error,
+        );
 
         toast.error(
-          error?.message || 'Failed to load student.',
+          error?.message ||
+            'Failed to load student.',
         );
       } finally {
         if (!cancelled) {
@@ -626,19 +918,18 @@ export default function EditStudent() {
    */
   useEffect(() => {
     return () => {
-      if (photoPreview?.startsWith('blob:')) {
-        URL.revokeObjectURL(photoPreview);
+      if (
+        photoPreview?.startsWith('blob:')
+      ) {
+        URL.revokeObjectURL(
+          photoPreview,
+        );
       }
     };
   }, [photoPreview]);
 
   /**
    * Class options.
-   *
-   * IMPORTANT:
-   *
-   * value = UUID
-   * label = human readable class name
    */
   const classOptions = useMemo(() => {
     return [
@@ -653,166 +944,259 @@ export default function EditStudent() {
         .filter(
           (item) =>
             item?.id &&
-            isValidUUID(String(item.id)),
+            isValidUUID(
+              String(item.id),
+            ),
         )
         .map((item) => ({
           value: String(item.id),
-          label: getClassDisplayName(item),
+          label:
+            getClassDisplayName(item),
         })),
     ];
-  }, [classes, classesLoading]);
+  }, [
+    classes,
+    classesLoading,
+  ]);
 
   /**
    * Current class display name.
    */
   const currentClassName = useMemo(() => {
-    const currentId = String(formData.class_id ?? '');
+    const currentId = String(
+      formData.class_id ?? '',
+    );
 
-    if (!currentId) return 'Not assigned';
+    if (!currentId) {
+      return 'Not assigned';
+    }
 
     const found = classes.find(
-      (item) => String(item.id) === currentId,
+      (item) =>
+        String(item.id) ===
+        currentId,
     );
 
     if (found) {
-      return getClassDisplayName(found);
+      return getClassDisplayName(
+        found,
+      );
     }
 
-    /**
-     * If the class isn't returned by the normal list,
-     * show a safe fallback instead of displaying the UUID.
-     */
     return 'Current class';
-  }, [classes, formData.class_id]);
+  }, [
+    classes,
+    formData.class_id,
+  ]);
 
   /**
    * Build safe PATCH payload.
    */
-  const safeEditablePayload = useMemo(() => {
-    const payload: Record<string, any> = {};
+  const safeEditablePayload =
+    useMemo(() => {
+      const payload: Record<
+        string,
+        any
+      > = {};
 
-    for (const field of EDITABLE_FIELDS) {
+      for (const field of EDITABLE_FIELDS) {
+        if (
+          field ===
+            'guardian_info' ||
+          field ===
+            'emergency_contact' ||
+          field === 'passport_url'
+        ) {
+          continue;
+        }
+
+        if (
+          formData[field] ===
+          undefined
+        ) {
+          continue;
+        }
+
+        payload[field] =
+          formData[field];
+      }
+
+      /**
+       * UUID fields.
+       */
+      for (const field of UUID_FIELDS) {
+        if (!(field in formData)) {
+          continue;
+        }
+
+        const value = safeUUID(
+          formData[field],
+        );
+
+        if (value !== undefined) {
+          payload[field] = value;
+        }
+      }
+
+      /**
+       * Text fields.
+       */
+      const safeTextFields = [
+        'middle_name',
+        'other_names',
+        'place_of_birth',
+        'state_of_origin',
+        'lga',
+        'religion',
+        'blood_group',
+        'genotype',
+        'email',
+        'phone_number',
+        'home_address',
+        'residential_address',
+        'department',
+        'class_arm',
+        'previous_school',
+        'pickup_location',
+        'doctor_name',
+        'hospital_name',
+        'allergies',
+        'medical_conditions',
+        'special_needs',
+        'qr_code_data',
+        'barcode_data',
+      ];
+
+      for (const field of safeTextFields) {
+        if (!(field in formData)) {
+          continue;
+        }
+
+        payload[field] =
+          nullable(
+            formData[field],
+          );
+      }
+
+      /**
+       * Dates.
+       */
       if (
-        field === 'guardian_info' ||
-        field === 'emergency_contact' ||
-        field === 'passport_url'
+        'date_of_birth' in
+        formData
       ) {
-        continue;
+        const value = safeDate(
+          formData.date_of_birth,
+        );
+
+        if (value !== undefined) {
+          payload.date_of_birth =
+            value;
+        }
       }
 
-      if (formData[field] === undefined) {
-        continue;
+      if (
+        'admission_date' in
+        formData
+      ) {
+        const value = safeDate(
+          formData.admission_date,
+        );
+
+        if (value !== undefined) {
+          payload.admission_date =
+            value;
+        }
       }
 
-      payload[field] = formData[field];
-    }
-
-    /**
-     * UUID fields.
-     */
-    for (const field of UUID_FIELDS) {
-      if (!(field in formData)) continue;
-
-      const value = safeUUID(formData[field]);
-
-      if (value !== undefined) {
-        payload[field] = value;
+      /**
+       * Gender enum.
+       */
+      if ('gender' in formData) {
+        payload.gender =
+          normalizeGender(
+            formData.gender,
+          );
       }
-    }
 
-    /**
-     * Text fields.
-     */
-    const safeTextFields = [
-      'middle_name',
-      'other_names',
-      'place_of_birth',
-      'state_of_origin',
-      'lga',
-      'religion',
-      'blood_group',
-      'genotype',
-      'email',
-      'phone_number',
-      'home_address',
-      'residential_address',
-      'department',
-      'class_arm',
-      'previous_school',
-      'pickup_location',
-      'doctor_name',
-      'hospital_name',
-      'allergies',
-      'medical_conditions',
-      'special_needs',
-      'qr_code_data',
-      'barcode_data',
-    ];
-
-    for (const field of safeTextFields) {
-      if (!(field in formData)) continue;
-
-      payload[field] = nullable(formData[field]);
-    }
-
-    /**
-     * Date fields.
-     */
-    if ('date_of_birth' in formData) {
-      const value = safeDate(formData.date_of_birth);
-
-      if (value !== undefined) {
-        payload.date_of_birth = value;
+      /**
+       * DO NOT allow arbitrary enum
+       * strings into admission_status.
+       */
+      if (
+        'admission_status' in
+        formData
+      ) {
+        payload.admission_status =
+          normalizeAdmissionStatus(
+            formData.admission_status,
+          );
       }
-    }
 
-    if ('admission_date' in formData) {
-      const value = safeDate(formData.admission_date);
-
-      if (value !== undefined) {
-        payload.admission_date = value;
+      /**
+       * DO NOT allow arbitrary enum
+       * strings into current_status.
+       */
+      if (
+        'current_status' in
+        formData
+      ) {
+        payload.current_status =
+          normalizeCurrentStatus(
+            formData.current_status,
+          );
       }
-    }
 
-    /**
-     * Gender enum.
-     */
-    if ('gender' in formData) {
-      payload.gender = normalizeGender(formData.gender);
-    }
+      /**
+       * Guardian JSON.
+       */
+      payload.guardian_info =
+        buildGuardianInfo(
+          formData,
+        );
 
-    /**
-     * Guardian JSON.
-     */
-    payload.guardian_info = buildGuardianInfo(formData);
+      /**
+       * Emergency JSON.
+       */
+      payload.emergency_contact =
+        buildEmergencyContact(
+          formData,
+        );
 
-    /**
-     * Emergency JSON.
-     */
-    payload.emergency_contact =
-      buildEmergencyContact(formData);
+      /**
+       * Preserve documents.
+       */
+      if (
+        Array.isArray(
+          formData.documents,
+        )
+      ) {
+        payload.documents =
+          formData.documents;
+      }
 
-    /**
-     * Preserve documents.
-     */
-    if (Array.isArray(formData.documents)) {
-      payload.documents = formData.documents;
-    }
+      /**
+       * Preserve structured medical info.
+       */
+      if (
+        formData.medical_info !==
+          undefined &&
+        formData.medical_info !==
+          null &&
+        typeof formData.medical_info ===
+          'object' &&
+        !Array.isArray(
+          formData.medical_info,
+        )
+      ) {
+        payload.medical_info =
+          formData.medical_info;
+      }
 
-    /**
-     * Preserve structured medical info.
-     */
-    if (
-      formData.medical_info !== undefined &&
-      formData.medical_info !== null &&
-      typeof formData.medical_info === 'object' &&
-      !Array.isArray(formData.medical_info)
-    ) {
-      payload.medical_info = formData.medical_info;
-    }
-
-    return cleanObject(payload);
-  }, [formData]);
+      return cleanObject(
+        payload,
+      );
+    }, [formData]);
 
   /**
    * Validate before database update.
@@ -824,10 +1208,16 @@ export default function EditStudent() {
     field?: string;
     reason?: string;
   } => {
+    /**
+     * UUID validation.
+     */
     for (const field of UUID_FIELDS) {
-      if (!(field in payload)) continue;
+      if (!(field in payload)) {
+        continue;
+      }
 
-      const value = payload[field];
+      const value =
+        payload[field];
 
       if (
         value !== null &&
@@ -836,32 +1226,109 @@ export default function EditStudent() {
         return {
           valid: false,
           field,
-          reason: `Invalid UUID: ${String(value)}`,
+          reason: `Invalid UUID: ${String(
+            value,
+          )}`,
         };
       }
     }
 
+    /**
+     * Date validation.
+     */
     for (const field of [
       'date_of_birth',
       'admission_date',
     ]) {
-      if (!(field in payload)) continue;
+      if (!(field in payload)) {
+        continue;
+      }
 
-      const value = payload[field];
+      const value =
+        payload[field];
 
       if (
         value !== null &&
-        safeDate(value) === undefined
+        safeDate(value) ===
+          undefined
       ) {
         return {
           valid: false,
           field,
-          reason: `Invalid date: ${String(value)}`,
+          reason: `Invalid date: ${String(
+            value,
+          )}`,
         };
       }
     }
 
-    return { valid: true };
+    /**
+     * Admission enum validation.
+     */
+    if (
+      payload.admission_status !==
+        null &&
+      payload.admission_status !==
+        undefined &&
+      !isAdmissionStatus(
+        payload.admission_status,
+      )
+    ) {
+      return {
+        valid: false,
+        field:
+          'admission_status',
+        reason: `Invalid admission status: ${String(
+          payload.admission_status,
+        )}`,
+      };
+    }
+
+    /**
+     * Current status enum validation.
+     */
+    if (
+      payload.current_status !==
+        null &&
+      payload.current_status !==
+        undefined &&
+      !isCurrentStatus(
+        payload.current_status,
+      )
+    ) {
+      return {
+        valid: false,
+        field:
+          'current_status',
+        reason: `Invalid current status: ${String(
+          payload.current_status,
+        )}`,
+      };
+    }
+
+    /**
+     * Explicitly reject withdrawn.
+     *
+     * This protects the form even if an old
+     * record somehow contains the value.
+     */
+    if (
+      payload.admission_status ===
+        'withdrawn' ||
+      payload.current_status ===
+        'withdrawn'
+    ) {
+      return {
+        valid: false,
+        field: 'current_status',
+        reason:
+          '"withdrawn" is not a valid value in the current Supabase student enums.',
+      };
+    }
+
+    return {
+      valid: true,
+    };
   };
 
   /**
@@ -869,23 +1336,34 @@ export default function EditStudent() {
    */
   const handleChange = (
     event: React.ChangeEvent<
-      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      | HTMLInputElement
+      | HTMLSelectElement
+      | HTMLTextAreaElement
     >,
   ) => {
-    const { name, value, type } = event.target;
+    const {
+      name,
+      value,
+      type,
+    } = event.target;
 
     const checked =
       type === 'checkbox'
-        ? (event.target as HTMLInputElement).checked
+        ? (
+            event.target as HTMLInputElement
+          ).checked
         : undefined;
 
-    setFormData((prev: any) => ({
-      ...prev,
-      [name]:
-        checked !== undefined
-          ? checked
-          : value,
-    }));
+    setFormData(
+      (prev: any) => ({
+        ...prev,
+
+        [name]:
+          checked !== undefined
+            ? checked
+            : value,
+      }),
+    );
   };
 
   /**
@@ -894,42 +1372,71 @@ export default function EditStudent() {
   const handlePhotoChange = (
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
-    const file = event.target.files?.[0];
+    const file =
+      event.target.files?.[0];
 
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please select an image file.');
+    if (
+      !file.type.startsWith(
+        'image/',
+      )
+    ) {
+      toast.error(
+        'Please select an image file.',
+      );
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('Photo must be 5MB or smaller.');
+    if (
+      file.size >
+      5 * 1024 * 1024
+    ) {
+      toast.error(
+        'Photo must be 5MB or smaller.',
+      );
       return;
     }
 
-    if (photoPreview?.startsWith('blob:')) {
-      URL.revokeObjectURL(photoPreview);
+    if (
+      photoPreview?.startsWith(
+        'blob:',
+      )
+    ) {
+      URL.revokeObjectURL(
+        photoPreview,
+      );
     }
 
     setPhotoFile(file);
+
     setPhotoPreview(
-      URL.createObjectURL(file),
+      URL.createObjectURL(
+        file,
+      ),
     );
   };
 
-  const removeSelectedPhoto = () => {
-    if (photoPreview?.startsWith('blob:')) {
-      URL.revokeObjectURL(photoPreview);
-    }
+  const removeSelectedPhoto =
+    () => {
+      if (
+        photoPreview?.startsWith(
+          'blob:',
+        )
+      ) {
+        URL.revokeObjectURL(
+          photoPreview,
+        );
+      }
 
-    setPhotoFile(null);
-    setPhotoPreview(null);
+      setPhotoFile(null);
+      setPhotoPreview(null);
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
+      if (fileInputRef.current) {
+        fileInputRef.current.value =
+          '';
+      }
+    };
 
   /**
    * Submit.
@@ -940,7 +1447,9 @@ export default function EditStudent() {
     event.preventDefault();
 
     if (!id || !student) {
-      toast.error('Student record is unavailable.');
+      toast.error(
+        'Student record is unavailable.',
+      );
       return;
     }
 
@@ -953,23 +1462,32 @@ export default function EditStudent() {
     ).trim();
 
     if (!firstName) {
-      toast.error('First name is required.');
+      toast.error(
+        'First name is required.',
+      );
+
       setActiveTab('personal');
       return;
     }
 
     if (!lastName) {
-      toast.error('Last name is required.');
+      toast.error(
+        'Last name is required.',
+      );
+
       setActiveTab('personal');
       return;
     }
 
     /**
-     * Class must either be a valid UUID or null.
+     * Class must either be a valid UUID
+     * or null.
      */
     if (
       formData.class_id &&
-      !isValidUUID(formData.class_id)
+      !isValidUUID(
+        formData.class_id,
+      )
     ) {
       toast.error(
         'Please select a valid class from the class list.',
@@ -979,38 +1497,121 @@ export default function EditStudent() {
       return;
     }
 
+    /**
+     * Normalize statuses BEFORE saving.
+     */
+    const admissionStatus =
+      normalizeAdmissionStatus(
+        formData.admission_status,
+      );
+
+    const currentStatus =
+      normalizeCurrentStatus(
+        formData.current_status,
+      );
+
+    /**
+     * If a value exists in the form but
+     * is not one of the actual Supabase
+     * enum values, stop before Supabase.
+     */
+    const rawAdmissionStatus =
+      String(
+        formData.admission_status ??
+          '',
+      )
+        .trim()
+        .toLowerCase();
+
+    const rawCurrentStatus =
+      String(
+        formData.current_status ??
+          '',
+      )
+        .trim()
+        .toLowerCase();
+
+    if (
+      rawAdmissionStatus &&
+      !isAdmissionStatus(
+        rawAdmissionStatus,
+      )
+    ) {
+      toast.error(
+        `Invalid admission status "${rawAdmissionStatus}". Valid values: Pending, Admitted, Rejected or Waitlisted.`,
+      );
+
+      setActiveTab('academic');
+      return;
+    }
+
+    if (
+      rawCurrentStatus &&
+      !isCurrentStatus(
+        rawCurrentStatus,
+      )
+    ) {
+      toast.error(
+        `Invalid current status "${rawCurrentStatus}". Valid values: Active, Inactive, Graduated, Transferred, Suspended or Expelled.`,
+      );
+
+      setActiveTab('academic');
+      return;
+    }
+
     setSaving(true);
 
     try {
-      const payload: Record<string, any> = {
+      const payload: Record<
+        string,
+        any
+      > = {
         ...safeEditablePayload,
 
         first_name: firstName,
+
         last_name: lastName,
 
         /**
-         * Critical enum fix.
+         * gender_type:
+         * male | female | other
          */
-        gender: normalizeGender(
-          formData.gender,
-        ),
+        gender:
+          normalizeGender(
+            formData.gender,
+          ),
 
-        nationality: nullable(
-          formData.nationality,
-        ),
+        nationality:
+          nullable(
+            formData.nationality,
+          ),
 
+        /**
+         * admission_status_type:
+         * pending | admitted | rejected | waitlisted
+         *
+         * NEVER use withdrawn here.
+         */
         admission_status:
-          String(
-            formData.admission_status ?? '',
-          ).trim() || 'pending',
+          admissionStatus,
 
+        /**
+         * student_status_type:
+         * active | inactive | graduated |
+         * transferred | suspended | expelled
+         *
+         * NEVER use withdrawn here.
+         */
         current_status:
-          String(
-            formData.current_status ?? '',
-          ).trim() || 'active',
+          currentStatus,
 
+        /**
+         * Both are BOOLEAN in Supabase.
+         */
         transfer_status:
-          Boolean(formData.transfer_status),
+          Boolean(
+            formData.transfer_status,
+          ),
 
         transportation_status:
           Boolean(
@@ -1029,16 +1630,21 @@ export default function EditStudent() {
       );
 
       if (dob !== undefined) {
-        payload.date_of_birth = dob;
+        payload.date_of_birth =
+          dob;
       } else {
         delete payload.date_of_birth;
       }
 
-      const admissionDate = safeDate(
-        formData.admission_date,
-      );
+      const admissionDate =
+        safeDate(
+          formData.admission_date,
+        );
 
-      if (admissionDate !== undefined) {
+      if (
+        admissionDate !==
+        undefined
+      ) {
         payload.admission_date =
           admissionDate;
       } else {
@@ -1048,11 +1654,13 @@ export default function EditStudent() {
       /**
        * UUIDs.
        *
-       * The visible class dropdown contains names,
-       * but this sends the UUID to the database.
+       * The UI displays class names.
+       * The database receives UUIDs.
        */
       for (const field of UUID_FIELDS) {
-        if (!(field in formData)) continue;
+        if (!(field in formData)) {
+          continue;
+        }
 
         const value = safeUUID(
           formData[field],
@@ -1061,7 +1669,8 @@ export default function EditStudent() {
         if (value === undefined) {
           delete payload[field];
         } else {
-          payload[field] = value;
+          payload[field] =
+            value;
         }
       }
 
@@ -1089,17 +1698,24 @@ export default function EditStudent() {
       /**
        * Remove undefined values.
        */
-      Object.keys(payload).forEach((key) => {
-        if (payload[key] === undefined) {
-          delete payload[key];
-        }
-      });
+      Object.keys(payload).forEach(
+        (key) => {
+          if (
+            payload[key] ===
+            undefined
+          ) {
+            delete payload[key];
+          }
+        },
+      );
 
       /**
-       * Validate.
+       * Final validation.
        */
       const validation =
-        validatePayload(payload);
+        validatePayload(
+          payload,
+        );
 
       if (!validation.valid) {
         console.error(
@@ -1108,7 +1724,9 @@ export default function EditStudent() {
         );
 
         toast.error(
-          `Invalid ${validation.field}: ${
+          `Invalid ${
+            validation.field
+          }: ${
             validation.reason ||
             'Please check this field.'
           }`,
@@ -1140,33 +1758,50 @@ export default function EditStudent() {
           'STUDENT UPDATE ERROR:',
           {
             code: error.code,
-            message: error.message,
-            details: error.details,
+            message:
+              error.message,
+            details:
+              error.details,
             hint: error.hint,
             payload,
           },
         );
 
-        if (error.code === '22P02') {
+        if (
+          error.code ===
+          '22P02'
+        ) {
           toast.error(
             `Invalid database value: ${
               error.message ||
               'Check the form values.'
             }`,
           );
-        } else if (error.code === '23505') {
+        } else if (
+          error.code ===
+          '23505'
+        ) {
           toast.error(
             'Duplicate value detected. Check email or another unique field.',
           );
-        } else if (error.code === '42501') {
+        } else if (
+          error.code ===
+          '42501'
+        ) {
           toast.error(
             'Permission denied. Your account cannot update student records.',
           );
-        } else if (error.code === '23503') {
+        } else if (
+          error.code ===
+          '23503'
+        ) {
           toast.error(
             'A selected class, house, club, or bus route no longer exists.',
           );
-        } else if (error.code === '23514') {
+        } else if (
+          error.code ===
+          '23514'
+        ) {
           toast.error(
             'One of the values violates a database rule. Check the student status or category.',
           );
@@ -1188,80 +1823,114 @@ export default function EditStudent() {
         return;
       }
 
-      setStudent(updatedStudent);
+      setStudent(
+        updatedStudent,
+      );
 
       const guardian =
-        updatedStudent.guardian_info || {};
+        updatedStudent.guardian_info ||
+        {};
 
       const emergency =
-        updatedStudent.emergency_contact || {};
+        updatedStudent.emergency_contact ||
+        {};
 
-      setFormData((prev: any) => ({
-        ...prev,
-        ...updatedStudent,
+      setFormData(
+        (prev: any) => ({
+          ...prev,
 
-        gender: normalizeGender(
-          updatedStudent.gender,
-        ),
+          ...updatedStudent,
 
-        date_of_birth:
-          formatDateForInput(
-            updatedStudent.date_of_birth,
-          ),
+          gender:
+            normalizeGender(
+              updatedStudent.gender,
+            ),
 
-        admission_date:
-          formatDateForInput(
-            updatedStudent.admission_date,
-          ),
+          admission_status:
+            normalizeAdmissionStatus(
+              updatedStudent.admission_status,
+            ),
 
-        father_name:
-          guardian.father_name ?? '',
+          current_status:
+            normalizeCurrentStatus(
+              updatedStudent.current_status,
+            ),
 
-        father_phone:
-          guardian.father_phone ?? '',
+          date_of_birth:
+            formatDateForInput(
+              updatedStudent.date_of_birth,
+            ),
 
-        father_email:
-          guardian.father_email ?? '',
+          admission_date:
+            formatDateForInput(
+              updatedStudent.admission_date,
+            ),
 
-        father_occupation:
-          guardian.father_occupation ?? '',
+          father_name:
+            guardian.father_name ??
+            '',
 
-        mother_name:
-          guardian.mother_name ?? '',
+          father_phone:
+            guardian.father_phone ??
+            '',
 
-        mother_phone:
-          guardian.mother_phone ?? '',
+          father_email:
+            guardian.father_email ??
+            '',
 
-        mother_email:
-          guardian.mother_email ?? '',
+          father_occupation:
+            guardian.father_occupation ??
+            '',
 
-        mother_occupation:
-          guardian.mother_occupation ?? '',
+          mother_name:
+            guardian.mother_name ??
+            '',
 
-        guardian_name:
-          guardian.guardian_name ?? '',
+          mother_phone:
+            guardian.mother_phone ??
+            '',
 
-        guardian_phone:
-          guardian.guardian_phone ?? '',
+          mother_email:
+            guardian.mother_email ??
+            '',
 
-        guardian_email:
-          guardian.guardian_email ?? '',
+          mother_occupation:
+            guardian.mother_occupation ??
+            '',
 
-        guardian_address:
-          guardian.guardian_address ?? '',
+          guardian_name:
+            guardian.guardian_name ??
+            '',
 
-        guardian_relationship:
-          guardian.relationship ?? '',
+          guardian_phone:
+            guardian.guardian_phone ??
+            '',
 
-        emergency_contact_name:
-          emergency.name ?? '',
+          guardian_email:
+            guardian.guardian_email ??
+            '',
 
-        emergency_contact_phone:
-          emergency.phone ?? '',
+          guardian_address:
+            guardian.guardian_address ??
+            '',
 
-        emergency_contact_relationship:
-          emergency.relationship ?? '',
-      }));
+          guardian_relationship:
+            guardian.relationship ??
+            '',
+
+          emergency_contact_name:
+            emergency.name ??
+            '',
+
+          emergency_contact_phone:
+            emergency.phone ??
+            '',
+
+          emergency_contact_relationship:
+            emergency.relationship ??
+            '',
+        }),
+      );
 
       toast.success(
         'Student profile updated successfully.',
@@ -1274,7 +1943,9 @@ export default function EditStudent() {
       }
 
       setTimeout(() => {
-        navigate(`/students/${id}`);
+        navigate(
+          `/students/${id}`,
+        );
       }, 700);
     } catch (error: any) {
       console.error(
@@ -1300,6 +1971,7 @@ export default function EditStudent() {
 
             <div className="grid gap-6 lg:grid-cols-4">
               <div className="h-96 rounded-3xl bg-white shadow-sm" />
+
               <div className="h-96 rounded-3xl bg-white shadow-sm lg:col-span-3" />
             </div>
           </div>
@@ -1327,7 +1999,9 @@ export default function EditStudent() {
           <button
             type="button"
             onClick={() =>
-              navigate('/students')
+              navigate(
+                '/students',
+              )
             }
             className="mt-6 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-500/20 transition hover:bg-indigo-700"
           >
@@ -1349,28 +2023,36 @@ export default function EditStudent() {
     {
       id: 'personal' as const,
       label: 'Personal',
-      icon: <User className="h-4 w-4" />,
+      icon: (
+        <User className="h-4 w-4" />
+      ),
       active:
         'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20',
     },
     {
       id: 'academic' as const,
       label: 'Academic',
-      icon: <GraduationCap className="h-4 w-4" />,
+      icon: (
+        <GraduationCap className="h-4 w-4" />
+      ),
       active:
         'bg-blue-600 text-white shadow-lg shadow-blue-500/20',
     },
     {
       id: 'guardian' as const,
       label: 'Guardian',
-      icon: <Users className="h-4 w-4" />,
+      icon: (
+        <Users className="h-4 w-4" />
+      ),
       active:
         'bg-violet-600 text-white shadow-lg shadow-violet-500/20',
     },
     {
       id: 'medical' as const,
       label: 'Medical',
-      icon: <HeartPulse className="h-4 w-4" />,
+      icon: (
+        <HeartPulse className="h-4 w-4" />
+      ),
       active:
         'bg-rose-600 text-white shadow-lg shadow-rose-500/20',
     },
@@ -1386,7 +2068,9 @@ export default function EditStudent() {
               <button
                 type="button"
                 onClick={() =>
-                  navigate(`/students/${id}`)
+                  navigate(
+                    `/students/${id}`,
+                  )
                 }
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
                 aria-label="Go back"
@@ -1416,7 +2100,9 @@ export default function EditStudent() {
               <button
                 type="button"
                 onClick={() =>
-                  navigate(`/students/${id}`)
+                  navigate(
+                    `/students/${id}`,
+                  )
                 }
                 disabled={saving}
                 className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
@@ -1457,6 +2143,7 @@ export default function EditStudent() {
           <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white shadow-xl shadow-indigo-100/60">
             <div className="relative overflow-hidden bg-gradient-to-br from-indigo-700 via-blue-700 to-violet-800 px-6 py-8 sm:px-8">
               <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/10 blur-2xl" />
+
               <div className="absolute -bottom-24 left-1/3 h-64 w-64 rounded-full bg-cyan-300/10 blur-3xl" />
 
               <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center">
@@ -1488,7 +2175,9 @@ export default function EditStudent() {
                     ref={fileInputRef}
                     type="file"
                     accept="image/*"
-                    onChange={handlePhotoChange}
+                    onChange={
+                      handlePhotoChange
+                    }
                     className="hidden"
                   />
                 </div>
@@ -1502,32 +2191,47 @@ export default function EditStudent() {
                     {displayValue(
                       `${student.first_name || ''} ${
                         student.middle_name || ''
-                      } ${student.last_name || ''}`,
+                      } ${
+                        student.last_name || ''
+                      }`,
                     )
-                      .replace(/\s+/g, ' ')
+                      .replace(
+                        /\s+/g,
+                        ' ',
+                      )
                       .trim()}
                   </h2>
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     {student.student_id && (
                       <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
-                        ID: {student.student_id}
+                        ID:{' '}
+                        {
+                          student.student_id
+                        }
                       </span>
                     )}
 
                     {student.admission_number && (
                       <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
-                        Admission: {student.admission_number}
+                        Admission:{' '}
+                        {
+                          student.admission_number
+                        }
                       </span>
                     )}
 
                     <span className="rounded-full bg-emerald-400/20 px-3 py-1.5 text-xs font-bold text-emerald-100">
-                      {currentClassName}
+                      {
+                        currentClassName
+                      }
                     </span>
 
                     {student.current_status && (
                       <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold capitalize text-white backdrop-blur">
-                        {student.current_status}
+                        {
+                          student.current_status
+                        }
                       </span>
                     )}
                   </div>
@@ -1555,7 +2259,9 @@ export default function EditStudent() {
               {photoFile && (
                 <button
                   type="button"
-                  onClick={removeSelectedPhoto}
+                  onClick={
+                    removeSelectedPhoto
+                  }
                   className="inline-flex items-center gap-2 text-sm font-bold text-rose-600 hover:text-rose-700"
                 >
                   <X className="h-4 w-4" />
@@ -1577,7 +2283,9 @@ export default function EditStudent() {
                     key={tab.id}
                     type="button"
                     onClick={() =>
-                      setActiveTab(tab.id)
+                      setActiveTab(
+                        tab.id,
+                      )
                     }
                     className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-extrabold transition-all ${
                       active
@@ -1594,7 +2302,8 @@ export default function EditStudent() {
           </div>
 
           {/* PERSONAL */}
-          {activeTab === 'personal' && (
+          {activeTab ===
+            'personal' && (
             <div className="space-y-6">
               <Section
                 title="Personal Information"
@@ -1611,7 +2320,9 @@ export default function EditStudent() {
                     value={
                       formData.first_name
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     required
                     icon={
                       <User className="h-4 w-4" />
@@ -1624,7 +2335,9 @@ export default function EditStudent() {
                     value={
                       formData.middle_name
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
@@ -1633,7 +2346,9 @@ export default function EditStudent() {
                     value={
                       formData.last_name
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     required
                   />
 
@@ -1643,7 +2358,9 @@ export default function EditStudent() {
                     value={
                       formData.other_names
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <SelectField
@@ -1651,8 +2368,10 @@ export default function EditStudent() {
                     name="gender"
                     value={normalizeGender(
                       formData.gender,
-                    )}
-                    onChange={handleChange}
+                    ) ?? ''}
+                    onChange={
+                      handleChange
+                    }
                     options={[
                       {
                         value: '',
@@ -1665,7 +2384,12 @@ export default function EditStudent() {
                       },
                       {
                         value: 'female',
-                        label: 'Female',
+                        label:
+                          'Female',
+                      },
+                      {
+                        value: 'other',
+                        label: 'Other',
                       },
                     ]}
                   />
@@ -1677,7 +2401,9 @@ export default function EditStudent() {
                     value={
                       formData.date_of_birth
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     icon={
                       <Calendar className="h-4 w-4" />
                     }
@@ -1689,7 +2415,9 @@ export default function EditStudent() {
                     value={
                       formData.place_of_birth
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
@@ -1698,7 +2426,9 @@ export default function EditStudent() {
                     value={
                       formData.nationality
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
@@ -1707,14 +2437,20 @@ export default function EditStudent() {
                     value={
                       formData.state_of_origin
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
                     label="LGA"
                     name="lga"
-                    value={formData.lga}
-                    onChange={handleChange}
+                    value={
+                      formData.lga
+                    }
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
@@ -1723,7 +2459,9 @@ export default function EditStudent() {
                     value={
                       formData.religion
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
@@ -1732,7 +2470,9 @@ export default function EditStudent() {
                     value={
                       formData.blood_group
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
@@ -1741,15 +2481,21 @@ export default function EditStudent() {
                     value={
                       formData.genotype
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
                     label="Email"
                     name="email"
                     type="email"
-                    value={formData.email}
-                    onChange={handleChange}
+                    value={
+                      formData.email
+                    }
+                    onChange={
+                      handleChange
+                    }
                     icon={
                       <Mail className="h-4 w-4" />
                     }
@@ -1762,7 +2508,9 @@ export default function EditStudent() {
                     value={
                       formData.phone_number
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     icon={
                       <Phone className="h-4 w-4" />
                     }
@@ -1794,7 +2542,9 @@ export default function EditStudent() {
                         formData.home_address ??
                         ''
                       }
-                      onChange={handleChange}
+                      onChange={
+                        handleChange
+                      }
                       rows={3}
                       className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition hover:border-blue-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                       placeholder="Enter home address"
@@ -1816,7 +2566,9 @@ export default function EditStudent() {
                         formData.residential_address ??
                         ''
                       }
-                      onChange={handleChange}
+                      onChange={
+                        handleChange
+                      }
                       rows={3}
                       className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition hover:border-blue-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                       placeholder="Enter residential address"
@@ -1828,7 +2580,8 @@ export default function EditStudent() {
           )}
 
           {/* ACADEMIC */}
-          {activeTab === 'academic' && (
+          {activeTab ===
+            'academic' && (
             <div className="space-y-6">
               <Section
                 title="Academic Placement"
@@ -1839,22 +2592,26 @@ export default function EditStudent() {
                 accent="blue"
               >
                 <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-                  {/* HUMAN READABLE CLASS SELECT */}
                   <div className="lg:col-span-2">
                     <SelectField
                       label="Class"
                       name="class_id"
                       value={
-                        formData.class_id ?? ''
+                        formData.class_id ??
+                        ''
                       }
-                      onChange={handleChange}
+                      onChange={
+                        handleChange
+                      }
                       disabled={
                         classesLoading
                       }
                       icon={
                         <GraduationCap className="h-4 w-4" />
                       }
-                      options={classOptions}
+                      options={
+                        classOptions
+                      }
                     />
 
                     <div className="mt-2 flex items-center gap-2">
@@ -1863,7 +2620,14 @@ export default function EditStudent() {
                       <p className="text-xs font-semibold text-slate-500">
                         {classesLoading
                           ? 'Loading available classes...'
-                          : `${classes.length} class${classes.length === 1 ? '' : 'es'} available`}
+                          : `${
+                              classes.length
+                            } class${
+                              classes.length ===
+                              1
+                                ? ''
+                                : 'es'
+                            } available`}
                       </p>
                     </div>
                   </div>
@@ -1874,7 +2638,9 @@ export default function EditStudent() {
                     </p>
 
                     <p className="mt-2 text-lg font-extrabold text-slate-900">
-                      {currentClassName}
+                      {
+                        currentClassName
+                      }
                     </p>
 
                     <p className="mt-1 text-xs font-medium text-slate-500">
@@ -1888,7 +2654,9 @@ export default function EditStudent() {
                     value={
                       formData.class_arm
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     placeholder="e.g. A"
                   />
 
@@ -1898,7 +2666,9 @@ export default function EditStudent() {
                     value={
                       formData.department
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     placeholder="e.g. Science"
                   />
 
@@ -1908,7 +2678,9 @@ export default function EditStudent() {
                     value={
                       formData.house_id
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     placeholder="Valid UUID or leave blank"
                   />
 
@@ -1918,7 +2690,9 @@ export default function EditStudent() {
                     value={
                       formData.club_id
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     placeholder="Valid UUID or leave blank"
                   />
 
@@ -1929,7 +2703,9 @@ export default function EditStudent() {
                     value={
                       formData.admission_date
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     icon={
                       <Calendar className="h-4 w-4" />
                     }
@@ -1939,66 +2715,46 @@ export default function EditStudent() {
                     label="Admission Status"
                     name="admission_status"
                     value={
-                      formData.admission_status
+                      normalizeAdmissionStatus(
+                        formData.admission_status,
+                      ) ?? ''
                     }
-                    onChange={handleChange}
-                    options={[
-                      {
-                        value: 'pending',
-                        label: 'Pending',
-                      },
-                      {
-                        value: 'active',
-                        label: 'Active',
-                      },
-                      {
-                        value: 'admitted',
-                        label: 'Admitted',
-                      },
-                      {
-                        value: 'graduated',
-                        label: 'Graduated',
-                      },
-                      {
-                        value: 'withdrawn',
-                        label: 'Withdrawn',
-                      },
-                      {
-                        value: 'transferred',
-                        label: 'Transferred',
-                      },
-                    ]}
+                    onChange={
+                      handleChange
+                    }
+                    options={
+                      ADMISSION_STATUS_OPTIONS.map(
+                        (option) => ({
+                          value:
+                            option.value,
+                          label:
+                            option.label,
+                        }),
+                      )
+                    }
                   />
 
                   <SelectField
                     label="Current Status"
                     name="current_status"
                     value={
-                      formData.current_status
+                      normalizeCurrentStatus(
+                        formData.current_status,
+                      ) ?? ''
                     }
-                    onChange={handleChange}
-                    options={[
-                      {
-                        value: 'active',
-                        label: 'Active',
-                      },
-                      {
-                        value: 'inactive',
-                        label: 'Inactive',
-                      },
-                      {
-                        value: 'graduated',
-                        label: 'Graduated',
-                      },
-                      {
-                        value: 'withdrawn',
-                        label: 'Withdrawn',
-                      },
-                      {
-                        value: 'transferred',
-                        label: 'Transferred',
-                      },
-                    ]}
+                    onChange={
+                      handleChange
+                    }
+                    options={
+                      CURRENT_STATUS_OPTIONS.map(
+                        (option) => ({
+                          value:
+                            option.value,
+                          label:
+                            option.label,
+                        }),
+                      )
+                    }
                   />
 
                   <Field
@@ -2007,7 +2763,9 @@ export default function EditStudent() {
                     value={
                       formData.previous_school
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
                 </div>
               </Section>
@@ -2027,7 +2785,9 @@ export default function EditStudent() {
                     value={
                       formData.bus_route_id
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     placeholder="Valid UUID or leave blank"
                   />
 
@@ -2037,7 +2797,9 @@ export default function EditStudent() {
                     value={
                       formData.pickup_location
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
                 </div>
 
@@ -2049,7 +2811,9 @@ export default function EditStudent() {
                       checked={Boolean(
                         formData.transportation_status,
                       )}
-                      onChange={handleChange}
+                      onChange={
+                        handleChange
+                      }
                       className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                     />
 
@@ -2071,7 +2835,9 @@ export default function EditStudent() {
                       checked={Boolean(
                         formData.transfer_status,
                       )}
-                      onChange={handleChange}
+                      onChange={
+                        handleChange
+                      }
                       className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
                     />
 
@@ -2098,9 +2864,7 @@ export default function EditStudent() {
                     </h3>
 
                     <p className="mt-1 text-sm leading-6 text-amber-800">
-                      Student ID, admission number, parent linkage,
-                      authentication account, branch, session and
-                      database history are protected from this form.
+                      Student ID, admission number, parent linkage, authentication account, branch, session and database history are protected from this form.
                     </p>
 
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -2111,14 +2875,16 @@ export default function EditStudent() {
                         'User Account',
                         'Branch',
                         'Session',
-                      ].map((item) => (
-                        <span
-                          key={item}
-                          className="rounded-full border border-amber-200 bg-white px-2.5 py-1 text-xs font-bold text-amber-800"
-                        >
-                          {item}
-                        </span>
-                      ))}
+                      ].map(
+                        (item) => (
+                          <span
+                            key={item}
+                            className="rounded-full border border-amber-200 bg-white px-2.5 py-1 text-xs font-bold text-amber-800"
+                          >
+                            {item}
+                          </span>
+                        ),
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2127,7 +2893,8 @@ export default function EditStudent() {
           )}
 
           {/* GUARDIAN */}
-          {activeTab === 'guardian' && (
+          {activeTab ===
+            'guardian' && (
             <div className="space-y-6">
               <Section
                 title="Father / Primary Parent"
@@ -2144,7 +2911,9 @@ export default function EditStudent() {
                     value={
                       formData.father_name
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     icon={
                       <User className="h-4 w-4" />
                     }
@@ -2157,7 +2926,9 @@ export default function EditStudent() {
                     value={
                       formData.father_phone
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     icon={
                       <Phone className="h-4 w-4" />
                     }
@@ -2170,7 +2941,9 @@ export default function EditStudent() {
                     value={
                       formData.father_email
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     icon={
                       <Mail className="h-4 w-4" />
                     }
@@ -2182,7 +2955,9 @@ export default function EditStudent() {
                     value={
                       formData.father_occupation
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
                 </div>
               </Section>
@@ -2202,7 +2977,9 @@ export default function EditStudent() {
                     value={
                       formData.mother_name
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     icon={
                       <User className="h-4 w-4" />
                     }
@@ -2215,7 +2992,9 @@ export default function EditStudent() {
                     value={
                       formData.mother_phone
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     icon={
                       <Phone className="h-4 w-4" />
                     }
@@ -2228,7 +3007,9 @@ export default function EditStudent() {
                     value={
                       formData.mother_email
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     icon={
                       <Mail className="h-4 w-4" />
                     }
@@ -2240,7 +3021,9 @@ export default function EditStudent() {
                     value={
                       formData.mother_occupation
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
                 </div>
               </Section>
@@ -2260,7 +3043,9 @@ export default function EditStudent() {
                     value={
                       formData.guardian_name
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
@@ -2269,7 +3054,9 @@ export default function EditStudent() {
                     value={
                       formData.guardian_relationship
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
@@ -2279,7 +3066,9 @@ export default function EditStudent() {
                     value={
                       formData.guardian_phone
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     icon={
                       <Phone className="h-4 w-4" />
                     }
@@ -2292,7 +3081,9 @@ export default function EditStudent() {
                     value={
                       formData.guardian_email
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                     icon={
                       <Mail className="h-4 w-4" />
                     }
@@ -2313,7 +3104,9 @@ export default function EditStudent() {
                         formData.guardian_address ??
                         ''
                       }
-                      onChange={handleChange}
+                      onChange={
+                        handleChange
+                      }
                       rows={3}
                       className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition hover:border-blue-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                     />
@@ -2336,7 +3129,9 @@ export default function EditStudent() {
                     value={
                       formData.emergency_contact_name
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
@@ -2346,7 +3141,9 @@ export default function EditStudent() {
                     value={
                       formData.emergency_contact_phone
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
@@ -2355,7 +3152,9 @@ export default function EditStudent() {
                     value={
                       formData.emergency_contact_relationship
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
                 </div>
               </Section>
@@ -2363,7 +3162,8 @@ export default function EditStudent() {
           )}
 
           {/* MEDICAL */}
-          {activeTab === 'medical' && (
+          {activeTab ===
+            'medical' && (
             <div className="space-y-6">
               <Section
                 title="Medical Information"
@@ -2380,7 +3180,9 @@ export default function EditStudent() {
                     value={
                       formData.doctor_name
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <Field
@@ -2389,7 +3191,9 @@ export default function EditStudent() {
                     value={
                       formData.hospital_name
                     }
-                    onChange={handleChange}
+                    onChange={
+                      handleChange
+                    }
                   />
 
                   <div>
@@ -2407,7 +3211,9 @@ export default function EditStudent() {
                         formData.allergies ??
                         ''
                       }
-                      onChange={handleChange}
+                      onChange={
+                        handleChange
+                      }
                       rows={4}
                       className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition hover:border-rose-200 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10"
                       placeholder="List known allergies"
@@ -2429,7 +3235,9 @@ export default function EditStudent() {
                         formData.medical_conditions ??
                         ''
                       }
-                      onChange={handleChange}
+                      onChange={
+                        handleChange
+                      }
                       rows={4}
                       className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition hover:border-rose-200 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10"
                       placeholder="Known medical conditions"
@@ -2451,7 +3259,9 @@ export default function EditStudent() {
                         formData.special_needs ??
                         ''
                       }
-                      onChange={handleChange}
+                      onChange={
+                        handleChange
+                      }
                       rows={4}
                       className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition hover:border-rose-200 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10"
                       placeholder="Learning, accessibility or other special needs"
@@ -2501,7 +3311,9 @@ export default function EditStudent() {
                 <button
                   type="button"
                   onClick={() =>
-                    navigate(`/students/${id}`)
+                    navigate(
+                      `/students/${id}`,
+                    )
                   }
                   disabled={saving}
                   className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
