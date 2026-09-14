@@ -26,6 +26,7 @@ import ClassesList from './pages/classes/ClassesList';
 import BranchesList from './pages/branches/BranchesList';
 import ReportsDashboard from './pages/reports/ReportsDashboard';
 import Settings from './pages/settings/Settings';
+import SettingsHub from './pages/settings/SettingsHub';
 import Profile from './pages/profile/Profile';
 import NotFound from './pages/error/NotFound';
 import AddTeacher from './pages/teachers/AddTeacher';
@@ -169,7 +170,7 @@ const AppRoutes: React.FC = () => (
       <Route path="parents/create" element={<ParentManagement />} />
       <Route path="branches" element={<BranchesList />} />
       <Route path="reports" element={<ReportsDashboard />} />
-      <Route path="settings" element={<Settings />} />
+      <Route path="settings" element={<SettingsHub />} />
       <Route path="profile" element={<Profile />} />
       <Route index element={<DashboardRouter />} />
     </Route>

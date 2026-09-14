@@ -22,6 +22,7 @@ export interface Student {
   created_at: string;
   class_name?: string;
   class_id?: string;
+  class_code?: string;
   blood_group?: string;
   genotype?: string;
   home_address?: string;
@@ -35,7 +36,6 @@ export interface Student {
   residential_address?: string;
   current_status?: string;
   admission_status?: string;
-  admission_number?: string;
 }
 
 export interface Class {
@@ -103,6 +103,20 @@ export const useAdminData = () => {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
 
+  /*
+   * IMPORTANT:
+   * Do not use an artificial .limit(200) for students.
+   *
+   * The previous query stopped at exactly 200 records, which caused
+   * the Admin Assistant dashboard to report:
+   *
+   *     Total Students = 200
+   *
+   * even when the database contained a different number of students.
+   *
+   * The dashboard statistics below are calculated from the complete
+   * student array returned by fetchStudents().
+   */
   const stats = {
     students: students.length,
     classes: classes.length,
@@ -124,22 +138,26 @@ export const useAdminData = () => {
             level
           )
         `)
-        .order('first_name')
-        .limit(200);
+        .order('first_name');
 
-      if (error) throw error;
-      
-      const mappedStudents = data?.map((student: any) => ({
-        ...student,
-        class_name: student.classes?.name || 'Not Assigned',
-        class_code: student.classes?.code || 'N/A',
-        class_id: student.class_id,
-      })) || [];
-      
+      if (error) {
+        throw error;
+      }
+
+      const mappedStudents: Student[] =
+        data?.map((student: any) => ({
+          ...student,
+          class_name: student.classes?.name || 'Not Assigned',
+          class_code: student.classes?.code || 'N/A',
+          class_id: student.class_id,
+        })) || [];
+
       setStudents(mappedStudents);
+
       return mappedStudents;
     } catch (error) {
       console.error('Error fetching students:', error);
+      setStudents([]);
       return [];
     }
   }, []);
@@ -151,11 +169,18 @@ export const useAdminData = () => {
         .select('*')
         .order('name');
 
-      if (error) throw error;
-      setClasses(data || []);
-      return data || [];
+      if (error) {
+        throw error;
+      }
+
+      const result = data || [];
+
+      setClasses(result);
+
+      return result;
     } catch (error) {
       console.error('Error fetching classes:', error);
+      setClasses([]);
       return [];
     }
   }, []);
@@ -167,11 +192,18 @@ export const useAdminData = () => {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setSessions(data || []);
-      return data || [];
+      if (error) {
+        throw error;
+      }
+
+      const result = data || [];
+
+      setSessions(result);
+
+      return result;
     } catch (error) {
       console.error('Error fetching sessions:', error);
+      setSessions([]);
       return [];
     }
   }, []);
@@ -183,9 +215,15 @@ export const useAdminData = () => {
         .select('*')
         .order('collection_date', { ascending: false });
 
-      if (error) throw error;
-      setCollections(data || []);
-      return data || [];
+      if (error) {
+        throw error;
+      }
+
+      const result = data || [];
+
+      setCollections(result);
+
+      return result;
     } catch (error) {
       console.error('Error fetching collections:', error);
       setCollections([]);
@@ -200,9 +238,15 @@ export const useAdminData = () => {
         .select('*')
         .order('item_name');
 
-      if (error) throw error;
-      setInventory(data || []);
-      return data || [];
+      if (error) {
+        throw error;
+      }
+
+      const result = data || [];
+
+      setInventory(result);
+
+      return result;
     } catch (error) {
       console.error('Error fetching inventory:', error);
       setInventory([]);
@@ -218,9 +262,15 @@ export const useAdminData = () => {
         .order('created_at', { ascending: false })
         .limit(100);
 
-      if (error) throw error;
-      setActivityLogs(data || []);
-      return data || [];
+      if (error) {
+        throw error;
+      }
+
+      const result = data || [];
+
+      setActivityLogs(result);
+
+      return result;
     } catch (error) {
       console.error('Error fetching activity logs:', error);
       setActivityLogs([]);
@@ -230,6 +280,7 @@ export const useAdminData = () => {
 
   const refreshData = useCallback(async () => {
     setLoading(true);
+
     try {
       await Promise.all([
         fetchStudents(),
@@ -240,15 +291,22 @@ export const useAdminData = () => {
         fetchActivityLogs(),
       ]);
     } catch (error) {
-      console.error('Error refreshing data:', error);
+      console.error('Error refreshing admin assistant data:', error);
     } finally {
       setLoading(false);
     }
-  }, [fetchStudents, fetchClasses, fetchSessions, fetchCollections, fetchInventory, fetchActivityLogs]);
+  }, [
+    fetchStudents,
+    fetchClasses,
+    fetchSessions,
+    fetchCollections,
+    fetchInventory,
+    fetchActivityLogs,
+  ]);
 
   useEffect(() => {
     refreshData();
-  }, []);
+  }, [refreshData]);
 
   return {
     students,
@@ -259,7 +317,9 @@ export const useAdminData = () => {
     activityLogs,
     stats,
     loading,
+
     refreshData,
+
     fetchStudents,
     fetchClasses,
     fetchSessions,

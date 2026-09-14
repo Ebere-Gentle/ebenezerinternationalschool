@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -22,8 +23,6 @@ import { supabase } from '../../config/supabase/client';
 
 import schoolLogo from '../../assets/school-logo.png';
 
-import confusedGirl from '../../assets/first-image.png';
-import appPayment from '../../assets/second-image.png';
 import happyApp from '../../assets/third-image.png';
 import girlsImage from '../../assets/login.png';
 
@@ -62,35 +61,27 @@ const Login: React.FC = () => {
   // FORGOT PASSWORD STATE
   // ==========================================================
 
-  const [showForgotPassword, setShowForgotPassword] =
-    useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
 
   const [resetEmail, setResetEmail] = useState('');
   const [resetSent, setResetSent] = useState(false);
-  const [resettingPassword, setResettingPassword] =
-    useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
 
-  const [resetError, setResetError] = useState<string | null>(
-    null
-  );
+  const [resetError, setResetError] = useState<string | null>(null);
 
   // ==========================================================
   // RESET PASSWORD STATE
   // ==========================================================
 
-  const [showResetPassword, setShowResetPassword] =
-    useState(false);
+  const [showResetPassword, setShowResetPassword] = useState(false);
 
   const [resetToken, setResetToken] = useState('');
 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  const [showNewPassword, setShowNewPassword] =
-    useState(false);
-
-  const [showConfirmPassword, setShowConfirmPassword] =
-    useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [resetting, setResetting] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
@@ -111,14 +102,6 @@ const Login: React.FC = () => {
 
   const storyImages: StoryImage[] = [
     {
-      src: confusedGirl,
-      alt: 'Student overwhelmed by school fee and payment documents',
-    },
-    {
-      src: appPayment,
-      alt: 'Student being introduced to the Ebenezer International School app',
-    },
-    {
       src: happyApp,
       alt: 'Happy student using the Ebenezer International School app',
     },
@@ -134,11 +117,9 @@ const Login: React.FC = () => {
 
   const STORY_DURATION = 24 * 60 * 60 * 1000;
 
-  const STORY_INDEX_KEY =
-    'ebenezer_login_story_index';
+  const STORY_INDEX_KEY = 'ebenezer_login_story_index';
 
-  const STORY_TIME_KEY =
-    'ebenezer_login_story_timestamp';
+  const STORY_TIME_KEY = 'ebenezer_login_story_timestamp';
 
   // ==========================================================
   // GET INITIAL STORY
@@ -146,21 +127,16 @@ const Login: React.FC = () => {
 
   const getInitialStory = (): number => {
     try {
-      const savedIndex =
-        localStorage.getItem(STORY_INDEX_KEY);
+      const savedIndex = localStorage.getItem(STORY_INDEX_KEY);
 
-      const savedTimestamp =
-        localStorage.getItem(STORY_TIME_KEY);
+      const savedTimestamp = localStorage.getItem(STORY_TIME_KEY);
 
       // FIRST VISIT
       if (
         savedIndex === null ||
         savedTimestamp === null
       ) {
-        localStorage.setItem(
-          STORY_INDEX_KEY,
-          '0'
-        );
+        localStorage.setItem(STORY_INDEX_KEY, '0');
 
         localStorage.setItem(
           STORY_TIME_KEY,
@@ -180,10 +156,7 @@ const Login: React.FC = () => {
         index < 0 ||
         index >= storyImages.length
       ) {
-        localStorage.setItem(
-          STORY_INDEX_KEY,
-          '0'
-        );
+        localStorage.setItem(STORY_INDEX_KEY, '0');
 
         localStorage.setItem(
           STORY_TIME_KEY,
@@ -197,8 +170,7 @@ const Login: React.FC = () => {
       const elapsed = Date.now() - timestamp;
 
       if (elapsed >= STORY_DURATION) {
-        const nextIndex =
-          (index + 1) % storyImages.length;
+        const nextIndex = (index + 1) % storyImages.length;
 
         localStorage.setItem(
           STORY_INDEX_KEY,
@@ -253,13 +225,11 @@ const Login: React.FC = () => {
           return;
         }
 
-        const elapsed =
-          Date.now() - timestamp;
+        const elapsed = Date.now() - timestamp;
 
         if (elapsed >= STORY_DURATION) {
           const nextIndex =
-            (savedIndex + 1) %
-            storyImages.length;
+            (savedIndex + 1) % storyImages.length;
 
           localStorage.setItem(
             STORY_INDEX_KEY,
@@ -297,31 +267,26 @@ const Login: React.FC = () => {
   // CURRENT / NEXT IMAGE
   // ==========================================================
 
-  const currentImage =
-    storyImages[currentStory];
+  const currentImage = storyImages[currentStory];
 
   const nextStory =
-    (currentStory + 1) %
-    storyImages.length;
+    (currentStory + 1) % storyImages.length;
 
-  const nextImage =
-    storyImages[nextStory];
+  const nextImage = storyImages[nextStory];
 
   // ==========================================================
   // PASSWORD RECOVERY TOKEN
   // ==========================================================
 
   useEffect(() => {
-    const hashParams =
-      new URLSearchParams(
-        window.location.hash.substring(1)
-      );
+    const hashParams = new URLSearchParams(
+      window.location.hash.substring(1)
+    );
 
     const accessToken =
       hashParams.get('access_token');
 
-    const type =
-      hashParams.get('type');
+    const type = hashParams.get('type');
 
     if (
       accessToken &&
@@ -354,10 +319,7 @@ const Login: React.FC = () => {
       !showResetPassword &&
       !showForgotPassword
     ) {
-      const roleMap: Record<
-        string,
-        string
-      > = {
+      const roleMap: Record<string, string> = {
         admin: '/admin/dashboard',
         teacher: '/teacher/dashboard',
         student: '/student/dashboard',
@@ -370,8 +332,7 @@ const Login: React.FC = () => {
       };
 
       const redirectPath =
-        roleMap[user.role] ||
-        '/dashboard';
+        roleMap[user.role] || '/dashboard';
 
       navigate(
         redirectPath,
@@ -398,13 +359,10 @@ const Login: React.FC = () => {
 
     setLoginError(null);
 
-    const email =
-      formData.email.trim();
+    const email = formData.email.trim();
 
-    const password =
-      formData.password;
+    const password = formData.password;
 
-    // REQUIRED FIELDS
     if (!email || !password) {
       const message =
         'Please fill in all fields';
@@ -415,7 +373,6 @@ const Login: React.FC = () => {
       return;
     }
 
-    // EMAIL VALIDATION
     const emailRegex =
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -429,7 +386,6 @@ const Login: React.FC = () => {
       return;
     }
 
-    // PASSWORD VALIDATION
     if (password.length < 6) {
       const message =
         'Password must be at least 6 characters';
@@ -449,14 +405,7 @@ const Login: React.FC = () => {
           password
         );
 
-      // ======================================================
-      // ROLE REDIRECT
-      // ======================================================
-
-      const roleMap: Record<
-        string,
-        string
-      > = {
+      const roleMap: Record<string, string> = {
         admin: '/admin/dashboard',
         teacher: '/teacher/dashboard',
         student: '/student/dashboard',
@@ -469,9 +418,8 @@ const Login: React.FC = () => {
       };
 
       const redirectPath =
-        roleMap[
-          loggedInUser.role
-        ] || '/dashboard';
+        roleMap[loggedInUser.role] ||
+        '/dashboard';
 
       toast.success(
         `Welcome back, ${
@@ -494,8 +442,7 @@ const Login: React.FC = () => {
         'Invalid email or password. Please try again.';
 
       const rawMessage =
-        error?.message ||
-        '';
+        error?.message || '';
 
       const message =
         rawMessage.toLowerCase();
@@ -535,20 +482,13 @@ const Login: React.FC = () => {
       ) {
         errorMessage =
           'Network error. Please check your internet connection and try again.';
-      } else if (
-        rawMessage
-      ) {
-        errorMessage =
-          rawMessage;
+      } else if (rawMessage) {
+        errorMessage = rawMessage;
       }
 
-      setLoginError(
-        errorMessage
-      );
+      setLoginError(errorMessage);
 
-      toast.error(
-        errorMessage
-      );
+      toast.error(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
@@ -565,8 +505,7 @@ const Login: React.FC = () => {
 
     setResetError(null);
 
-    const email =
-      resetEmail.trim();
+    const email = resetEmail.trim();
 
     if (!email) {
       const message =
@@ -594,9 +533,7 @@ const Login: React.FC = () => {
     setResettingPassword(true);
 
     try {
-      const {
-        error,
-      } =
+      const { error } =
         await supabase.auth.resetPasswordForEmail(
           email,
           {
@@ -693,12 +630,9 @@ const Login: React.FC = () => {
     setResetting(true);
 
     try {
-      const {
-        error,
-      } =
+      const { error } =
         await supabase.auth.updateUser({
-          password:
-            newPassword,
+          password: newPassword,
         });
 
       if (error) {
@@ -816,9 +750,7 @@ const Login: React.FC = () => {
             </div>
           ) : (
             <form
-              onSubmit={
-                handleForgotPassword
-              }
+              onSubmit={handleForgotPassword}
               className="space-y-5"
             >
 
@@ -976,13 +908,9 @@ const Login: React.FC = () => {
               </div>
 
               <form
-                onSubmit={
-                  handleResetPassword
-                }
+                onSubmit={handleResetPassword}
                 className="space-y-5"
               >
-
-                {/* NEW PASSWORD */}
 
                 <div>
 
@@ -1031,8 +959,6 @@ const Login: React.FC = () => {
 
                   </div>
                 </div>
-
-                {/* CONFIRM PASSWORD */}
 
                 <div>
 
@@ -1126,9 +1052,7 @@ const Login: React.FC = () => {
   const renderLogin = () => (
     <div className="grid min-h-screen lg:grid-cols-2">
 
-      {/* ======================================================
-          LEFT SIDE
-      ====================================================== */}
+      {/* LEFT SIDE */}
 
       <div className="relative hidden min-h-screen overflow-hidden lg:flex">
 
@@ -1192,9 +1116,7 @@ const Login: React.FC = () => {
 
       </div>
 
-      {/* ======================================================
-          RIGHT SIDE
-      ====================================================== */}
+      {/* RIGHT SIDE */}
 
       <div className="flex min-h-screen items-center justify-center bg-white p-6 sm:p-10">
 
@@ -1405,9 +1327,7 @@ const Login: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  setShowForgotPassword(
-                    true
-                  );
+                  setShowForgotPassword(true);
 
                   setResetEmail('');
                   setResetError(null);
@@ -1451,9 +1371,7 @@ const Login: React.FC = () => {
 
           </form>
 
-          {/* ==================================================
-              NEW REGISTRATION / UPDATE
-          ================================================== */}
+          {/* NEW REGISTRATION / UPDATE */}
 
           <div className="mt-6 rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-indigo-50 p-4 shadow-sm">
 
@@ -1476,7 +1394,6 @@ const Login: React.FC = () => {
                 className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-4 text-sm font-semibold text-blue-700 shadow-sm transition-all hover:border-blue-300 hover:bg-blue-50 hover:shadow-md"
               >
                 <ExternalLink className="h-4 w-4" />
-
                 New Registration / Update Details
               </a>
 
@@ -1489,9 +1406,7 @@ const Login: React.FC = () => {
           <div className="mt-8 border-t border-gray-100 pt-4 text-center">
 
             <p className="text-xs text-gray-400">
-              ©{' '}
-              {new Date().getFullYear()}{' '}
-              Ebenezer International School.
+              © {new Date().getFullYear()} Ebenezer International School.
               All rights reserved.
             </p>
 
@@ -1520,3 +1435,4 @@ const Login: React.FC = () => {
 };
 
 export default Login;
+

@@ -19,7 +19,6 @@ import {
   GraduationCap,
   ShieldCheck,
   Bus,
-  Home,
   Stethoscope,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -169,14 +168,6 @@ const displayValue = (value: unknown): string => {
   return String(value);
 };
 
-/**
- * Normalize gender for PostgreSQL enum.
- *
- * The UI displays "Male" / "Female", while PostgreSQL normally
- * stores enum values as lowercase "male" / "female".
- *
- * This also handles older records containing "Male" / "Female".
- */
 const normalizeGender = (value: unknown): string | null => {
   const v = String(value ?? '').trim().toLowerCase();
 
@@ -188,9 +179,6 @@ const normalizeGender = (value: unknown): string | null => {
   return v;
 };
 
-/**
- * Build guardian JSON.
- */
 const buildGuardianInfo = (data: any) =>
   cleanObject({
     father_name: nullable(data.father_name),
@@ -210,9 +198,6 @@ const buildGuardianInfo = (data: any) =>
     relationship: nullable(data.guardian_relationship),
   });
 
-/**
- * Build emergency contact JSON.
- */
 const buildEmergencyContact = (data: any) =>
   cleanObject({
     name: nullable(data.emergency_contact_name),
@@ -223,12 +208,6 @@ const buildEmergencyContact = (data: any) =>
     ),
   });
 
-/**
- * Automatically find the most useful class display name.
- *
- * This allows the page to work with common class schemas such as:
- * name, class_name, className, title, label.
- */
 const getClassDisplayName = (classItem: any): string => {
   if (!classItem) return 'Unknown Class';
 
@@ -446,22 +425,12 @@ export default function EditStudent() {
   const [saving, setSaving] = useState(false);
 
   const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(
-    null,
-  );
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<
     'personal' | 'academic' | 'guardian' | 'medical'
   >('personal');
 
-  /**
-   * Load classes.
-   *
-   * We select * so this works with different class schemas,
-   * then automatically determine the display name.
-   *
-   * The actual UUID remains the option value.
-   */
   useEffect(() => {
     let cancelled = false;
 
@@ -479,10 +448,6 @@ export default function EditStudent() {
         if (error) {
           console.error('Failed to load classes:', error);
 
-          /**
-           * Some databases may not have a "name" column.
-           * Retry without ordering so we can still load the data.
-           */
           const retry = await supabase
             .from('classes')
             .select('*');
@@ -519,9 +484,6 @@ export default function EditStudent() {
     };
   }, []);
 
-  /**
-   * Load student.
-   */
   useEffect(() => {
     if (!id) {
       setLoading(false);
@@ -567,9 +529,6 @@ export default function EditStudent() {
         setFormData({
           ...data,
 
-          /**
-           * Normalize gender immediately.
-           */
           gender: normalizeGender(data.gender),
 
           date_of_birth: formatDateForInput(
@@ -621,9 +580,6 @@ export default function EditStudent() {
     };
   }, [id]);
 
-  /**
-   * Revoke preview URL.
-   */
   useEffect(() => {
     return () => {
       if (photoPreview?.startsWith('blob:')) {
@@ -632,14 +588,6 @@ export default function EditStudent() {
     };
   }, [photoPreview]);
 
-  /**
-   * Class options.
-   *
-   * IMPORTANT:
-   *
-   * value = UUID
-   * label = human readable class name
-   */
   const classOptions = useMemo(() => {
     return [
       {
@@ -662,9 +610,6 @@ export default function EditStudent() {
     ];
   }, [classes, classesLoading]);
 
-  /**
-   * Current class display name.
-   */
   const currentClassName = useMemo(() => {
     const currentId = String(formData.class_id ?? '');
 
@@ -678,16 +623,9 @@ export default function EditStudent() {
       return getClassDisplayName(found);
     }
 
-    /**
-     * If the class isn't returned by the normal list,
-     * show a safe fallback instead of displaying the UUID.
-     */
     return 'Current class';
   }, [classes, formData.class_id]);
 
-  /**
-   * Build safe PATCH payload.
-   */
   const safeEditablePayload = useMemo(() => {
     const payload: Record<string, any> = {};
 
@@ -707,9 +645,6 @@ export default function EditStudent() {
       payload[field] = formData[field];
     }
 
-    /**
-     * UUID fields.
-     */
     for (const field of UUID_FIELDS) {
       if (!(field in formData)) continue;
 
@@ -720,9 +655,6 @@ export default function EditStudent() {
       }
     }
 
-    /**
-     * Text fields.
-     */
     const safeTextFields = [
       'middle_name',
       'other_names',
@@ -755,9 +687,6 @@ export default function EditStudent() {
       payload[field] = nullable(formData[field]);
     }
 
-    /**
-     * Date fields.
-     */
     if ('date_of_birth' in formData) {
       const value = safeDate(formData.date_of_birth);
 
@@ -774,34 +703,19 @@ export default function EditStudent() {
       }
     }
 
-    /**
-     * Gender enum.
-     */
     if ('gender' in formData) {
       payload.gender = normalizeGender(formData.gender);
     }
 
-    /**
-     * Guardian JSON.
-     */
     payload.guardian_info = buildGuardianInfo(formData);
 
-    /**
-     * Emergency JSON.
-     */
     payload.emergency_contact =
       buildEmergencyContact(formData);
 
-    /**
-     * Preserve documents.
-     */
     if (Array.isArray(formData.documents)) {
       payload.documents = formData.documents;
     }
 
-    /**
-     * Preserve structured medical info.
-     */
     if (
       formData.medical_info !== undefined &&
       formData.medical_info !== null &&
@@ -814,9 +728,6 @@ export default function EditStudent() {
     return cleanObject(payload);
   }, [formData]);
 
-  /**
-   * Validate before database update.
-   */
   const validatePayload = (
     payload: Record<string, any>,
   ): {
@@ -864,9 +775,6 @@ export default function EditStudent() {
     return { valid: true };
   };
 
-  /**
-   * Input handler.
-   */
   const handleChange = (
     event: React.ChangeEvent<
       HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
@@ -888,9 +796,6 @@ export default function EditStudent() {
     }));
   };
 
-  /**
-   * Photo preview.
-   */
   const handlePhotoChange = (
     event: React.ChangeEvent<HTMLInputElement>,
   ) => {
@@ -913,9 +818,7 @@ export default function EditStudent() {
     }
 
     setPhotoFile(file);
-    setPhotoPreview(
-      URL.createObjectURL(file),
-    );
+    setPhotoPreview(URL.createObjectURL(file));
   };
 
   const removeSelectedPhoto = () => {
@@ -932,15 +835,93 @@ export default function EditStudent() {
   };
 
   /**
-   * Submit.
+   * Upload student photo to the existing
+   * public Supabase `student-photos` bucket.
+   *
+   * Files are stored under:
+   *
+   * students/{student UUID}/profile-{timestamp}.{extension}
    */
+  const uploadStudentPhoto = async (
+    file: File,
+    studentId: string,
+  ): Promise<string> => {
+    if (!file.type.startsWith('image/')) {
+      throw new Error(
+        'Please select a valid image file.',
+      );
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      throw new Error(
+        'Photo must be 5MB or smaller.',
+      );
+    }
+
+    const extension =
+      file.name.split('.').pop()?.toLowerCase() ||
+      'jpg';
+
+    const allowedExtensions = [
+      'jpg',
+      'jpeg',
+      'png',
+      'webp',
+    ];
+
+    const safeExtension =
+      allowedExtensions.includes(extension)
+        ? extension
+        : 'jpg';
+
+    const filePath =
+      `students/${studentId}/profile-${Date.now()}.${safeExtension}`;
+
+    const { error: uploadError } =
+      await supabase.storage
+        .from('student-photos')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          contentType: file.type,
+          upsert: false,
+        });
+
+    if (uploadError) {
+      console.error(
+        'STUDENT PHOTO UPLOAD ERROR:',
+        uploadError,
+      );
+
+      throw new Error(
+        uploadError.message ||
+          'Failed to upload student photo.',
+      );
+    }
+
+    const {
+      data: { publicUrl },
+    } = supabase.storage
+      .from('student-photos')
+      .getPublicUrl(filePath);
+
+    if (!publicUrl) {
+      throw new Error(
+        'Photo uploaded, but the public URL could not be generated.',
+      );
+    }
+
+    return publicUrl;
+  };
+
   const handleSubmit = async (
     event: React.FormEvent<HTMLFormElement>,
   ) => {
     event.preventDefault();
 
     if (!id || !student) {
-      toast.error('Student record is unavailable.');
+      toast.error(
+        'Student record is unavailable.',
+      );
       return;
     }
 
@@ -964,9 +945,6 @@ export default function EditStudent() {
       return;
     }
 
-    /**
-     * Class must either be a valid UUID or null.
-     */
     if (
       formData.class_id &&
       !isValidUUID(formData.class_id)
@@ -982,15 +960,42 @@ export default function EditStudent() {
     setSaving(true);
 
     try {
+      /**
+       * Upload the photo BEFORE updating the student.
+       *
+       * This ensures passport_url is only changed
+       * when the storage upload succeeds.
+       */
+      let uploadedPhotoUrl: string | null = null;
+
+      if (photoFile) {
+        try {
+          uploadedPhotoUrl =
+            await uploadStudentPhoto(
+              photoFile,
+              id,
+            );
+        } catch (photoError: any) {
+          console.error(
+            'Student photo upload failed:',
+            photoError,
+          );
+
+          toast.error(
+            photoError?.message ||
+              'Failed to upload student photo.',
+          );
+
+          return;
+        }
+      }
+
       const payload: Record<string, any> = {
         ...safeEditablePayload,
 
         first_name: firstName,
         last_name: lastName,
 
-        /**
-         * Critical enum fix.
-         */
         gender: normalizeGender(
           formData.gender,
         ),
@@ -1010,7 +1015,9 @@ export default function EditStudent() {
           ).trim() || 'active',
 
         transfer_status:
-          Boolean(formData.transfer_status),
+          Boolean(
+            formData.transfer_status,
+          ),
 
         transportation_status:
           Boolean(
@@ -1022,8 +1029,14 @@ export default function EditStudent() {
       };
 
       /**
-       * Dates.
+       * Only update passport_url after
+       * the storage upload succeeded.
        */
+      if (uploadedPhotoUrl) {
+        payload.passport_url =
+          uploadedPhotoUrl;
+      }
+
       const dob = safeDate(
         formData.date_of_birth,
       );
@@ -1045,12 +1058,6 @@ export default function EditStudent() {
         delete payload.admission_date;
       }
 
-      /**
-       * UUIDs.
-       *
-       * The visible class dropdown contains names,
-       * but this sends the UUID to the database.
-       */
       for (const field of UUID_FIELDS) {
         if (!(field in formData)) continue;
 
@@ -1065,9 +1072,6 @@ export default function EditStudent() {
         }
       }
 
-      /**
-       * Protected fields.
-       */
       const PROTECTED_FIELDS = [
         'id',
         'student_id',
@@ -1086,18 +1090,12 @@ export default function EditStudent() {
         delete payload[field];
       }
 
-      /**
-       * Remove undefined values.
-       */
       Object.keys(payload).forEach((key) => {
         if (payload[key] === undefined) {
           delete payload[key];
         }
       });
 
-      /**
-       * Validate.
-       */
       const validation =
         validatePayload(payload);
 
@@ -1122,9 +1120,6 @@ export default function EditStudent() {
         payload,
       );
 
-      /**
-       * Database update.
-       */
       const {
         data: updatedStudent,
         error,
@@ -1263,13 +1258,20 @@ export default function EditStudent() {
           emergency.relationship ?? '',
       }));
 
-      toast.success(
-        'Student profile updated successfully.',
-      );
+      if (uploadedPhotoUrl) {
+        setPhotoFile(null);
+        setPhotoPreview(null);
 
-      if (photoFile) {
-        toast(
-          'Student details saved. Photo preview is ready, but storage upload is not configured on this page.',
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+
+        toast.success(
+          'Student profile and photo updated successfully.',
+        );
+      } else {
+        toast.success(
+          'Student profile updated successfully.',
         );
       }
 
@@ -1326,9 +1328,7 @@ export default function EditStudent() {
 
           <button
             type="button"
-            onClick={() =>
-              navigate('/students')
-            }
+            onClick={() => navigate('/students')}
             className="mt-6 inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-500/20 transition hover:bg-indigo-700"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -1378,7 +1378,6 @@ export default function EditStudent() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-slate-50 to-blue-50">
-      {/* HEADER */}
       <div className="sticky top-0 z-40 border-b border-white/70 bg-white/90 shadow-sm backdrop-blur-xl">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1453,7 +1452,6 @@ export default function EditStudent() {
           onSubmit={handleSubmit}
           className="space-y-6"
         >
-          {/* STUDENT HERO */}
           <div className="overflow-hidden rounded-[2rem] border border-white/70 bg-white shadow-xl shadow-indigo-100/60">
             <div className="relative overflow-hidden bg-gradient-to-br from-indigo-700 via-blue-700 to-violet-800 px-6 py-8 sm:px-8">
               <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-white/10 blur-2xl" />
@@ -1487,7 +1485,7 @@ export default function EditStudent() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/webp"
                     onChange={handlePhotoChange}
                     className="hidden"
                   />
@@ -1565,7 +1563,6 @@ export default function EditStudent() {
             </div>
           </div>
 
-          {/* TABS */}
           <div className="sticky top-[73px] z-30 -mx-4 border-y border-slate-200/70 bg-slate-50/90 px-4 py-2 backdrop-blur-xl sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
             <div className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-lg shadow-slate-200/30 sm:grid-cols-4">
               {tabs.map((tab) => {
@@ -1593,46 +1590,35 @@ export default function EditStudent() {
             </div>
           </div>
 
-          {/* PERSONAL */}
           {activeTab === 'personal' && (
             <div className="space-y-6">
               <Section
                 title="Personal Information"
                 description="Basic biographical information for the student."
-                icon={
-                  <User className="h-5 w-5" />
-                }
+                icon={<User className="h-5 w-5" />}
                 accent="indigo"
               >
                 <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
                   <Field
                     label="First Name"
                     name="first_name"
-                    value={
-                      formData.first_name
-                    }
+                    value={formData.first_name}
                     onChange={handleChange}
                     required
-                    icon={
-                      <User className="h-4 w-4" />
-                    }
+                    icon={<User className="h-4 w-4" />}
                   />
 
                   <Field
                     label="Middle Name"
                     name="middle_name"
-                    value={
-                      formData.middle_name
-                    }
+                    value={formData.middle_name}
                     onChange={handleChange}
                   />
 
                   <Field
                     label="Last Name"
                     name="last_name"
-                    value={
-                      formData.last_name
-                    }
+                    value={formData.last_name}
                     onChange={handleChange}
                     required
                   />
@@ -1640,9 +1626,7 @@ export default function EditStudent() {
                   <Field
                     label="Other Names"
                     name="other_names"
-                    value={
-                      formData.other_names
-                    }
+                    value={formData.other_names}
                     onChange={handleChange}
                   />
 
@@ -1656,8 +1640,7 @@ export default function EditStudent() {
                     options={[
                       {
                         value: '',
-                        label:
-                          'Select gender',
+                        label: 'Select gender',
                       },
                       {
                         value: 'male',
@@ -1674,39 +1657,29 @@ export default function EditStudent() {
                     label="Date of Birth"
                     name="date_of_birth"
                     type="date"
-                    value={
-                      formData.date_of_birth
-                    }
+                    value={formData.date_of_birth}
                     onChange={handleChange}
-                    icon={
-                      <Calendar className="h-4 w-4" />
-                    }
+                    icon={<Calendar className="h-4 w-4" />}
                   />
 
                   <Field
                     label="Place of Birth"
                     name="place_of_birth"
-                    value={
-                      formData.place_of_birth
-                    }
+                    value={formData.place_of_birth}
                     onChange={handleChange}
                   />
 
                   <Field
                     label="Nationality"
                     name="nationality"
-                    value={
-                      formData.nationality
-                    }
+                    value={formData.nationality}
                     onChange={handleChange}
                   />
 
                   <Field
                     label="State of Origin"
                     name="state_of_origin"
-                    value={
-                      formData.state_of_origin
-                    }
+                    value={formData.state_of_origin}
                     onChange={handleChange}
                   />
 
@@ -1720,27 +1693,21 @@ export default function EditStudent() {
                   <Field
                     label="Religion"
                     name="religion"
-                    value={
-                      formData.religion
-                    }
+                    value={formData.religion}
                     onChange={handleChange}
                   />
 
                   <Field
                     label="Blood Group"
                     name="blood_group"
-                    value={
-                      formData.blood_group
-                    }
+                    value={formData.blood_group}
                     onChange={handleChange}
                   />
 
                   <Field
                     label="Genotype"
                     name="genotype"
-                    value={
-                      formData.genotype
-                    }
+                    value={formData.genotype}
                     onChange={handleChange}
                   />
 
@@ -1750,22 +1717,16 @@ export default function EditStudent() {
                     type="email"
                     value={formData.email}
                     onChange={handleChange}
-                    icon={
-                      <Mail className="h-4 w-4" />
-                    }
+                    icon={<Mail className="h-4 w-4" />}
                   />
 
                   <Field
                     label="Phone Number"
                     name="phone_number"
                     type="tel"
-                    value={
-                      formData.phone_number
-                    }
+                    value={formData.phone_number}
                     onChange={handleChange}
-                    icon={
-                      <Phone className="h-4 w-4" />
-                    }
+                    icon={<Phone className="h-4 w-4" />}
                   />
                 </div>
               </Section>
@@ -1773,9 +1734,7 @@ export default function EditStudent() {
               <Section
                 title="Address"
                 description="Residential and home address information."
-                icon={
-                  <MapPin className="h-5 w-5" />
-                }
+                icon={<MapPin className="h-5 w-5" />}
                 accent="blue"
               >
                 <div className="grid gap-5">
@@ -1790,10 +1749,7 @@ export default function EditStudent() {
                     <textarea
                       id="home_address"
                       name="home_address"
-                      value={
-                        formData.home_address ??
-                        ''
-                      }
+                      value={formData.home_address ?? ''}
                       onChange={handleChange}
                       rows={3}
                       className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition hover:border-blue-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
@@ -1813,8 +1769,7 @@ export default function EditStudent() {
                       id="residential_address"
                       name="residential_address"
                       value={
-                        formData.residential_address ??
-                        ''
+                        formData.residential_address ?? ''
                       }
                       onChange={handleChange}
                       rows={3}
@@ -1827,30 +1782,22 @@ export default function EditStudent() {
             </div>
           )}
 
-          {/* ACADEMIC */}
           {activeTab === 'academic' && (
             <div className="space-y-6">
               <Section
                 title="Academic Placement"
                 description="Select the student's class by name. The database UUID is handled automatically."
-                icon={
-                  <GraduationCap className="h-5 w-5" />
-                }
+                icon={<GraduationCap className="h-5 w-5" />}
                 accent="blue"
               >
                 <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-                  {/* HUMAN READABLE CLASS SELECT */}
                   <div className="lg:col-span-2">
                     <SelectField
                       label="Class"
                       name="class_id"
-                      value={
-                        formData.class_id ?? ''
-                      }
+                      value={formData.class_id ?? ''}
                       onChange={handleChange}
-                      disabled={
-                        classesLoading
-                      }
+                      disabled={classesLoading}
                       icon={
                         <GraduationCap className="h-4 w-4" />
                       }
@@ -1885,9 +1832,7 @@ export default function EditStudent() {
                   <Field
                     label="Class Arm"
                     name="class_arm"
-                    value={
-                      formData.class_arm
-                    }
+                    value={formData.class_arm}
                     onChange={handleChange}
                     placeholder="e.g. A"
                   />
@@ -1895,9 +1840,7 @@ export default function EditStudent() {
                   <Field
                     label="Department"
                     name="department"
-                    value={
-                      formData.department
-                    }
+                    value={formData.department}
                     onChange={handleChange}
                     placeholder="e.g. Science"
                   />
@@ -1905,9 +1848,7 @@ export default function EditStudent() {
                   <Field
                     label="House ID"
                     name="house_id"
-                    value={
-                      formData.house_id
-                    }
+                    value={formData.house_id}
                     onChange={handleChange}
                     placeholder="Valid UUID or leave blank"
                   />
@@ -1915,9 +1856,7 @@ export default function EditStudent() {
                   <Field
                     label="Club ID"
                     name="club_id"
-                    value={
-                      formData.club_id
-                    }
+                    value={formData.club_id}
                     onChange={handleChange}
                     placeholder="Valid UUID or leave blank"
                   />
@@ -1926,21 +1865,15 @@ export default function EditStudent() {
                     label="Admission Date"
                     name="admission_date"
                     type="date"
-                    value={
-                      formData.admission_date
-                    }
+                    value={formData.admission_date}
                     onChange={handleChange}
-                    icon={
-                      <Calendar className="h-4 w-4" />
-                    }
+                    icon={<Calendar className="h-4 w-4" />}
                   />
 
                   <SelectField
                     label="Admission Status"
                     name="admission_status"
-                    value={
-                      formData.admission_status
-                    }
+                    value={formData.admission_status}
                     onChange={handleChange}
                     options={[
                       {
@@ -1973,9 +1906,7 @@ export default function EditStudent() {
                   <SelectField
                     label="Current Status"
                     name="current_status"
-                    value={
-                      formData.current_status
-                    }
+                    value={formData.current_status}
                     onChange={handleChange}
                     options={[
                       {
@@ -2004,9 +1935,7 @@ export default function EditStudent() {
                   <Field
                     label="Previous School"
                     name="previous_school"
-                    value={
-                      formData.previous_school
-                    }
+                    value={formData.previous_school}
                     onChange={handleChange}
                   />
                 </div>
@@ -2015,18 +1944,14 @@ export default function EditStudent() {
               <Section
                 title="Transport"
                 description="Student transportation and pickup information."
-                icon={
-                  <Bus className="h-5 w-5" />
-                }
+                icon={<Bus className="h-5 w-5" />}
                 accent="violet"
               >
                 <div className="grid gap-5 md:grid-cols-2">
                   <Field
                     label="Bus Route ID"
                     name="bus_route_id"
-                    value={
-                      formData.bus_route_id
-                    }
+                    value={formData.bus_route_id}
                     onChange={handleChange}
                     placeholder="Valid UUID or leave blank"
                   />
@@ -2034,9 +1959,7 @@ export default function EditStudent() {
                   <Field
                     label="Pickup Location"
                     name="pickup_location"
-                    value={
-                      formData.pickup_location
-                    }
+                    value={formData.pickup_location}
                     onChange={handleChange}
                   />
                 </div>
@@ -2126,62 +2049,45 @@ export default function EditStudent() {
             </div>
           )}
 
-          {/* GUARDIAN */}
           {activeTab === 'guardian' && (
             <div className="space-y-6">
               <Section
                 title="Father / Primary Parent"
                 description="Father or primary parent contact details."
-                icon={
-                  <Users className="h-5 w-5" />
-                }
+                icon={<Users className="h-5 w-5" />}
                 accent="indigo"
               >
                 <div className="grid gap-5 md:grid-cols-2">
                   <Field
                     label="Father's Name"
                     name="father_name"
-                    value={
-                      formData.father_name
-                    }
+                    value={formData.father_name}
                     onChange={handleChange}
-                    icon={
-                      <User className="h-4 w-4" />
-                    }
+                    icon={<User className="h-4 w-4" />}
                   />
 
                   <Field
                     label="Father's Phone"
                     name="father_phone"
                     type="tel"
-                    value={
-                      formData.father_phone
-                    }
+                    value={formData.father_phone}
                     onChange={handleChange}
-                    icon={
-                      <Phone className="h-4 w-4" />
-                    }
+                    icon={<Phone className="h-4 w-4" />}
                   />
 
                   <Field
                     label="Father's Email"
                     name="father_email"
                     type="email"
-                    value={
-                      formData.father_email
-                    }
+                    value={formData.father_email}
                     onChange={handleChange}
-                    icon={
-                      <Mail className="h-4 w-4" />
-                    }
+                    icon={<Mail className="h-4 w-4" />}
                   />
 
                   <Field
                     label="Father's Occupation"
                     name="father_occupation"
-                    value={
-                      formData.father_occupation
-                    }
+                    value={formData.father_occupation}
                     onChange={handleChange}
                   />
                 </div>
@@ -2190,56 +2096,40 @@ export default function EditStudent() {
               <Section
                 title="Mother / Secondary Parent"
                 description="Mother or secondary parent contact details."
-                icon={
-                  <Users className="h-5 w-5" />
-                }
+                icon={<Users className="h-5 w-5" />}
                 accent="violet"
               >
                 <div className="grid gap-5 md:grid-cols-2">
                   <Field
                     label="Mother's Name"
                     name="mother_name"
-                    value={
-                      formData.mother_name
-                    }
+                    value={formData.mother_name}
                     onChange={handleChange}
-                    icon={
-                      <User className="h-4 w-4" />
-                    }
+                    icon={<User className="h-4 w-4" />}
                   />
 
                   <Field
                     label="Mother's Phone"
                     name="mother_phone"
                     type="tel"
-                    value={
-                      formData.mother_phone
-                    }
+                    value={formData.mother_phone}
                     onChange={handleChange}
-                    icon={
-                      <Phone className="h-4 w-4" />
-                    }
+                    icon={<Phone className="h-4 w-4" />}
                   />
 
                   <Field
                     label="Mother's Email"
                     name="mother_email"
                     type="email"
-                    value={
-                      formData.mother_email
-                    }
+                    value={formData.mother_email}
                     onChange={handleChange}
-                    icon={
-                      <Mail className="h-4 w-4" />
-                    }
+                    icon={<Mail className="h-4 w-4" />}
                   />
 
                   <Field
                     label="Mother's Occupation"
                     name="mother_occupation"
-                    value={
-                      formData.mother_occupation
-                    }
+                    value={formData.mother_occupation}
                     onChange={handleChange}
                   />
                 </div>
@@ -2248,27 +2138,21 @@ export default function EditStudent() {
               <Section
                 title="Guardian"
                 description="Use this section when a guardian is responsible for the student."
-                icon={
-                  <User className="h-5 w-5" />
-                }
+                icon={<User className="h-5 w-5" />}
                 accent="blue"
               >
                 <div className="grid gap-5 md:grid-cols-2">
                   <Field
                     label="Guardian Name"
                     name="guardian_name"
-                    value={
-                      formData.guardian_name
-                    }
+                    value={formData.guardian_name}
                     onChange={handleChange}
                   />
 
                   <Field
                     label="Relationship"
                     name="guardian_relationship"
-                    value={
-                      formData.guardian_relationship
-                    }
+                    value={formData.guardian_relationship}
                     onChange={handleChange}
                   />
 
@@ -2276,26 +2160,18 @@ export default function EditStudent() {
                     label="Guardian Phone"
                     name="guardian_phone"
                     type="tel"
-                    value={
-                      formData.guardian_phone
-                    }
+                    value={formData.guardian_phone}
                     onChange={handleChange}
-                    icon={
-                      <Phone className="h-4 w-4" />
-                    }
+                    icon={<Phone className="h-4 w-4" />}
                   />
 
                   <Field
                     label="Guardian Email"
                     name="guardian_email"
                     type="email"
-                    value={
-                      formData.guardian_email
-                    }
+                    value={formData.guardian_email}
                     onChange={handleChange}
-                    icon={
-                      <Mail className="h-4 w-4" />
-                    }
+                    icon={<Mail className="h-4 w-4" />}
                   />
 
                   <div className="md:col-span-2">
@@ -2309,10 +2185,7 @@ export default function EditStudent() {
                     <textarea
                       id="guardian_address"
                       name="guardian_address"
-                      value={
-                        formData.guardian_address ??
-                        ''
-                      }
+                      value={formData.guardian_address ?? ''}
                       onChange={handleChange}
                       rows={3}
                       className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition hover:border-blue-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
@@ -2324,9 +2197,7 @@ export default function EditStudent() {
               <Section
                 title="Emergency Contact"
                 description="Contact person to use in an emergency."
-                icon={
-                  <Phone className="h-5 w-5" />
-                }
+                icon={<Phone className="h-5 w-5" />}
                 accent="rose"
               >
                 <div className="grid gap-5 md:grid-cols-3">
@@ -2362,33 +2233,26 @@ export default function EditStudent() {
             </div>
           )}
 
-          {/* MEDICAL */}
           {activeTab === 'medical' && (
             <div className="space-y-6">
               <Section
                 title="Medical Information"
                 description="Health and emergency information for school records."
-                icon={
-                  <Stethoscope className="h-5 w-5" />
-                }
+                icon={<Stethoscope className="h-5 w-5" />}
                 accent="rose"
               >
                 <div className="grid gap-5 md:grid-cols-2">
                   <Field
                     label="Doctor's Name"
                     name="doctor_name"
-                    value={
-                      formData.doctor_name
-                    }
+                    value={formData.doctor_name}
                     onChange={handleChange}
                   />
 
                   <Field
                     label="Hospital Name"
                     name="hospital_name"
-                    value={
-                      formData.hospital_name
-                    }
+                    value={formData.hospital_name}
                     onChange={handleChange}
                   />
 
@@ -2403,10 +2267,7 @@ export default function EditStudent() {
                     <textarea
                       id="allergies"
                       name="allergies"
-                      value={
-                        formData.allergies ??
-                        ''
-                      }
+                      value={formData.allergies ?? ''}
                       onChange={handleChange}
                       rows={4}
                       className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition hover:border-rose-200 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10"
@@ -2426,8 +2287,7 @@ export default function EditStudent() {
                       id="medical_conditions"
                       name="medical_conditions"
                       value={
-                        formData.medical_conditions ??
-                        ''
+                        formData.medical_conditions ?? ''
                       }
                       onChange={handleChange}
                       rows={4}
@@ -2447,10 +2307,7 @@ export default function EditStudent() {
                     <textarea
                       id="special_needs"
                       name="special_needs"
-                      value={
-                        formData.special_needs ??
-                        ''
-                      }
+                      value={formData.special_needs ?? ''}
                       onChange={handleChange}
                       rows={4}
                       className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition hover:border-rose-200 focus:border-rose-500 focus:ring-4 focus:ring-rose-500/10"
@@ -2478,7 +2335,6 @@ export default function EditStudent() {
             </div>
           )}
 
-          {/* BOTTOM SAVE */}
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-xl shadow-slate-200/30">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3">
