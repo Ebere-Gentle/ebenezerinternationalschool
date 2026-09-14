@@ -1,29 +1,127 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Save } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CalendarDays, Loader2, Save, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../../../config/supabase/client';
 import { useAuth } from '../../../hooks/useAuth';
+import { resolveAssessmentGroup, type AssessmentGroup } from '../../../utils/results/assessmentGroups';
 
-type AssessmentType = 'test' | 'exam' | 'cbt';
-type Props = { assessmentType: AssessmentType };
+type AssessmentType = 'first_test' | 'second_test' | 'ca' | 'exam';
+type Assignment = { class_id: string; subject_id: string; class_name: string; subject_name: string; level?: string | null; department?: string | null };
 type Student = { id: string; first_name: string; last_name: string; admission_number: string | null };
-const label = (type: AssessmentType) => type === 'cbt' ? 'CBT / Assignment' : type[0].toUpperCase() + type.slice(1);
-const grade = (percentage: number) => percentage >= 75 ? 'A' : percentage >= 65 ? 'B' : percentage >= 55 ? 'C' : percentage >= 45 ? 'D' : percentage >= 40 ? 'E' : 'F';
+type Config = { maximum: number; total_max: number };
+const labels: Record<AssessmentType, string> = { first_test: 'Test 1', second_test: 'Test 2', ca: 'CA', exam: 'Exam' };
+const normalizeTerm = (v: string) => v.toLowerCase().replace('first', '1st').replace('second', '2nd').replace('third', '3rd');
+const batchType = (type: AssessmentType) => type === 'ca' ? 'continuous_assessment' : type;
 
-export default function TeacherResultEntry({ assessmentType }: Props) {
+export default function TeacherResultEntry({ assessmentType }: { assessmentType: AssessmentType }) {
   const { user } = useAuth();
-  const branchId = user?.branch_id;
-  const [classes, setClasses] = useState<{ id: string; name: string }[]>([]);
-  const [subjects, setSubjects] = useState<{ id: string; name: string }[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
-  const [classId, setClassId] = useState(''); const [subjectId, setSubjectId] = useState('');
-  const [title, setTitle] = useState(`${label(assessmentType)} assessment`); const [maxScore, setMaxScore] = useState('100');
-  const [scores, setScores] = useState<Record<string, string>>({}); const [saving, setSaving] = useState(false); const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState<Config | null>(null);
+  const [session, setSession] = useState('');
+  const [term, setTerm] = useState('');
+  const [sessionId, setSessionId] = useState('');
+  const [termId, setTermId] = useState('');
+  const [classId, setClassId] = useState('');
+  const [subjectId, setSubjectId] = useState('');
+  const [scores, setScores] = useState<Record<string, string>>({});
+  const [assessmentGroup, setAssessmentGroup] = useState<AssessmentGroup | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const availableClasses = useMemo(() => Array.from(new Map(assignments.map(x => [x.class_id, x])).values()), [assignments]);
+  const availableSubjects = useMemo(() => Array.from(new Map(assignments.filter(x => x.class_id === classId).map(x => [x.subject_id, x])).values()), [assignments, classId]);
+  const selected = assignments.find(x => x.class_id === classId && x.subject_id === subjectId);
+  const maximum = config?.maximum || 0;
 
-  useEffect(() => { setTitle(`${label(assessmentType)} assessment`); }, [assessmentType]);
-  useEffect(() => { if (!branchId || !user?.id) return; void (async () => { try { const { data: teacher, error: teacherError } = await supabase.from('teachers').select('id').eq('user_id', user.id).maybeSingle(); if (teacherError) throw teacherError; if (!teacher?.id) { setClasses([]); return; } const [{ data: classData, error: classError }, { data: assignments, error: assignmentError }] = await Promise.all([supabase.from('classes').select('id,name').eq('branch_id', branchId).eq('class_teacher_id', teacher.id).eq('status', 'active').order('name'), supabase.from('teacher_subjects').select('class_id,subject_id,classes(id,name),subjects(id,name)').eq('teacher_id', teacher.id)]); if (classError) throw classError; if (assignmentError) throw assignmentError; const classMap = new Map((classData || []).map((item) => [item.id, item])); (assignments || []).forEach((item: any) => { if (item.classes?.id) classMap.set(item.classes.id, item.classes); }); setClasses(Array.from(classMap.values()).sort((a, b) => a.name.localeCompare(b.name))); setSubjects((assignments || []).flatMap((item: any) => item.subjects ? [item.subjects] : [])); } catch (error: any) { toast.error(error.message || 'Unable to load your teaching assignments'); } finally { setLoading(false); } })(); }, [branchId, user?.id]);
-  const loadStudents = useCallback(async () => { if (!branchId || !classId) { setStudents([]); return; } setLoading(true); const { data, error } = await supabase.from('students').select('id,first_name,last_name,admission_number').eq('branch_id', branchId).eq('class_id', classId).eq('current_status', 'active').order('last_name'); if (error) toast.error(error.message); setStudents((data || []) as Student[]); setScores({}); setLoading(false); }, [branchId, classId]);
-  useEffect(() => { void loadStudents(); }, [loadStudents]);
-  const save = async () => { const maximum = Number(maxScore); if (!branchId || !classId || !subjectId || !title.trim() || !students.length) return toast.error('Complete the assessment details and select one of your classes.'); if (!Number.isFinite(maximum) || maximum <= 0) return toast.error('Maximum score must be greater than zero.'); if (students.some((student) => { const score = Number(scores[student.id] || 0); return !Number.isFinite(score) || score < 0 || score > maximum; })) return toast.error(`Each score must be between 0 and ${maximum}.`); setSaving(true); try { const { data: batch, error: batchError } = await supabase.from('result_batches').insert({ branch_id: branchId, title: title.trim(), assessment_type: assessmentType, class_id: classId, subject_id: subjectId, max_score: maximum, weight: 100, assessment_date: new Date().toISOString().slice(0, 10), entered_by: user?.id, status: 'draft' }).select('id').single(); if (batchError) throw batchError; const rows = students.map((student) => { const score = Number(scores[student.id] || 0); const percentage = score / maximum * 100; return { batch_id: batch.id, student_id: student.id, score, grade: grade(percentage), remark: percentage >= 40 ? 'Pass' : 'Needs improvement', entered_by: user?.id, updated_by: user?.id }; }); const { error: entryError } = await supabase.from('result_entries').upsert(rows, { onConflict: 'batch_id,student_id' }); if (entryError) throw entryError; const { error: submitError } = await supabase.from('result_batches').update({ status: 'submitted' }).eq('id', batch.id); if (submitError) throw submitError; toast.success(`${label(assessmentType)} submitted for review.`); setScores({}); } catch (error: any) { toast.error(error.message || 'Unable to save results'); } finally { setSaving(false); } };
-  return <div className="mx-auto max-w-6xl space-y-6 p-4"><div><p className="text-sm font-semibold uppercase tracking-wide text-emerald-600">Teacher result entry</p><h1 className="text-3xl font-bold text-slate-900 dark:text-white">Enter {label(assessmentType)} Results</h1></div><section className="grid gap-4 rounded-2xl border bg-white p-5 shadow-sm md:grid-cols-4 dark:bg-slate-800"><input value={title} onChange={(event) => setTitle(event.target.value)} className="rounded-xl border px-3 py-2.5 md:col-span-2" placeholder="Assessment title" /><select value={classId} onChange={(event) => setClassId(event.target.value)} className="rounded-xl border px-3 py-2.5"><option value="">My class</option>{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><select value={subjectId} onChange={(event) => setSubjectId(event.target.value)} className="rounded-xl border px-3 py-2.5"><option value="">My subject</option>{subjects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><label className="text-sm font-medium">Maximum score<input type="number" min="1" value={maxScore} onChange={(event) => setMaxScore(event.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2.5" /></label></section><section className="overflow-hidden rounded-2xl border bg-white shadow-sm dark:bg-slate-800"><div className="flex items-center justify-between border-b p-5"><h2 className="font-semibold">My class register</h2><button onClick={save} disabled={saving || loading || !students.length} className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 font-semibold text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{saving ? 'Saving…' : 'Submit for review'}</button></div>{loading ? <div className="flex min-h-48 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-emerald-600" /></div> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50 text-left"><tr><th className="p-4">Student</th><th className="p-4">Admission no.</th><th className="p-4">Score / {maxScore || '—'}</th><th className="p-4">Grade</th></tr></thead><tbody>{students.map((student) => { const percentage = Number(scores[student.id] || 0) / Number(maxScore || 1) * 100; return <tr key={student.id} className="border-t"><td className="p-4 font-medium">{student.last_name} {student.first_name}</td><td className="p-4 text-slate-500">{student.admission_number || '—'}</td><td className="p-4"><input type="number" min="0" max={maxScore} value={scores[student.id] || ''} onChange={(event) => setScores((current) => ({ ...current, [student.id]: event.target.value }))} className="w-28 rounded-lg border px-3 py-2" /></td><td className="p-4 font-bold">{grade(percentage)}</td></tr>; })}{!students.length && <tr><td colSpan={4} className="p-10 text-center text-slate-500">Select one of your assigned classes to load its active students.</td></tr>}</tbody></table></div>}</section></div>;
+  useEffect(() => { void loadContext(); }, [user?.id]);
+  useEffect(() => { if (sessionId && termId && classId) void loadConfig(); else { setConfig(null); setAssessmentGroup(null); } }, [sessionId, termId, classId, assessmentType]);
+  useEffect(() => { if (classId && subjectId && sessionId) void loadStudents(); else setStudents([]); }, [classId, subjectId, sessionId, termId, assessmentType]);
+
+  async function loadContext() {
+    if (!user?.id) return;
+    setLoading(true);
+    try {
+      const [{ data: academic, error: ae }, { data: teacher, error: te }] = await Promise.all([
+        supabase.from('academic_sessions').select('id,session_name,term_name').eq('is_current', true).maybeSingle(),
+        supabase.from('teachers').select('id').eq('user_id', user.id).maybeSingle()
+      ]);
+      if (ae) throw ae; if (te) throw te;
+      if (!academic?.id || !teacher?.id) throw new Error('Current academic session or teacher profile is not configured.');
+      const { data: terms, error: termError } = await supabase.from('terms').select('id,session,term,is_active,is_closed').eq('session', academic.session_name).eq('is_active', true).order('start_date', { ascending: false });
+      if (termError) throw termError;
+      const currentTerm = terms?.find(x => normalizeTerm(x.term) === normalizeTerm(academic.term_name || '')) || terms?.[0];
+      if (!currentTerm) throw new Error(`No active term is configured for ${academic.session_name}.`);
+      setSessionId(academic.id); setSession(academic.session_name); setTermId(currentTerm.id); setTerm(currentTerm.term);
+      const { data, error } = await supabase.from('teacher_subjects').select('class_id,subject_id,classes(id,name,level,department),subjects(id,name)').eq('teacher_id', teacher.id).not('class_id', 'is', null);
+      if (error) throw error;
+      setAssignments((data || []).flatMap((x: any) => x.classes?.id && x.subjects?.id ? [{ class_id: x.classes.id, subject_id: x.subjects.id, class_name: x.classes.name, subject_name: x.subjects.name, level: x.classes.level, department: x.classes.department }] : []));
+    } catch (e: any) { toast.error(e.message || 'Unable to load teacher result context.'); }
+    finally { setLoading(false); }
+  }
+
+  async function loadConfig() {
+    const selectedClass = assignments.find(x => x.class_id === classId);
+    if (!selectedClass) return;
+    const group = resolveAssessmentGroup({ id: selectedClass.class_id, name: selectedClass.class_name, level: selectedClass.level, department: selectedClass.department });
+    setAssessmentGroup(group);
+    const { data, error } = await supabase.from('result_assessment_configs').select('components,total_max,first_test_max,second_test_max,exam_max').eq('academic_session_id', sessionId).eq('term_id', termId).eq('academic_group', group).eq('status', 'active').maybeSingle();
+    if (error) { toast.error(error.message); setConfig(null); return; }
+    if (!data) { setConfig(null); return; }
+    const components = Array.isArray(data.components) ? data.components : [];
+    const fallback: Record<string, number> = { first_test: Number(data.first_test_max || 0), second_test: Number(data.second_test_max || 0), ca: 0, exam: Number(data.exam_max || 0) };
+    const maximumFor = (key: string) => Number(components.find((item: any) => item?.key === key)?.max_score ?? fallback[key] ?? 0);
+    setConfig({ maximum: maximumFor(assessmentType), total_max: Number(data.total_max || 0) });
+  }
+
+  const loadStudents = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.from('students').select('id,first_name,last_name,admission_number').eq('class_id', classId).eq('current_status', 'active').order('last_name').order('first_name');
+      if (error) throw error;
+      setStudents((data || []) as Student[]);
+      const { data: batch } = await supabase.from('result_batches').select('id').eq('academic_session_id', sessionId).eq('term_id', termId).eq('class_id', classId).eq('subject_id', subjectId).eq('assessment_type', batchType(assessmentType)).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (batch?.id) { const { data: entries } = await supabase.from('result_entries').select('student_id,score').eq('batch_id', batch.id); setScores(Object.fromEntries((entries || []).map((x: any) => [x.student_id, x.score == null ? '' : String(x.score)]))); } else setScores({});
+    } catch (e: any) { toast.error(e.message || 'Unable to load class register.'); }
+    finally { setLoading(false); }
+  }, [classId, subjectId, sessionId, termId, assessmentType]);
+
+  const validScore = (raw: string) => { if (raw.trim() === '') return false; const n = Number(raw); return Number.isInteger(n) && n >= 1 && n <= maximum; };
+
+  async function save() {
+    if (!selected || !Number.isInteger(maximum) || maximum <= 0 || !students.length) return toast.error('Select an assigned class/subject and ensure a positive whole-number maximum is configured.');
+    for (const student of students) {
+      if (!validScore(scores[student.id] ?? '')) return toast.error(`${student.first_name} ${student.last_name}: enter a whole-number score from 1 to ${maximum}. Decimals and zero are not accepted.`);
+    }
+    setSaving(true);
+    try {
+      const { data: cls, error: ce } = await supabase.from('classes').select('branch_id').eq('id', classId).single();
+      if (ce) throw ce;
+      const type = batchType(assessmentType);
+      const { data: existing, error: be } = await supabase.from('result_batches').select('id,status').eq('academic_session_id', sessionId).eq('term_id', termId).eq('class_id', classId).eq('subject_id', subjectId).eq('assessment_type', type).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (be) throw be;
+      if (existing?.status === 'locked' || existing?.status === 'published') return toast.error('This result component is locked or published.');
+      let batchId = existing?.id;
+      if (!batchId) {
+        const { data: batch, error } = await supabase.from('result_batches').insert({ branch_id: cls.branch_id, academic_session_id: sessionId, term_id: termId, class_id: classId, subject_id: subjectId, assessment_type: type, title: labels[assessmentType], max_score: maximum, weight: maximum, assessment_date: new Date().toISOString().slice(0, 10), entered_by: user?.id, status: 'draft' }).select('id').single();
+        if (error) throw error;
+        batchId = batch.id;
+      } else {
+        const { error } = await supabase.from('result_batches').update({ max_score: maximum, weight: maximum, updated_at: new Date().toISOString() }).eq('id', batchId);
+        if (error) throw error;
+      }
+      const rows = students.map(s => { const value = Number(scores[s.id]); const percentage = value / maximum * 100; return { batch_id: batchId, student_id: s.id, score: value, percentage, grade: percentage >= 75 ? 'A' : percentage >= 65 ? 'B' : percentage >= 55 ? 'C' : percentage >= 45 ? 'D' : percentage >= 40 ? 'E' : 'F', remark: percentage >= 75 ? 'Excellent' : percentage >= 65 ? 'Very Good' : percentage >= 55 ? 'Good' : percentage >= 45 ? 'Fair' : percentage >= 40 ? 'Pass' : 'Needs Improvement', entered_by: user?.id, updated_by: user?.id }; });
+      const { error } = await supabase.from('result_entries').upsert(rows, { onConflict: 'batch_id,student_id' });
+      if (error) throw error;
+      toast.success(`${labels[assessmentType]} saved for ${selected.subject_name}.`);
+    } catch (e: any) { toast.error(e.message || 'Unable to save results.'); }
+    finally { setSaving(false); }
+  }
+
+  if (loading && !assignments.length) return <div className="flex min-h-[55vh] items-center justify-center"><Loader2 className="h-9 w-9 animate-spin text-emerald-600" /></div>;
+  return <div className="mx-auto max-w-[1500px] space-y-5 p-4 sm:p-6">
+    <div className="grid gap-4 lg:grid-cols-[1fr_360px]"><div><p className="text-xs uppercase tracking-[0.2em] text-emerald-600">Teacher Assessment Workspace</p><h1 className="mt-1 text-3xl">{labels[assessmentType]} Broadsheet</h1><p className="mt-2 text-slate-500">Whole-number scores only. Minimum 1 and maximum {maximum || 'configured maximum'}.</p></div><div className="rounded-2xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800"><div className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-emerald-600" /> Academic Context</div><div className="mt-3 grid grid-cols-2 gap-3 text-sm"><div><span className="text-slate-400">Session</span><p>{session || '—'}</p></div><div><span className="text-slate-400">Term</span><p>{term || '—'}</p></div></div></div></div>
+    <section className="grid gap-4 lg:grid-cols-[1fr_1fr_280px]"><label className="rounded-2xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">Assigned Class<select value={classId} onChange={e => { setClassId(e.target.value); setSubjectId(''); }} className="mt-2 w-full rounded-xl border px-3 py-3 dark:border-slate-600 dark:bg-slate-900"><option value="">Select class</option>{availableClasses.map(x => <option key={x.class_id} value={x.class_id}>{x.class_name}</option>)}</select></label><label className="rounded-2xl border bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">Assigned Subject<select value={subjectId} onChange={e => setSubjectId(e.target.value)} disabled={!classId} className="mt-2 w-full rounded-xl border px-3 py-3 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900"><option value="">Select subject</option>{availableSubjects.map(x => <option key={x.subject_id} value={x.subject_id}>{x.subject_name}</option>)}</select></label><div className="rounded-2xl border bg-gradient-to-br from-emerald-50 to-sky-50 p-4 shadow-sm dark:border-slate-700 dark:from-emerald-950/30 dark:to-sky-950/30"><p className="text-xs uppercase text-slate-500">Maximum</p><p className="mt-1 text-3xl">{maximum || '—'}</p><p className="text-xs text-slate-500">{assessmentGroup ? `${assessmentGroup.replace('_', ' ')} scheme` : 'Select a class'}</p></div></section>
+    {!config && classId && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">No active assessment scheme is configured for this class group.</div>}
+    <section className="overflow-hidden rounded-3xl border bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800"><div className="flex flex-col gap-3 border-b p-5 sm:flex-row sm:items-center sm:justify-between dark:border-slate-700"><div><div className="flex items-center gap-2"><Users className="h-5 w-5 text-emerald-600" /> Student Mark Sheet</div><p className="text-sm text-slate-500">{students.length} student(s) · valid whole-number range 1–{maximum || '—'}</p></div><button onClick={() => void save()} disabled={saving || loading || !students.length || !maximum} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-white disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{saving ? 'Saving…' : 'Save marks'}</button></div><div className="overflow-x-auto"><table className="w-full min-w-[850px] text-sm"><thead><tr className="bg-slate-900 text-white"><th className="p-3 text-left">#</th><th className="p-3 text-left">Student</th><th className="p-3 text-left">Admission No.</th><th className="p-3">Mark / {maximum || '—'}</th><th className="p-3">%</th><th className="p-3">Grade</th><th className="p-3">Status</th></tr></thead><tbody>{students.map((s, i) => { const raw = scores[s.id] ?? ''; const value = raw === '' ? null : Number(raw); const valid = value !== null && Number.isInteger(value) && value >= 1 && value <= maximum; const p = valid ? value! / maximum * 100 : null; const grade = p === null ? '—' : p >= 75 ? 'A' : p >= 65 ? 'B' : p >= 55 ? 'C' : p >= 45 ? 'D' : p >= 40 ? 'E' : 'F'; return <tr key={s.id} className="border-t dark:border-slate-700"><td className="p-3 text-slate-400">{i + 1}</td><td className="p-3">{s.last_name} {s.first_name}</td><td className="p-3 text-slate-500">{s.admission_number || '—'}</td><td className="p-2"><input aria-label={`${s.first_name} mark`} type="number" min="1" max={maximum || undefined} step={1} value={raw} onChange={e => { const next = e.target.value; if (next === '' || /^\d+$/.test(next)) setScores(cur => ({ ...cur, [s.id]: next })); }} className={`w-28 rounded-lg border px-3 py-2 ${raw === '' || valid ? 'dark:border-slate-600' : 'border-red-500'} dark:bg-slate-900`} /></td><td className="p-3 text-center">{p === null ? '—' : `${p.toFixed(1)}%`}</td><td className="p-3 text-center">{grade}</td><td className="p-3 text-center">{raw === '' ? 'Pending' : valid ? 'Ready' : `Invalid — whole number 1 to ${maximum}`}</td></tr>; })}</tbody></table></div></section>
+  </div>;
 }

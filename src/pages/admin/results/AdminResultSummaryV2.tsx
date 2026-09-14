@@ -38,9 +38,7 @@ export default function AdminResultSummaryV2() {
       setTerm(current as Term);
       const { data: c, error: ce } = await supabase
         .from('classes')
-        .select('id,name,branch_id,level,department,academic_session')
-        .eq('status', 'active')
-        .eq('branch_id', s.branch_id)
+        .select('id,name,branch_id,level,department,academic_session,status')
         .order('name');
       if (ce) throw ce;
       setClasses((c || []) as ClassRow[]);

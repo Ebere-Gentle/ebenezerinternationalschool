@@ -58,7 +58,8 @@ import {
   Box,
   History,
   ShieldCheck,
-} from 'lucide-react';
+
+  } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../contexts/ThemeContext';
 import { supabase } from '../../config/supabase/client';
@@ -132,6 +133,30 @@ const navigation: NavigationItem[] = [
   },
 
   // ============================================================
+  // JAMB CBT - ADMIN
+  // ============================================================
+  {
+    label: 'JAMB CBT',
+    icon: ClipboardCheck,
+    path: '#',
+    roles: ['admin', 'super_admin', 'director'],
+    children: [
+      {
+        label: 'JAMB CBT Analytics',
+        icon: BarChart3,
+        path: '/admin/jamb-cbt',
+        roles: ['admin', 'super_admin', 'director']
+      },
+      {
+        label: 'Question Bank',
+        icon: FileText,
+        path: '/admin/jamb-cbt/questions',
+        roles: ['admin', 'super_admin', 'director']
+      },
+    ]
+  },
+
+  // ============================================================
   // RESULTS SECTION - ADMIN
   // ============================================================
   {
@@ -145,6 +170,7 @@ const navigation: NavigationItem[] = [
       { label: 'Enter CBT/Assignment', icon: BookOpen, path: '/admin/results/enter-cbt', roles: ['admin', 'super_admin', 'director'] },
       { label: 'View Results', icon: BarChart3, path: '/admin/results/view', roles: ['admin', 'super_admin', 'director'] },
       { label: 'Result Summary', icon: TrendingUp, path: '/admin/results/summary', roles: ['admin', 'super_admin', 'director'] },
+{ label: 'Class Broadsheet', icon: BarChart3, path: '/admin/results/broadsheet', roles: ['admin', 'super_admin', 'director'] },
     ]
   },
 
@@ -228,6 +254,16 @@ const navigation: NavigationItem[] = [
   { label: 'My Children', icon: Users, path: '/parent/children', roles: ['parent'] },
 
   // ============================================================
+  // JAMB CBT - PARENT
+  // ============================================================
+  {
+    label: 'JAMB CBT',
+    icon: ClipboardCheck,
+    path: '/parent/jamb-cbt',
+    roles: ['parent'],
+  },
+
+  // ============================================================
   // RESULTS SECTION - PARENT
   // ============================================================
   {
@@ -251,6 +287,16 @@ const navigation: NavigationItem[] = [
   // ============================================================
   { label: 'Dashboard', icon: LayoutDashboard, path: '/student/dashboard', roles: ['student'] },
   { label: 'My Profile', icon: User, path: '/student/profile', roles: ['student'] },
+
+  // ============================================================
+  // JAMB CBT - STUDENT
+  // ============================================================
+  {
+    label: 'JAMB CBT',
+    icon: ClipboardCheck,
+    path: '/student/jamb-cbt',
+    roles: ['student'],
+  },
 
   // ============================================================
   // RESULTS SECTION - STUDENT

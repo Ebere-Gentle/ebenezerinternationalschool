@@ -37,6 +37,7 @@ import { supabase } from '../../config/supabase/client';
 import { useAuth } from '../../hooks/useAuth';
 import toast from 'react-hot-toast';
 import dayjs from 'dayjs';
+import ResultAssessmentSettings from '../admin/results/ResultAssessmentSettings';
 
 // ============================================
 // TYPES
@@ -130,6 +131,7 @@ const Settings: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('profile');
+  const [settingsSection, setSettingsSection] = useState<'general' | 'assessment'>('general');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [userBranchId, setUserBranchId] = useState<string | null>(null);
@@ -822,6 +824,11 @@ const Settings: React.FC = () => {
 
   const tabs = getTabs();
 
+  const settingsSections = [
+    { id: 'general' as const, label: 'General Settings' },
+    { id: 'assessment' as const, label: 'Assessment Configuration' },
+  ];
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
@@ -868,25 +875,48 @@ const Settings: React.FC = () => {
         </div>
 
         {/* Tabs - Mobile Responsive */}
-        {tabs.length > 1 && (
-          <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-xl sm:rounded-2xl border border-white/20 dark:border-gray-700/50 shadow-xl p-1 mb-4 sm:mb-6">
-            <div className="flex gap-0.5 sm:gap-1 overflow-x-auto">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-3 md:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${
-                    activeTab === tab.id
-                      ? 'bg-white dark:bg-gray-700 shadow-lg text-blue-600 dark:text-blue-400'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-gray-700/50'
-                  }`}
-                >
-                  <tab.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                  <span className="hidden xs:inline">{tab.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
+        <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700 mb-6">
+          {settingsSections.map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              onClick={() => setSettingsSection(section.id)}
+              className={`px-4 py-3 text-sm font-semibold border-b-2 transition-colors ${
+                settingsSection === section.id
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              {section.label}
+            </button>
+          ))}
+        </div>
+
+        {settingsSection === 'assessment' ? (
+          <ResultAssessmentSettings />
+        ) : (
+          <>
+            {tabs.length > 1 && (
+              <div className="bg-white/70 dark:bg-gray-800/70 backdrop-blur-xl rounded-xl sm:rounded-2xl border border-white/20 dark:border-gray-700/50 shadow-xl p-1 mb-4 sm:mb-6">
+                <div className="flex gap-0.5 sm:gap-1 overflow-x-auto">
+                  {tabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`flex items-center gap-1 sm:gap-2 px-2 sm:px-3 md:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${
+                        activeTab === tab.id
+                          ? 'bg-white dark:bg-gray-700 shadow-lg text-blue-600 dark:text-blue-400'
+                          : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-gray-700/50'
+                      }`}
+                    >
+                      <tab.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                      <span className="hidden xs:inline">{tab.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Content */}
@@ -1635,7 +1665,7 @@ const Settings: React.FC = () => {
                   </div>
                   {isSuperAdmin && (
                     <button
-                      onClick={() => toast.info('Add user functionality coming soon')}
+                      onClick={() => toast('Add user functionality coming soon')}
                       className="px-3 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg sm:rounded-xl font-medium hover:opacity-90 transition-all shadow-lg shadow-blue-500/25 flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm w-full xs:w-auto justify-center"
                     >
                       <UserPlus className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
