@@ -1,301 +1,566 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { CheckSquare, Users, Receipt, UserPlus, Calendar, AlertCircle} from 'lucide-react';
+import {
+  CheckSquare,
+  Users,
+  Receipt,
+  UserPlus,
+  Calendar,
+  AlertCircle,
+  CreditCard,
+  ArrowUpRight,
+  WalletCards,
+  Clock3,
+} from 'lucide-react';
 import { supabase } from '../../../config/supabase/client';
 import { useAuth } from '../../../hooks/useAuth';
-import toast from 'react-hot-toast';
-import dayjs from 'dayjs';
 
-interface Task {
-  id: string;
-  label: string;
-  count: number;
-  progress: number;
-  icon: React.ElementType;
-  color: string;
-  items: any[];
+interface TaskSummary {
+  pendingAdmissions: number;
+  pendingPayments: number;
+  overduePayments: number;
+  inactiveStudents: number;
+  newAdmissions: number;
+  outstandingAmount: number;
+  collectedAmount: number;
 }
+
+interface PaymentRecord {
+  id: string;
+  amount: number | null;
+  amount_paid: number | null;
+  balance: number | null;
+  status: string | null;
+  due_date: string | null;
+}
+
+const EMPTY_SUMMARY: TaskSummary = {
+  pendingAdmissions: 0,
+  pendingPayments: 0,
+  overduePayments: 0,
+  inactiveStudents: 0,
+  newAdmissions: 0,
+  outstandingAmount: 0,
+  collectedAmount: 0,
+};
 
 const Tasks: React.FC = () => {
   const { user } = useAuth();
-  const [tasks, setTasks] = useState<Task[]>([]);
+
+  const [summary, setSummary] =
+    useState<TaskSummary>(EMPTY_SUMMARY);
+
   const [loading, setLoading] = useState(true);
-  const [userBranchId, setUserBranchId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchUserBranch = async () => {
-      if (user?.id) {
-        try {
-          let branchId = user.branch_id;
-          
-          if (!branchId) {
-            const { data, error } = await supabase
-              .from('users')
-              .select('branch_id')
-              .eq('id', user.id)
-              .single();
-            
-            if (!error && data) {
-              branchId = data.branch_id;
-            }
-          }
-          
-          if (branchId) {
-            setUserBranchId(branchId);
-            await fetchTasks(branchId);
-          } else {
-            setLoading(false);
-          }
-        } catch (error) {
-          console.error('Error fetching user branch:', error);
-          setLoading(false);
-        }
-      }
-    };
-    
-    fetchUserBranch();
-  }, [user]);
+  const fetchTasks = async () => {
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
 
-  const fetchTasks = async (branchId: string) => {
-    setLoading(true);
     try {
-      // 1. Pending Admissions (students with pending admission_status)
-      const { data: pendingAdmissions, count: admissionCount } = await supabase
-        .from('students')
-        .select('id', { count: 'exact' })
-        .eq('branch_id', branchId)
-        .eq('admission_status', 'pending');
+      setLoading(true);
 
-      // 2. Pending Payments (payments with pending status)
-      const { data: pendingPayments, count: paymentCount } = await supabase
-        .from('payments')
-        .select('id', { count: 'exact' })
-        .eq('branch_id', branchId)
-        .eq('status', 'pending');
+      /*
+       * Resolve branch safely.
+       *
+       * The application can identify a user using either:
+       * users.user_id = auth.users.id
+       * or
+       * users.id = auth.users.id
+       */
+      let branchId: string | null =
+        user.branch_id || null;
 
-      // 3. Overdue Payments (payments with due date passed and still pending)
-      const today = dayjs().format('YYYY-MM-DD');
-      const { data: overduePayments, count: overdueCount } = await supabase
-        .from('payments')
-        .select('id', { count: 'exact' })
-        .eq('branch_id', branchId)
-        .eq('status', 'pending')
-        .lt('due_date', today);
+      if (!branchId) {
+        const { data: userByUserId } = await supabase
+          .from('users')
+          .select('branch_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
 
-      // 4. Inactive Students (students with inactive status)
-      const { data: inactiveStudents, count: inactiveCount } = await supabase
-        .from('students')
-        .select('id', { count: 'exact' })
-        .eq('branch_id', branchId)
-        .eq('current_status', 'inactive');
+        branchId = userByUserId?.branch_id || null;
+      }
 
-      // 5. Pending Approvals (payments pending approval - same as pending payments)
-      const pendingApprovals = pendingPayments || [];
+      if (!branchId) {
+        const { data: userById } = await supabase
+          .from('users')
+          .select('branch_id')
+          .eq('id', user.id)
+          .maybeSingle();
 
-      // 6. New Admissions Today
-      const todayStart = dayjs().startOf('day').format('YYYY-MM-DD');
-      const { data: newAdmissions, count: newAdmissionCount } = await supabase
-        .from('students')
-        .select('id', { count: 'exact' })
-        .eq('branch_id', branchId)
-        .gte('created_at', todayStart);
+        branchId = userById?.branch_id || null;
+      }
 
-      // Calculate progress percentages (mock progress based on counts)
-      const maxCount = Math.max(
-        admissionCount || 0,
-        paymentCount || 0,
-        overdueCount || 0,
-        inactiveCount || 0,
-        newAdmissionCount || 0,
-        1
+      if (!branchId) {
+        setSummary(EMPTY_SUMMARY);
+        return;
+      }
+
+      /*
+       * Use the browser's local date for "today".
+       * This avoids using a stale hard-coded date.
+       */
+      const now = new Date();
+
+      const startOfToday = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate()
       );
 
-      const taskList: Task[] = [
-        {
-          id: 'admissions',
-          label: 'Pending Admissions',
-          count: admissionCount || 0,
-          progress: admissionCount ? Math.min(Math.round((admissionCount / maxCount) * 100), 100) : 0,
-          icon: UserPlus,
-          color: 'from-blue-500 to-cyan-500',
-          items: pendingAdmissions || [],
-        },
-        {
-          id: 'payments',
-          label: 'Pending Payments',
-          count: paymentCount || 0,
-          progress: paymentCount ? Math.min(Math.round((paymentCount / maxCount) * 100), 100) : 0,
-          icon: Receipt,
-          color: 'from-yellow-500 to-orange-500',
-          items: pendingPayments || [],
-        },
-        {
-          id: 'overdue',
-          label: 'Overdue Payments',
-          count: overdueCount || 0,
-          progress: overdueCount ? Math.min(Math.round((overdueCount / maxCount) * 100), 100) : 0,
-          icon: AlertCircle,
-          color: 'from-red-500 to-rose-500',
-          items: overduePayments || [],
-        },
-        {
-          id: 'inactive',
-          label: 'Inactive Students',
-          count: inactiveCount || 0,
-          progress: inactiveCount ? Math.min(Math.round((inactiveCount / maxCount) * 100), 100) : 0,
-          icon: Users,
-          color: 'from-gray-500 to-slate-500',
-          items: inactiveStudents || [],
-        },
-        {
-          id: 'approvals',
-          label: 'Pending Approvals',
-          count: pendingApprovals?.length || 0,
-          progress: pendingApprovals?.length ? Math.min(Math.round((pendingApprovals.length / maxCount) * 100), 100) : 0,
-          icon: CheckSquare,
-          color: 'from-purple-500 to-violet-500',
-          items: pendingApprovals || [],
-        },
-        {
-          id: 'new',
-          label: 'New Today',
-          count: newAdmissionCount || 0,
-          progress: newAdmissionCount ? Math.min(Math.round((newAdmissionCount / maxCount) * 100), 100) : 0,
-          icon: Calendar,
-          color: 'from-green-500 to-emerald-500',
-          items: newAdmissions || [],
-        },
-      ];
+      const startOfTomorrow = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1
+      );
 
-      setTasks(taskList);
-    } catch (error: any) {
-      console.error('Error fetching tasks:', error);
-      toast.error(error.message || 'Failed to load tasks');
+      const todayDate = `${now.getFullYear()}-${String(
+        now.getMonth() + 1
+      ).padStart(2, '0')}-${String(
+        now.getDate()
+      ).padStart(2, '0')}`;
+
+      /*
+       * Run independent database queries in parallel.
+       */
+      const [
+        pendingAdmissionsResult,
+        pendingPaymentsResult,
+        overduePaymentsResult,
+        inactiveStudentsResult,
+        newAdmissionsResult,
+        paymentsResult,
+      ] = await Promise.all([
+        supabase
+          .from('students')
+          .select('id', { count: 'exact', head: true })
+          .eq('branch_id', branchId)
+          .eq('admission_status', 'pending'),
+
+        supabase
+          .from('payments')
+          .select('id', { count: 'exact', head: true })
+          .eq('branch_id', branchId)
+          .eq('status', 'pending'),
+
+        supabase
+          .from('payments')
+          .select('id', { count: 'exact', head: true })
+          .eq('branch_id', branchId)
+          .eq('status', 'pending')
+          .lt('due_date', todayDate),
+
+        supabase
+          .from('students')
+          .select('id', { count: 'exact', head: true })
+          .eq('branch_id', branchId)
+          .eq('current_status', 'inactive'),
+
+        supabase
+          .from('students')
+          .select('id', { count: 'exact', head: true })
+          .eq('branch_id', branchId)
+          .gte(
+            'created_at',
+            startOfToday.toISOString()
+          )
+          .lt(
+            'created_at',
+            startOfTomorrow.toISOString()
+          ),
+
+        /*
+         * Payment data is used for actual financial
+         * outstanding and collected totals.
+         */
+        supabase
+          .from('payments')
+          .select(
+            'id, amount, amount_paid, balance, status, due_date'
+          )
+          .eq('branch_id', branchId),
+      ]);
+
+      if (pendingAdmissionsResult.error) {
+        throw pendingAdmissionsResult.error;
+      }
+
+      if (pendingPaymentsResult.error) {
+        throw pendingPaymentsResult.error;
+      }
+
+      if (overduePaymentsResult.error) {
+        throw overduePaymentsResult.error;
+      }
+
+      if (inactiveStudentsResult.error) {
+        throw inactiveStudentsResult.error;
+      }
+
+      if (newAdmissionsResult.error) {
+        throw newAdmissionsResult.error;
+      }
+
+      if (paymentsResult.error) {
+        throw paymentsResult.error;
+      }
+
+      const payments =
+        (paymentsResult.data || []) as PaymentRecord[];
+
+      /*
+       * Calculate actual financial position.
+       *
+       * Collected:
+       * completed / paid payment records
+       *
+       * Outstanding:
+       * positive balance on non-rejected/non-cancelled records
+       */
+      let collectedAmount = 0;
+      let outstandingAmount = 0;
+
+      payments.forEach((payment) => {
+        const status = String(
+          payment.status || ''
+        ).toLowerCase();
+
+        if (
+          status === 'completed' ||
+          status === 'paid'
+        ) {
+          collectedAmount +=
+            Number(payment.amount_paid) ||
+            Number(payment.amount) ||
+            0;
+        }
+
+        const balance = Number(payment.balance) || 0;
+
+        if (
+          balance > 0 &&
+          status !== 'cancelled' &&
+          status !== 'canceled' &&
+          status !== 'rejected'
+        ) {
+          outstandingAmount += balance;
+        }
+      });
+
+      setSummary({
+        pendingAdmissions:
+          pendingAdmissionsResult.count || 0,
+
+        pendingPayments:
+          pendingPaymentsResult.count || 0,
+
+        overduePayments:
+          overduePaymentsResult.count || 0,
+
+        inactiveStudents:
+          inactiveStudentsResult.count || 0,
+
+        newAdmissions:
+          newAdmissionsResult.count || 0,
+
+        outstandingAmount,
+
+        collectedAmount,
+      });
+    } catch (error) {
+      console.error(
+        'Tasks widget error:',
+        error
+      );
+
+      setSummary(EMPTY_SUMMARY);
     } finally {
       setLoading(false);
     }
   };
 
-  const getProgressColor = (progress: number) => {
-    if (progress > 80) return 'from-green-500 to-emerald-500';
-    if (progress > 50) return 'from-yellow-500 to-orange-500';
-    return 'from-red-500 to-rose-500';
+  useEffect(() => {
+    fetchTasks();
+
+    if (!user?.id) return;
+
+    /*
+     * Keep the dashboard current when students
+     * or payments change.
+     */
+    const channel = supabase
+      .channel('admin-tasks-live')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'students',
+        },
+        () => {
+          fetchTasks();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'payments',
+        },
+        () => {
+          fetchTasks();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
+  const formatMoney = (amount: number) => {
+    if (amount >= 1000000) {
+      return `₦${(amount / 1000000).toFixed(1)}m`;
+    }
+
+    if (amount >= 1000) {
+      return `₦${(amount / 1000).toFixed(0)}k`;
+    }
+
+    return `₦${Math.round(amount).toLocaleString()}`;
   };
+
+  const totalActions = useMemo(
+    () =>
+      summary.pendingAdmissions +
+      summary.pendingPayments +
+      summary.overduePayments,
+    [summary]
+  );
+
+  const urgent =
+    summary.overduePayments > 0 ||
+    summary.pendingAdmissions > 0;
 
   if (loading) {
     return (
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, delay: 0.6 }}
-        className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800"
+        className="h-[300px] overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800"
       >
         <div className="mb-4 flex items-center gap-3">
-          <div className="rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 p-2">
-            <CheckSquare className="h-5 w-5 text-white" />
+          <div className="h-9 w-9 animate-pulse rounded-xl bg-gray-200 dark:bg-gray-700" />
+
+          <div className="space-y-1.5">
+            <div className="h-4 w-20 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
+            <div className="h-3 w-28 animate-pulse rounded bg-gray-100 dark:bg-gray-700" />
           </div>
-          <div className="h-6 w-24 bg-gray-200 dark:bg-gray-700 rounded"></div>
-          <div className="ml-auto h-5 w-16 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
         </div>
-        <div className="space-y-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i}>
-              <div className="mb-1 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="h-4 w-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
-                  <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded"></div>
-                </div>
-                <div className="h-3 w-12 bg-gray-200 dark:bg-gray-700 rounded"></div>
-              </div>
-              <div className="h-1.5 w-full bg-gray-200 dark:bg-gray-700 rounded"></div>
-            </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {[1, 2, 3, 4].map((item) => (
+            <div
+              key={item}
+              className="h-[65px] animate-pulse rounded-xl bg-gray-100 dark:bg-gray-700"
+            />
           ))}
         </div>
+
+        <div className="mt-3 h-[65px] animate-pulse rounded-xl bg-gray-100 dark:bg-gray-700" />
       </motion.div>
     );
   }
 
-  const totalPending = tasks.reduce((acc, t) => acc + t.count, 0);
-
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: 0.6 }}
-      className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
+      className="h-[300px] overflow-hidden rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-gray-700 dark:bg-gray-800"
     >
-      <div className="mb-4 flex items-center gap-3">
-        <div className="rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 p-2">
+      {/* Header */}
+      <div className="mb-3 flex items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-sm">
           <CheckSquare className="h-5 w-5 text-white" />
         </div>
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Tasks</h3>
-        <span className="ml-auto rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
-          {totalPending} pending
-        </span>
+
+        <div className="min-w-0">
+          <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+            Action Centre
+          </h3>
+
+          <p className="text-[10px] font-medium uppercase tracking-wider text-gray-400">
+            Administrative tasks
+          </p>
+        </div>
+
+        <div
+          className={`ml-auto shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${
+            urgent
+              ? 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
+              : 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400'
+          }`}
+        >
+          {urgent
+            ? `${totalActions} require attention`
+            : 'All clear'}
+        </div>
       </div>
 
-      {tasks.every(t => t.count === 0) ? (
-        <div className="flex flex-col items-center justify-center py-8 text-center">
-          <div className="rounded-full bg-green-100 p-4 dark:bg-green-900/30">
-            <CheckSquare className="h-8 w-8 text-green-500 dark:text-green-400" />
-          </div>
-          <p className="mt-3 text-sm font-medium text-gray-600 dark:text-gray-300">All caught up! 🎉</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">No pending tasks at the moment</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {tasks.map((task) => {
-            const Icon = task.icon;
-            const progressColor = getProgressColor(task.progress);
-            const isUrgent = task.id === 'overdue' && task.count > 0;
-            const isHigh = task.id === 'payments' && task.count > 5;
+      {/* Main actions */}
+      <div className="grid grid-cols-2 gap-2">
+        {/* Admissions */}
+        <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-2.5 dark:border-blue-900/30 dark:bg-blue-900/10">
+          <div className="flex items-center justify-between">
+            <UserPlus className="h-4 w-4 text-blue-600 dark:text-blue-400" />
 
-            return (
-              <div key={task.id} className="group">
-                <div className="mb-1 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Icon className={`h-4 w-4 ${task.count > 0 ? 'text-blue-500' : 'text-gray-400'}`} />
-                    <span className={`text-sm font-medium ${
-                      isUrgent ? 'text-red-600 dark:text-red-400' :
-                      isHigh ? 'text-yellow-600 dark:text-yellow-400' :
-                      'text-gray-700 dark:text-gray-300'
-                    }`}>
-                      {task.label}
-                    </span>
-                    {isUrgent && (
-                      <span className="animate-pulse text-xs font-medium text-red-500">⚠️</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-medium ${
-                      task.count > 0 ? 'text-gray-900 dark:text-white' : 'text-gray-400'
-                    }`}>
-                      {task.count} items
-                    </span>
-                    <span className="text-xs text-gray-400">{task.progress}%</span>
-                  </div>
-                </div>
-                <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${task.progress}%` }}
-                    transition={{ duration: 1, delay: 0.3 }}
-                    className={`absolute left-0 top-0 h-full rounded-full bg-gradient-to-r ${progressColor}`}
-                  />
-                  {task.count > 0 && (
-                    <div className="absolute right-0 top-0 h-full w-1 bg-white/20 rounded-full" />
-                  )}
-                </div>
-                {task.id === 'overdue' && task.count > 0 && (
-                  <p className="mt-1 text-xs text-red-500">
-                    {task.count} overdue payment{task.count > 1 ? 's' : ''} require attention
-                  </p>
-                )}
-              </div>
-            );
-          })}
+            <span className="text-lg font-bold leading-none text-blue-700 dark:text-blue-300">
+              {summary.pendingAdmissions}
+            </span>
+          </div>
+
+          <p className="mt-2 truncate text-[10px] font-semibold text-gray-600 dark:text-gray-300">
+            Pending Admissions
+          </p>
+
+          <div className="mt-1 flex items-center gap-1 text-[9px] text-gray-400">
+            <ArrowUpRight className="h-3 w-3" />
+            Needs review
+          </div>
         </div>
-      )}
+
+        {/* Payments */}
+        <div className="rounded-xl border border-amber-100 bg-amber-50/60 p-2.5 dark:border-amber-900/30 dark:bg-amber-900/10">
+          <div className="flex items-center justify-between">
+            <Receipt className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+
+            <span className="text-lg font-bold leading-none text-amber-700 dark:text-amber-300">
+              {summary.pendingPayments}
+            </span>
+          </div>
+
+          <p className="mt-2 truncate text-[10px] font-semibold text-gray-600 dark:text-gray-300">
+            Pending Payments
+          </p>
+
+          <div className="mt-1 flex items-center gap-1 text-[9px] text-gray-400">
+            <Clock3 className="h-3 w-3" />
+            Awaiting action
+          </div>
+        </div>
+
+        {/* Overdue */}
+        <div
+          className={`rounded-xl border p-2.5 ${
+            summary.overduePayments > 0
+              ? 'border-red-100 bg-red-50/60 dark:border-red-900/30 dark:bg-red-900/10'
+              : 'border-gray-100 bg-gray-50/60 dark:border-gray-700 dark:bg-gray-700/30'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <AlertCircle
+              className={`h-4 w-4 ${
+                summary.overduePayments > 0
+                  ? 'text-red-600 dark:text-red-400'
+                  : 'text-gray-400'
+              }`}
+            />
+
+            <span
+              className={`text-lg font-bold leading-none ${
+                summary.overduePayments > 0
+                  ? 'text-red-700 dark:text-red-300'
+                  : 'text-gray-600 dark:text-gray-300'
+              }`}
+            >
+              {summary.overduePayments}
+            </span>
+          </div>
+
+          <p className="mt-2 truncate text-[10px] font-semibold text-gray-600 dark:text-gray-300">
+            Overdue Payments
+          </p>
+
+          <div className="mt-1 text-[9px] text-gray-400">
+            {summary.overduePayments > 0
+              ? 'Requires attention'
+              : 'Nothing overdue'}
+          </div>
+        </div>
+
+        {/* New today */}
+        <div className="rounded-xl border border-green-100 bg-green-50/60 p-2.5 dark:border-green-900/30 dark:bg-green-900/10">
+          <div className="flex items-center justify-between">
+            <Calendar className="h-4 w-4 text-green-600 dark:text-green-400" />
+
+            <span className="text-lg font-bold leading-none text-green-700 dark:text-green-300">
+              {summary.newAdmissions}
+            </span>
+          </div>
+
+          <p className="mt-2 truncate text-[10px] font-semibold text-gray-600 dark:text-gray-300">
+            New Students Today
+          </p>
+
+          <div className="mt-1 text-[9px] text-gray-400">
+            Registered today
+          </div>
+        </div>
+      </div>
+
+      {/* Financial snapshot */}
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="flex items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 p-2.5 dark:border-gray-700 dark:bg-gray-700/40">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 dark:bg-green-900/30">
+            <WalletCards className="h-4 w-4 text-green-600 dark:text-green-400" />
+          </div>
+
+          <div className="min-w-0">
+            <p className="text-[9px] uppercase tracking-wide text-gray-400">
+              Collected
+            </p>
+
+            <p className="truncate text-sm font-bold text-gray-900 dark:text-white">
+              {formatMoney(summary.collectedAmount)}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 rounded-xl border border-gray-100 bg-gray-50 p-2.5 dark:border-gray-700 dark:bg-gray-700/40">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-100 dark:bg-red-900/30">
+            <CreditCard className="h-4 w-4 text-red-600 dark:text-red-400" />
+          </div>
+
+          <div className="min-w-0">
+            <p className="text-[9px] uppercase tracking-wide text-gray-400">
+              Outstanding
+            </p>
+
+            <p className="truncate text-sm font-bold text-gray-900 dark:text-white">
+              {formatMoney(summary.outstandingAmount)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="mt-2.5 flex items-center justify-between border-t border-gray-100 pt-2 dark:border-gray-700">
+        <div className="flex items-center gap-1.5">
+          <Users className="h-3 w-3 text-gray-400" />
+
+          <span className="text-[9px] text-gray-400">
+            {summary.inactiveStudents} inactive student
+            {summary.inactiveStudents === 1 ? '' : 's'}
+          </span>
+        </div>
+
+        <span className="text-[9px] font-medium text-gray-400">
+          Live branch data
+        </span>
+      </div>
     </motion.div>
   );
 };

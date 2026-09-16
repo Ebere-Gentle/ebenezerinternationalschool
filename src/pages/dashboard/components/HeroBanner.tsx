@@ -1,33 +1,42 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Users,
-  School,
-  Award,
-  User,
-  Building2,
   GraduationCap,
   CreditCard,
   TrendingUp,
+  TrendingDown,
+  CheckCircle,
+  CalendarDays,
+  School,
+  Mail,
+  Phone,
+  Globe,
+  MapPin,
+  BookOpen,
+  Loader2,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import dayjs from 'dayjs';
-import { supabase } from '../../../config/supabase/client';
-import { useAuth } from '../../../hooks/useAuth';
 
+import { supabase } from '../../../config/supabase/client';
+import { useAuth } from '../../../contexts/AuthContext';
 import schoolLogo from '../../../assets/school-logo.png';
 
 interface SchoolInfo {
   id: string;
   school_id: string;
   school_name: string;
-  address: string;
-  email: string;
-  website: string;
-  phone_number: string;
-  logo_url: string;
-  motto: string;
-  academic_session: string;
-  current_term: string;
+  address: string | null;
+  email: string | null;
+  website: string | null;
+  phone_number: string | null;
+  logo_url: string | null;
+  motto: string | null;
+  academic_session: string | null;
+  current_term: string | null;
 }
 
 interface AcademicSession {
@@ -35,46 +44,77 @@ interface AcademicSession {
   session_name: string;
   term_name: string;
   term_number: number;
-  start_date: string;
-  end_date: string;
+  start_date: string | null;
+  end_date: string | null;
   is_current: boolean;
-  branch_id: string;
+  branch_id: string | null;
+}
+
+interface ResultBatch {
+  id: string;
+  max_score: number | null;
+  status: string;
+}
+
+interface ResultEntry {
+  id: string;
+  student_id: string;
+  score: number | null;
+  percentage: number | null;
+  batch_id: string;
 }
 
 interface DashboardStats {
   totalStudents: number;
   totalTeachers: number;
-
-  // Current term payment statistics
   totalPayments: number;
   totalRevenue: number;
   studentsPaid: number;
-
-  // Previous term
   previousTermRevenue: number;
-
   activeStudents: number;
-  passRate: number;
+  passRate: number | null;
 }
 
 interface PaymentRow {
-  id: string;
-  student_id: string | null;
-  amount_paid: number | string | null;
-  amount: number | string | null;
-  status: string | null;
+  student_id: string;
+  amount_paid: number | null;
+  amount: number | null;
+  status: string;
   academic_session: string | null;
   academic_term: string | null;
-  created_at: string | null;
+  created_at: string;
   payment_date: string | null;
   branch_id: string | null;
 }
 
+const PASS_MARK = 50;
+
+const formatCurrency = (amount: number) =>
+  new Intl.NumberFormat('en-NG', {
+    style: 'currency',
+    currency: 'NGN',
+    maximumFractionDigits: 0,
+  }).format(amount || 0);
+
+const getPaymentAmount = (payment: PaymentRow) => {
+  const amount = Number(payment.amount_paid ?? payment.amount ?? 0);
+  return Number.isFinite(amount) ? amount : 0;
+};
+
+const getPreviousSessionName = (sessionName: string) => {
+  const match = sessionName.match(/^(\d{4})\/(\d{4})$/);
+
+  if (!match) return null;
+
+  return `${Number(match[1]) - 1}/${Number(match[2]) - 1}`;
+};
+
 const HeroBanner: React.FC = () => {
   const { user } = useAuth();
 
-  const [schoolInfo, setSchoolInfo] =
-    useState<SchoolInfo | null>(null);
+  const [schoolInfo, setSchoolInfo] = useState<SchoolInfo | null>(null);
+  const [academicSession, setAcademicSession] =
+    useState<AcademicSession | null>(null);
 
   const [stats, setStats] = useState<DashboardStats>({
     totalStudents: 0,
@@ -84,1371 +124,1166 @@ const HeroBanner: React.FC = () => {
     studentsPaid: 0,
     previousTermRevenue: 0,
     activeStudents: 0,
-    passRate: 0,
+    passRate: null,
   });
 
   const [loading, setLoading] = useState(true);
-  const [branchName, setBranchName] = useState('');
 
-  const currentTime = dayjs();
-  const hour = currentTime.hour();
+  /*
+   * PERSONALIZED GREETING
+   */
+  const getGreeting = () => {
+    const hour = new Date().getHours();
 
-  const greeting =
-    hour < 12
-      ? 'Good Morning'
-      : hour < 17
-      ? 'Good Afternoon'
-      : 'Good Evening';
+    if (hour >= 5 && hour < 12) {
+      return {
+        text: 'Good morning',
+        icon: Sun,
+      };
+    }
 
-  const firstName =
-    user?.first_name ||
-    user?.email?.split('@')[0] ||
-    'User';
+    if (hour >= 12 && hour < 18) {
+      return {
+        text: 'Good afternoon',
+        icon: Sun,
+      };
+    }
 
-  const userRole = user?.role || 'Staff';
-  const userPosition = user?.metadata?.position || '';
-  const userBranchId = user?.branch_id;
+    return {
+      text: 'Good evening',
+      icon: Moon,
+    };
+  };
 
-  const getRoleDisplay = (role: string) => {
-    const roleMap: Record<string, string> = {
-      super_admin: 'Super Administrator',
-      branch_admin: 'Branch Administrator',
-      admin: 'Administrator',
-      teacher: 'Teacher',
-      student: 'Student',
-      parent: 'Parent',
-      director: 'Director',
-      principal: 'Principal',
-      admissions_officer: 'Admissions Officer',
-      accountant: 'Accountant',
-      record_keeper: 'Record Keeper',
-      bursar: 'Bursar',
-      staff: 'Staff Member',
+  const greeting = getGreeting();
+  const GreetingIcon = greeting.icon;
+
+  /*
+   * GET USER DISPLAY NAME
+   */
+  const getUserName = () => {
+    if (!user) return 'Administrator';
+
+    const authUser = user as typeof user & {
+      first_name?: string | null;
+      last_name?: string | null;
+      firstName?: string | null;
+      lastName?: string | null;
+      name?: string | null;
+      full_name?: string | null;
+      fullName?: string | null;
+      email?: string | null;
     };
 
-    return (
-      roleMap[role] ||
-      role.charAt(0).toUpperCase() +
-        role.slice(1).replace(/_/g, ' ')
+    const firstName =
+      authUser.first_name ||
+      authUser.firstName ||
+      '';
+
+    const lastName =
+      authUser.last_name ||
+      authUser.lastName ||
+      '';
+
+    const fullName =
+      `${firstName} ${lastName}`.trim();
+
+    if (fullName) {
+      return fullName;
+    }
+
+    if (authUser.full_name) {
+      return authUser.full_name;
+    }
+
+    if (authUser.fullName) {
+      return authUser.fullName;
+    }
+
+    if (authUser.name) {
+      return authUser.name;
+    }
+
+    if (authUser.email) {
+      return authUser.email.split('@')[0];
+    }
+
+    return 'Administrator';
+  };
+
+  const userName = getUserName();
+
+  const getUserBranchId = async (): Promise<string | null> => {
+    if (!user?.id) return null;
+
+    const authUser = user as typeof user & {
+      branch_id?: string | null;
+    };
+
+    if (authUser.branch_id) {
+      return authUser.branch_id;
+    }
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('branch_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Unable to resolve user branch:', error);
+      return null;
+    }
+
+    return data?.branch_id ?? null;
+  };
+
+  const fetchSchoolInfo = async (
+    branchId: string | null
+  ): Promise<SchoolInfo | null> => {
+    let query = supabase
+      .from('school_info')
+      .select(`
+        id,
+        school_id,
+        school_name,
+        address,
+        email,
+        website,
+        phone_number,
+        logo_url,
+        motto,
+        academic_session,
+        current_term
+      `);
+
+    if (branchId) {
+      query = query.eq('school_id', branchId);
+    }
+
+    const { data, error } = await query
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error(
+        'Error loading school information:',
+        error
+      );
+      return null;
+    }
+
+    return data as SchoolInfo | null;
+  };
+
+  /*
+   * LIVE ACADEMIC RECORD
+   *
+   * academic_sessions is the authoritative source.
+   */
+  const fetchCurrentAcademicSession = async (
+    branchId: string | null
+  ): Promise<AcademicSession | null> => {
+    let query = supabase
+      .from('academic_sessions')
+      .select(`
+        id,
+        session_name,
+        term_name,
+        term_number,
+        start_date,
+        end_date,
+        is_current,
+        branch_id
+      `)
+      .eq('is_current', true);
+
+    if (branchId) {
+      query = query.eq('branch_id', branchId);
+    }
+
+    const { data, error } = await query
+      .order('start_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error(
+        'Error loading current academic session:',
+        error
+      );
+      return null;
+    }
+
+    return data as AcademicSession | null;
+  };
+
+  const fetchPreviousAcademicSession = async (
+    current: AcademicSession,
+    branchId: string | null
+  ): Promise<AcademicSession | null> => {
+    const previousSessionName = getPreviousSessionName(
+      current.session_name
+    );
+
+    if (!previousSessionName) return null;
+
+    let query = supabase
+      .from('academic_sessions')
+      .select(`
+        id,
+        session_name,
+        term_name,
+        term_number,
+        start_date,
+        end_date,
+        is_current,
+        branch_id
+      `)
+      .eq('session_name', previousSessionName);
+
+    if (branchId) {
+      query = query.eq('branch_id', branchId);
+    }
+
+    const { data, error } = await query
+      .order('term_number', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error(
+        'Error loading previous academic session:',
+        error
+      );
+      return null;
+    }
+
+    return data as AcademicSession | null;
+  };
+
+  /*
+   * LIVE PASS RATE
+   *
+   * Published result batches only.
+   * Passing percentage = 50% or higher.
+   */
+  const calculatePassRate = async (
+    currentSession: AcademicSession,
+    branchId: string | null
+  ): Promise<number | null> => {
+    let batchQuery = supabase
+      .from('result_batches')
+      .select(`
+        id,
+        max_score,
+        status
+      `)
+      .eq('academic_session_id', currentSession.id)
+      .eq('status', 'published');
+
+    if (branchId) {
+      batchQuery = batchQuery.eq(
+        'branch_id',
+        branchId
+      );
+    }
+
+    const {
+      data: batches,
+      error: batchError,
+    } = await batchQuery;
+
+    if (batchError) {
+      console.error(
+        'Error loading published result batches:',
+        batchError
+      );
+      return null;
+    }
+
+    if (!batches || batches.length === 0) {
+      return null;
+    }
+
+    const typedBatches =
+      batches as ResultBatch[];
+
+    const batchIds = typedBatches.map(
+      (batch) => batch.id
+    );
+
+    if (batchIds.length === 0) {
+      return null;
+    }
+
+    const maxScoreMap = new Map<
+      string,
+      number
+    >();
+
+    typedBatches.forEach((batch) => {
+      const maxScore = Number(
+        batch.max_score ?? 100
+      );
+
+      if (
+        Number.isFinite(maxScore) &&
+        maxScore > 0
+      ) {
+        maxScoreMap.set(
+          batch.id,
+          maxScore
+        );
+      }
+    });
+
+    const {
+      data: entries,
+      error: entryError,
+    } = await supabase
+      .from('result_entries')
+      .select(`
+        id,
+        student_id,
+        score,
+        percentage,
+        batch_id
+      `)
+      .in('batch_id', batchIds);
+
+    if (entryError) {
+      console.error(
+        'Error loading result entries:',
+        entryError
+      );
+      return null;
+    }
+
+    if (!entries || entries.length === 0) {
+      return null;
+    }
+
+    const typedEntries =
+      entries as ResultEntry[];
+
+    let totalResults = 0;
+    let passedResults = 0;
+
+    typedEntries.forEach((entry) => {
+      let percentage: number | null = null;
+
+      const storedPercentage =
+        Number(entry.percentage);
+
+      if (
+        entry.percentage !== null &&
+        Number.isFinite(storedPercentage)
+      ) {
+        percentage =
+          storedPercentage;
+      } else {
+        const score = Number(
+          entry.score
+        );
+
+        const maxScore =
+          maxScoreMap.get(
+            entry.batch_id
+          ) ?? 100;
+
+        if (
+          Number.isFinite(score) &&
+          Number.isFinite(maxScore) &&
+          maxScore > 0
+        ) {
+          percentage =
+            (score / maxScore) * 100;
+        }
+      }
+
+      if (
+        percentage === null ||
+        !Number.isFinite(percentage)
+      ) {
+        return;
+      }
+
+      totalResults++;
+
+      if (percentage >= PASS_MARK) {
+        passedResults++;
+      }
+    });
+
+    if (totalResults === 0) {
+      return null;
+    }
+
+    return Math.round(
+      (passedResults / totalResults) * 100
     );
   };
 
-  /**
-   * Normalize term names so that:
-   *
-   * "First Term"
-   * "1st Term"
-   * "First"
-   * "1"
-   *
-   * can be compared reliably.
-   */
-  const normalizeTerm = (term: string | null | undefined) => {
-    if (!term) return '';
-
-    const value = term
-      .toString()
-      .trim()
-      .toLowerCase();
-
-    if (
-      value.includes('first') ||
-      value.includes('1st') ||
-      value === '1'
-    ) {
-      return 'first';
-    }
-
-    if (
-      value.includes('second') ||
-      value.includes('2nd') ||
-      value === '2'
-    ) {
-      return 'second';
-    }
-
-    if (
-      value.includes('third') ||
-      value.includes('3rd') ||
-      value === '3'
-    ) {
-      return 'third';
-    }
-
-    return value;
-  };
-
-  /**
-   * Determine the term number from a term name.
-   */
-  const getTermNumber = (
-    term: string | null | undefined
+  const getPaymentStats = async (
+    session: AcademicSession,
+    branchId: string | null
   ) => {
-    const normalized = normalizeTerm(term);
+    let query = supabase
+      .from('payments')
+      .select(`
+        student_id,
+        amount_paid,
+        amount,
+        status,
+        academic_session,
+        academic_term,
+        created_at,
+        payment_date,
+        branch_id
+      `)
+      .eq('status', 'completed')
+      .eq(
+        'academic_session',
+        session.session_name
+      );
 
-    if (normalized === 'first') return 1;
-    if (normalized === 'second') return 2;
-    if (normalized === 'third') return 3;
+    if (branchId) {
+      query = query.eq(
+        'branch_id',
+        branchId
+      );
+    }
 
-    return 0;
-  };
+    const {
+      data,
+      error,
+    } = await query;
 
-  /**
-   * Get current academic session.
-   *
-   * We first use academic_sessions.is_current.
-   * If no current record is found, school_info is used
-   * as a fallback because your payment records already
-   * store academic_session and academic_term directly.
-   */
-  const getCurrentAcademicSession =
-    async (): Promise<AcademicSession | null> => {
-      try {
-        let query = supabase
-          .from('academic_sessions')
-          .select(
-            `
-              id,
-              session_name,
-              term_name,
-              term_number,
-              start_date,
-              end_date,
-              is_current,
-              branch_id
-            `
-          )
-          .eq('is_current', true);
-
-        if (userBranchId) {
-          query = query.eq(
-            'branch_id',
-            userBranchId
-          );
-        }
-
-        const {
-          data,
-          error,
-        } = await query
-          .order('start_date', {
-            ascending: false,
-          })
-          .limit(1)
-          .maybeSingle();
-
-        if (error) {
-          console.error(
-            'Error fetching current academic session:',
-            error
-          );
-
-          return null;
-        }
-
-        return data;
-      } catch (error) {
-        console.error(
-          'Unexpected error fetching current academic session:',
-          error
-        );
-
-        return null;
-      }
-    };
-
-  /**
-   * Get previous academic term.
-   */
-  const getPreviousAcademicSession = async (
-    currentSession: AcademicSession
-  ): Promise<AcademicSession | null> => {
-    try {
-      const currentTermNumber =
-        currentSession.term_number ||
-        getTermNumber(
-          currentSession.term_name
-        );
-
-      /**
-       * If current term is Second or Third,
-       * previous term is within the same session.
-       */
-      if (currentTermNumber > 1) {
-        const previousTermNumber =
-          currentTermNumber - 1;
-
-        let query = supabase
-          .from('academic_sessions')
-          .select(
-            `
-              id,
-              session_name,
-              term_name,
-              term_number,
-              start_date,
-              end_date,
-              is_current,
-              branch_id
-            `
-          )
-          .eq(
-            'session_name',
-            currentSession.session_name
-          )
-          .eq(
-            'term_number',
-            previousTermNumber
-          );
-
-        if (userBranchId) {
-          query = query.eq(
-            'branch_id',
-            userBranchId
-          );
-        }
-
-        const {
-          data,
-          error,
-        } = await query
-          .order('start_date', {
-            ascending: false,
-          })
-          .limit(1)
-          .maybeSingle();
-
-        if (error) {
-          console.error(
-            'Error fetching previous academic term:',
-            error
-          );
-
-          return null;
-        }
-
-        return data;
-      }
-
-      /**
-       * Current term is First Term.
-       * Previous term is Third Term of
-       * the previous academic session.
-       */
-      const match =
-        currentSession.session_name.match(
-          /^(\d{4})\/(\d{4})$/
-        );
-
-      if (!match) {
-        return null;
-      }
-
-      const startYear = Number(match[1]);
-      const endYear = Number(match[2]);
-
-      const previousSessionName =
-        `${startYear - 1}/${endYear - 1}`;
-
-      let query = supabase
-        .from('academic_sessions')
-        .select(
-          `
-            id,
-            session_name,
-            term_name,
-            term_number,
-            start_date,
-            end_date,
-            is_current,
-            branch_id
-          `
-        )
-        .eq(
-          'session_name',
-          previousSessionName
-        )
-        .eq('term_number', 3);
-
-      if (userBranchId) {
-        query = query.eq(
-          'branch_id',
-          userBranchId
-        );
-      }
-
-      const {
-        data,
-        error,
-      } = await query
-        .order('start_date', {
-          ascending: false,
-        })
-        .limit(1)
-        .maybeSingle();
-
-      if (error) {
-        console.error(
-          'Error fetching previous academic session:',
-          error
-        );
-
-        return null;
-      }
-
-      return data;
-    } catch (error) {
+    if (error) {
       console.error(
-        'Unexpected error fetching previous academic session:',
+        `Error loading payments for ${session.session_name}:`,
         error
       );
 
-      return null;
-    }
-  };
-
-  /**
-   * Fetch payment statistics directly from payments.
-   *
-   * IMPORTANT:
-   *
-   * We DO NOT use term_id.
-   *
-   * Your current payment records look like:
-   *
-   * academic_session = "2026/2027"
-   * academic_term    = "First Term"
-   * term_id          = NULL
-   *
-   * Therefore academic_session + academic_term
-   * are the authoritative filters.
-   */
-  const getPaymentStats = async (
-    academicSession: AcademicSession | null
-  ) => {
-    if (!academicSession) {
       return {
-        totalPayments: 0,
-        totalRevenue: 0,
+        revenue: 0,
         studentsPaid: 0,
+        totalPayments: 0,
       };
     }
 
+    const payments =
+      (data ?? []) as PaymentRow[];
+
+    const revenue =
+      payments.reduce(
+        (total, payment) =>
+          total +
+          getPaymentAmount(payment),
+        0
+      );
+
+    const uniqueStudents =
+      new Set(
+        payments
+          .map(
+            (payment) =>
+              payment.student_id
+          )
+          .filter(Boolean)
+      );
+
+    return {
+      revenue,
+      studentsPaid:
+        uniqueStudents.size,
+      totalPayments:
+        payments.length,
+    };
+  };
+
+  const fetchStats = async () => {
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
+
     try {
-      /**
-       * First try to use the exact term stored
-       * in academic_sessions.
-       */
-      let query = supabase
-        .from('payments')
-        .select(
-          `
-            id,
-            student_id,
-            amount_paid,
-            amount,
-            status,
-            academic_session,
-            academic_term,
-            created_at,
-            payment_date,
-            branch_id
-          `
-        )
-        .eq('status', 'completed')
-        .eq(
-          'academic_session',
-          academicSession.session_name
+      setLoading(true);
+
+      const branchId =
+        await getUserBranchId();
+
+      const schoolData =
+        await fetchSchoolInfo(
+          branchId
         );
 
-      if (userBranchId) {
-        query = query.eq(
-          'branch_id',
-          userBranchId
+      if (schoolData) {
+        setSchoolInfo(
+          schoolData
         );
       }
 
-      const {
-        data,
-        error,
-      } = await query;
-
-      if (error) {
-        console.error(
-          'Error fetching payments:',
-          error
+      const currentSession =
+        await fetchCurrentAcademicSession(
+          branchId
         );
 
-        return {
+      if (!currentSession) {
+        setAcademicSession(null);
+
+        setStats({
+          totalStudents: 0,
+          totalTeachers: 0,
           totalPayments: 0,
           totalRevenue: 0,
           studentsPaid: 0,
-        };
-      }
-
-      /**
-       * Filter term in JavaScript using normalized
-       * values instead of relying on exact spelling.
-       *
-       * This handles:
-       *
-       * First Term
-       * 1st Term
-       * first term
-       * FIRST TERM
-       */
-      const expectedTerm =
-        normalizeTerm(
-          academicSession.term_name
-        );
-
-      const payments =
-        ((data || []) as PaymentRow[]).filter(
-          (payment) => {
-            const paymentTerm =
-              normalizeTerm(
-                payment.academic_term
-              );
-
-            return (
-              paymentTerm === expectedTerm
-            );
-          }
-        );
-
-      /**
-       * Number of actual completed transactions.
-       */
-      const totalPayments =
-        payments.length;
-
-      /**
-       * Sum amount_paid.
-       *
-       * amount_paid is preferred because that is
-       * the actual amount recorded as paid.
-       */
-      const totalRevenue =
-        payments.reduce(
-          (sum, payment) => {
-            const paid =
-              Number(
-                payment.amount_paid ??
-                  payment.amount ??
-                  0
-              );
-
-            return (
-              sum +
-              (Number.isFinite(paid)
-                ? paid
-                : 0)
-            );
-          },
-          0
-        );
-
-      /**
-       * Count UNIQUE students.
-       *
-       * If Bayo makes 6 fee payments,
-       * he counts as ONE student paid.
-       */
-      const uniqueStudentIds =
-        new Set<string>();
-
-      payments.forEach(
-        (payment) => {
-          if (payment.student_id) {
-            uniqueStudentIds.add(
-              payment.student_id
-            );
-          }
-        }
-      );
-
-      const studentsPaid =
-        uniqueStudentIds.size;
-
-      return {
-        totalPayments,
-        totalRevenue,
-        studentsPaid,
-      };
-    } catch (error) {
-      console.error(
-        'Unexpected error fetching payment statistics:',
-        error
-      );
-
-      return {
-        totalPayments: 0,
-        totalRevenue: 0,
-        studentsPaid: 0,
-      };
-    }
-  };
-
-  /**
-   * Fetch all dashboard statistics.
-   */
-  const fetchStats = async () => {
-    try {
-      /**
-       * CURRENT ACADEMIC TERM
-       */
-      const currentAcademicSession =
-        await getCurrentAcademicSession();
-
-      /**
-       * PREVIOUS ACADEMIC TERM
-       */
-      const previousAcademicSession =
-        currentAcademicSession
-          ? await getPreviousAcademicSession(
-              currentAcademicSession
-            )
-          : null;
-
-      /**
-       * TOTAL STUDENTS
-       */
-      let studentsQuery = supabase
-        .from('students')
-        .select('id', {
-          count: 'exact',
-          head: true,
+          previousTermRevenue: 0,
+          activeStudents: 0,
+          passRate: null,
         });
 
-      if (userBranchId) {
+        setLoading(false);
+        return;
+      }
+
+      setAcademicSession(
+        currentSession
+      );
+
+      /*
+       * STUDENTS
+       */
+      let studentsQuery =
+        supabase
+          .from('students')
+          .select(
+            'id, current_status'
+          );
+
+      if (branchId) {
         studentsQuery =
           studentsQuery.eq(
             'branch_id',
-            userBranchId
+            branchId
           );
       }
 
       const {
-        count: totalStudents,
+        data: students,
         error: studentsError,
       } = await studentsQuery;
 
       if (studentsError) {
         console.error(
-          'Error fetching total students:',
+          'Error loading students:',
           studentsError
         );
       }
 
-      /**
-       * ACTIVE STUDENTS
-       */
-      let activeQuery = supabase
-        .from('students')
-        .select('id', {
-          count: 'exact',
-          head: true,
-        })
-        .eq(
-          'current_status',
-          'active'
-        );
+      const studentRows =
+        students ?? [];
 
-      if (userBranchId) {
-        activeQuery =
-          activeQuery.eq(
-            'branch_id',
-            userBranchId
+      const totalStudents =
+        studentRows.length;
+
+      const activeStudents =
+        studentRows.filter(
+          (student) =>
+            String(
+              student.current_status ??
+                ''
+            ).toLowerCase() ===
+            'active'
+        ).length;
+
+      /*
+       * TEACHERS
+       */
+      let teachersQuery =
+        supabase
+          .from('users')
+          .select('id')
+          .eq(
+            'role',
+            'teacher'
+          )
+          .eq(
+            'is_active',
+            true
           );
-      }
 
-      const {
-        count: activeStudents,
-        error: activeStudentsError,
-      } = await activeQuery;
-
-      if (activeStudentsError) {
-        console.error(
-          'Error fetching active students:',
-          activeStudentsError
-        );
-      }
-
-      /**
-       * TOTAL TEACHERS
-       */
-      let teachersQuery = supabase
-        .from('users')
-        .select('id', {
-          count: 'exact',
-          head: true,
-        })
-        .eq(
-          'role',
-          'teacher'
-        );
-
-      if (userBranchId) {
+      if (branchId) {
         teachersQuery =
           teachersQuery.eq(
             'branch_id',
-            userBranchId
+            branchId
           );
       }
 
       const {
-        count: totalTeachers,
+        data: teachers,
         error: teachersError,
       } = await teachersQuery;
 
       if (teachersError) {
         console.error(
-          'Error fetching teachers:',
+          'Error loading teachers:',
           teachersError
         );
       }
 
-      /**
-       * CURRENT TERM PAYMENTS
+      const totalTeachers =
+        teachers?.length ?? 0;
+
+      /*
+       * PAYMENTS
        */
       const currentPaymentStats =
         await getPaymentStats(
-          currentAcademicSession
+          currentSession,
+          branchId
         );
 
-      /**
-       * PREVIOUS TERM PAYMENTS
+      /*
+       * PREVIOUS SESSION
        */
-      const previousPaymentStats =
-        await getPaymentStats(
-          previousAcademicSession
+      const previousSession =
+        await fetchPreviousAcademicSession(
+          currentSession,
+          branchId
         );
 
-      /**
-       * Pass rate.
-       *
-       * Kept at your existing value until
-       * an actual results/assessment calculation
-       * is connected.
+      let previousTermRevenue =
+        0;
+
+      if (previousSession) {
+        const previousPaymentStats =
+          await getPaymentStats(
+            previousSession,
+            branchId
+          );
+
+        previousTermRevenue =
+          previousPaymentStats.revenue;
+      }
+
+      /*
+       * PASS RATE
        */
-      const passRate = 94;
+      const passRate =
+        await calculatePassRate(
+          currentSession,
+          branchId
+        );
 
       setStats({
-        totalStudents:
-          totalStudents || 0,
-
-        totalTeachers:
-          totalTeachers || 0,
-
+        totalStudents,
+        totalTeachers,
         totalPayments:
           currentPaymentStats.totalPayments,
-
         totalRevenue:
-          currentPaymentStats.totalRevenue,
-
+          currentPaymentStats.revenue,
         studentsPaid:
           currentPaymentStats.studentsPaid,
-
-        previousTermRevenue:
-          previousPaymentStats.totalRevenue,
-
-        activeStudents:
-          activeStudents || 0,
-
+        previousTermRevenue,
+        activeStudents,
         passRate,
       });
-
-      console.log(
-        '========================================'
-      );
-
-      console.log(
-        'HERO BANNER PAYMENT STATISTICS'
-      );
-
-      console.log(
-        '========================================'
-      );
-
-      console.log({
-        currentSession:
-          currentAcademicSession
-            ?.session_name || null,
-
-        currentTerm:
-          currentAcademicSession
-            ?.term_name || null,
-
-        currentTermNumber:
-          currentAcademicSession
-            ?.term_number || null,
-
-        currentSessionId:
-          currentAcademicSession?.id ||
-          null,
-
-        studentsPaid:
-          currentPaymentStats.studentsPaid,
-
-        totalPayments:
-          currentPaymentStats.totalPayments,
-
-        totalRevenue:
-          currentPaymentStats.totalRevenue,
-
-        previousSession:
-          previousAcademicSession
-            ?.session_name || null,
-
-        previousTerm:
-          previousAcademicSession
-            ?.term_name || null,
-
-        previousRevenue:
-          previousPaymentStats.totalRevenue,
-      });
-
-      console.log(
-        '========================================'
-      );
     } catch (error) {
       console.error(
-        'Error fetching dashboard statistics:',
+        'HeroBanner statistics error:',
         error
       );
+    } finally {
+      setLoading(false);
     }
   };
 
-  /**
-   * FETCH SCHOOL AND BRANCH DATA
-   */
   useEffect(() => {
-    let mounted = true;
+    fetchStats();
+  }, [user?.id]);
 
-    const fetchData = async () => {
-      try {
-        /**
-         * Fetch school information.
-         */
-        const {
-          data: schoolData,
-          error: schoolError,
-        } = await supabase
-          .from('school_info')
-          .select('*')
-          .limit(1)
-          .maybeSingle();
+  const displayedSession =
+    academicSession?.session_name ||
+    schoolInfo?.academic_session ||
+    'No active session';
 
-        if (
-          mounted &&
-          !schoolError &&
-          schoolData
-        ) {
-          setSchoolInfo(
-            schoolData as SchoolInfo
-          );
-        }
+  const displayedTerm =
+    academicSession?.term_name ||
+    schoolInfo?.current_term ||
+    'No active term';
 
-        /**
-         * Fetch branch name.
-         */
-        if (userBranchId) {
-          const {
-            data: branchData,
-            error: branchError,
-          } = await supabase
-            .from('branches')
-            .select(
-              'school_name, branch_code'
-            )
-            .eq(
-              'id',
-              userBranchId
-            )
-            .maybeSingle();
+  const sessionStart =
+    academicSession?.start_date
+      ? dayjs(
+          academicSession.start_date
+        ).format('DD MMM YYYY')
+      : null;
 
-          if (
-            !branchError &&
-            branchData
-          ) {
-            if (mounted) {
-              setBranchName(
-                branchData.school_name ||
-                  ''
-              );
-            }
-          } else {
-            if (mounted) {
-              setBranchName(
-                schoolData?.school_name ||
-                  'Main Campus'
-              );
-            }
-          }
-        } else {
-          if (mounted) {
-            setBranchName(
-              schoolData?.school_name ||
-                'Main Campus'
-            );
-          }
-        }
+  const sessionEnd =
+    academicSession?.end_date
+      ? dayjs(
+          academicSession.end_date
+        ).format('DD MMM YYYY')
+      : null;
 
-        /**
-         * Fetch statistics.
-         */
-        await fetchStats();
-      } catch (error) {
-        console.error(
-          'Error fetching hero data:',
-          error
-        );
-      } finally {
-        if (mounted) {
-          setLoading(false);
-        }
-      }
-    };
+  const revenueDifference =
+    stats.totalRevenue -
+    stats.previousTermRevenue;
 
-    fetchData();
+  const revenuePercentage =
+    stats.previousTermRevenue > 0
+      ? Math.round(
+          (Math.abs(
+            revenueDifference
+          ) /
+            stats.previousTermRevenue) *
+            100
+        )
+      : 0;
 
-    return () => {
-      mounted = false;
-    };
-  }, [userBranchId]);
+  const isRevenueIncreasing =
+    revenueDifference >= 0;
 
-  /**
-   * LOGO
-   */
   const logoUrl =
     schoolInfo?.logo_url ||
     schoolLogo;
 
-  /**
-   * STATS DISPLAY
-   *
-   * Existing UI/design preserved.
-   */
-  const statsDisplay = [
-    {
-      label: 'Total Students',
-      value:
-        stats.totalStudents.toLocaleString(),
-      icon: Users,
-      color: 'bg-blue-500/20',
-    },
-
-    {
-      label: 'Students Paid',
-      value:
-        stats.studentsPaid.toLocaleString(),
-      icon: GraduationCap,
-      color: 'bg-green-500/20',
-    },
-
-    {
-      label: 'Total Staff',
-      value:
-        stats.totalTeachers.toLocaleString(),
-      icon: School,
-      color: 'bg-purple-500/20',
-    },
-
-    {
-      label: 'Pass Rate',
-      value: `${stats.passRate}%`,
-      icon: Award,
-      color: 'bg-yellow-500/20',
-    },
-
-    {
-      label: 'Payments',
-      value:
-        stats.totalPayments.toLocaleString(),
-      icon: CreditCard,
-      color: 'bg-indigo-500/20',
-    },
-
-    {
-      label: 'Paid This Term',
-      value:
-        new Intl.NumberFormat(
-          'en-NG',
-          {
-            style: 'currency',
-            currency: 'NGN',
-            minimumFractionDigits: 0,
-          }
-        ).format(
-          stats.totalRevenue
-        ),
-      icon: TrendingUp,
-      color: 'bg-emerald-500/20',
-    },
-  ];
-
-  /**
-   * LOADING
-   */
-  if (loading) {
-    return (
-      <div
-        className="
-          relative overflow-hidden
-          rounded-xl sm:rounded-2xl
-          bg-gradient-to-br
-          from-blue-600
-          via-blue-700
-          to-purple-800
-          p-4 sm:p-6 md:p-8
-          shadow-2xl
-        "
-      >
-        <div className="mb-4">
-          <div className="h-4 w-32 animate-pulse rounded bg-white/10" />
-
-          <div className="mt-3 h-7 w-48 animate-pulse rounded bg-white/10" />
-
-          <div className="mt-2 h-4 w-64 animate-pulse rounded bg-white/10" />
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-1.5 sm:gap-2">
-          {Array.from({
-            length: 6,
-          }).map((_, index) => (
-            <div
-              key={index}
-              className="
-                h-12
-                animate-pulse
-                rounded-lg
-                sm:rounded-xl
-                bg-white/10
-              "
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  /**
-   * MAIN UI
-   */
   return (
     <motion.div
       initial={{
         opacity: 0,
-        y: -20,
+        y: 12,
       }}
       animate={{
         opacity: 1,
         y: 0,
       }}
       transition={{
-        duration: 0.6,
+        duration: 0.45,
       }}
-      className="
-        relative overflow-hidden
-        rounded-xl sm:rounded-2xl
-        bg-gradient-to-br
-        from-blue-600
-        via-blue-700
-        to-purple-800
-        p-4 sm:p-6 md:p-8
-        shadow-2xl
-      "
+      className="w-full"
     >
-      {/* Animated Background Pattern */}
-      <div className="absolute inset-0 pointer-events-none opacity-10">
-        <div className="absolute -top-24 -right-24 h-64 w-64 rounded-full bg-white blur-3xl" />
+      <div className="relative overflow-hidden rounded-3xl shadow-sm">
 
-        <div className="absolute -bottom-32 -left-32 h-72 w-72 rounded-full bg-purple-300 blur-3xl" />
-      </div>
+        {/* =====================================================
+            BLUE HEADER
+        ====================================================== */}
+        <div className="relative overflow-hidden bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-700 px-5 py-6 text-white sm:px-6 lg:px-8">
 
-      {/* Top Row */}
-      <div className="relative z-10 flex flex-wrap items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium text-white/80">
-        <span className="bg-white/10 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs whitespace-nowrap">
-          Sunny • 28°C
-        </span>
+          {/* Decorative circles */}
+          <div className="pointer-events-none absolute -right-16 -top-24 h-72 w-72 rounded-full bg-white/10" />
 
-        <span className="w-px h-3 bg-white/20 hidden xs:block" />
+          <div className="pointer-events-none absolute -bottom-32 right-32 h-72 w-72 rounded-full bg-blue-400/10" />
 
-        <span className="flex items-center gap-1 bg-white/10 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs whitespace-nowrap">
-          <Building2 className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+          <div className="pointer-events-none absolute -left-24 bottom-[-140px] h-72 w-72 rounded-full bg-indigo-500/20" />
 
-          <span className="hidden xs:inline">
-            {branchName}
-          </span>
+          <div className="relative">
 
-          <span className="xs:hidden">
-            {branchName
-              ? `${branchName.substring(
-                  0,
-                  10
-                )}...`
-              : 'Campus'}
-          </span>
-        </span>
+            {/* =================================================
+                PERSONALIZED WELCOME
+            ================================================== */}
+            <div className="mb-5 flex items-center gap-2">
 
-        <span className="w-px h-3 bg-white/20 hidden sm:block" />
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/20">
+                <GreetingIcon className="h-4 w-4 text-blue-100" />
+              </div>
 
-        <span className="bg-white/10 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs whitespace-nowrap hidden sm:inline">
-          {schoolInfo?.academic_session ||
-            '2025/2026'}
-        </span>
-      </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-white">
+                  {greeting.text},{' '}
+                  <span className="font-bold">
+                    {userName}
+                  </span>{' '}
+                  👋
+                </p>
 
-      {/* Greeting */}
-      <motion.div
-        initial={{
-          opacity: 0,
-          x: -20,
-        }}
-        animate={{
-          opacity: 1,
-          x: 0,
-        }}
-        transition={{
-          delay: 0.15,
-        }}
-        className="
-          relative z-10
-          mt-3
-          flex
-          flex-wrap
-          items-center
-          gap-2
-        "
-      >
-        <h1 className="text-white font-bold">
-          <span className="text-lg sm:text-2xl md:text-3xl lg:text-4xl">
-            {greeting}, {firstName}! 👋
-          </span>
-        </h1>
+                <p className="mt-0.5 text-xs text-blue-100">
+                  Welcome back to your school administration dashboard.
+                </p>
+              </div>
 
-        {userPosition && (
-          <motion.span
-            initial={{
-              opacity: 0,
-              x: -20,
-            }}
-            animate={{
-              opacity: 1,
-              x: 0,
-            }}
-            transition={{
-              delay: 0.25,
-            }}
-            className="
-              text-[10px]
-              sm:text-xs
-              font-medium
-              bg-white/20
-              px-2 sm:px-3
-              py-0.5 sm:py-1
-              rounded-full
-              text-white/90
-              self-start
-              sm:self-center
-              whitespace-nowrap
-            "
-          >
-            {userPosition}
-          </motion.span>
-        )}
-      </motion.div>
+            </div>
 
-      {/* Subtitle */}
-      <motion.p
-        initial={{
-          opacity: 0,
-          x: -20,
-        }}
-        animate={{
-          opacity: 1,
-          x: 0,
-        }}
-        transition={{
-          delay: 0.3,
-        }}
-        className="
-          relative z-10
-          mt-1
-          text-xs sm:text-sm
-          text-white/80
-          flex flex-wrap
-          items-center
-          gap-1.5 sm:gap-2
-        "
-      >
-        <span className="text-[10px] sm:text-sm">
-          Welcome to{' '}
-          {schoolInfo?.school_name ||
-            'Ebenezer International School'}
-        </span>
+            {/* =================================================
+                SCHOOL + ACADEMIC RECORD
+            ================================================== */}
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
 
-        <span className="w-px h-3 bg-white/30 hidden xs:block" />
+              {/* SCHOOL INFORMATION */}
+              <div className="flex min-w-0 items-center gap-4">
 
-        <span className="flex items-center gap-1 bg-white/10 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs whitespace-nowrap">
-          <User className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-white shadow-lg ring-1 ring-white/30">
+                  <img
+                    src={logoUrl}
+                    alt={
+                      schoolInfo?.school_name ||
+                      'School logo'
+                    }
+                    className="h-full w-full object-contain p-2"
+                    onError={(event) => {
+                      const target =
+                        event.currentTarget;
 
-          {getRoleDisplay(
-            userRole
-          )}
-        </span>
+                      if (
+                        target.src !==
+                        schoolLogo
+                      ) {
+                        target.src =
+                          schoolLogo;
+                      }
+                    }}
+                  />
+                </div>
 
-        {schoolInfo?.current_term && (
-          <>
-            <span className="w-px h-3 bg-white/30 hidden xs:block" />
+                <div className="min-w-0">
 
-            <span className="bg-white/10 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] sm:text-xs whitespace-nowrap hidden xs:inline">
-              {schoolInfo.current_term}
-            </span>
-          </>
-        )}
-      </motion.p>
+                  <div className="flex items-center gap-2">
+                    <School className="h-4 w-4 shrink-0 text-blue-100" />
 
-      {/* Stats */}
-      <motion.div
-        initial={{
-          opacity: 0,
-          y: 10,
-        }}
-        animate={{
-          opacity: 1,
-          y: 0,
-        }}
-        transition={{
-          delay: 0.4,
-        }}
-        className="
-          relative z-10
-          mt-4
-          grid
-          grid-cols-2
-          sm:grid-cols-3
-          lg:grid-cols-6
-          gap-1.5 sm:gap-2
-        "
-      >
-        {statsDisplay.map(
-          (stat, index) => (
-            <motion.div
-              key={index}
-              whileHover={{
-                scale: 1.05,
-                y: -2,
-              }}
-              whileTap={{
-                scale: 0.95,
-              }}
-              className={`
-                flex items-center
-                gap-1.5 sm:gap-2
-                rounded-lg sm:rounded-xl
-                ${stat.color}
-                px-2 sm:px-3
-                py-1.5 sm:py-2
-                backdrop-blur-sm
-                border border-white/10
-                hover:border-white/20
-                transition-all
-                min-w-0
-              `}
-            >
-              <stat.icon
-                className="
-                  h-3 w-3
-                  sm:h-4 sm:w-4
-                  text-white/70
-                  flex-shrink-0
-                "
-              />
+                    <p className="text-xs font-semibold uppercase tracking-wider text-blue-100">
+                      School Administration
+                    </p>
+                  </div>
 
-              <div className="min-w-0 flex-1">
-                <span
-                  className="
-                    text-[11px]
-                    sm:text-sm
-                    font-semibold
-                    text-white
-                    truncate
-                    block
-                  "
-                >
-                  {stat.value}
-                </span>
+                  <h1 className="mt-1 truncate text-xl font-bold sm:text-2xl lg:text-3xl">
+                    {schoolInfo?.school_name ||
+                      'Ebenezer International School'}
+                  </h1>
 
-                <span
-                  className="
-                    text-[8px]
-                    sm:text-[10px]
-                    text-white/60
-                    truncate
-                    block
-                  "
-                >
-                  {stat.label}
+                  {schoolInfo?.motto && (
+                    <p className="mt-1 max-w-2xl text-sm italic text-blue-100">
+                      "{schoolInfo.motto}"
+                    </p>
+                  )}
+
+                </div>
+              </div>
+
+              {/* CURRENT ACADEMIC RECORD */}
+              <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-sm lg:min-w-[280px]">
+
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-4 w-4 text-blue-100" />
+
+                  <span className="text-xs font-semibold uppercase tracking-wider text-blue-100">
+                    Current Academic Record
+                  </span>
+                </div>
+
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+
+                  <span className="text-base font-bold text-white">
+                    {displayedSession}
+                  </span>
+
+                  <span className="text-blue-200">
+                    •
+                  </span>
+
+                  <span className="text-base font-semibold text-blue-50">
+                    {displayedTerm}
+                  </span>
+
+                </div>
+
+                {academicSession?.term_number && (
+                  <p className="mt-1 text-xs text-blue-100">
+                    Term{' '}
+                    {academicSession.term_number}
+                  </p>
+                )}
+
+                {(sessionStart ||
+                  sessionEnd) && (
+                  <p className="mt-1 text-xs text-blue-100">
+                    {sessionStart ||
+                      '—'}{' '}
+                    {sessionEnd
+                      ? `– ${sessionEnd}`
+                      : ''}
+                  </p>
+                )}
+
+              </div>
+            </div>
+
+            {/* =================================================
+                CONTACT INFORMATION
+            ================================================== */}
+            <div className="relative mt-6 flex flex-wrap gap-x-5 gap-y-2 border-t border-white/15 pt-4">
+
+              {schoolInfo?.address && (
+                <div className="flex items-center gap-2 text-xs text-blue-100">
+                  <MapPin className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">
+                    {schoolInfo.address}
+                  </span>
+                </div>
+              )}
+
+              {schoolInfo?.phone_number && (
+                <div className="flex items-center gap-2 text-xs text-blue-100">
+                  <Phone className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {schoolInfo.phone_number}
+                  </span>
+                </div>
+              )}
+
+              {schoolInfo?.email && (
+                <div className="flex items-center gap-2 text-xs text-blue-100">
+                  <Mail className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">
+                    {schoolInfo.email}
+                  </span>
+                </div>
+              )}
+
+              {schoolInfo?.website && (
+                <div className="flex items-center gap-2 text-xs text-blue-100">
+                  <Globe className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">
+                    {schoolInfo.website}
+                  </span>
+                </div>
+              )}
+
+            </div>
+          </div>
+        </div>
+
+        {/* =====================================================
+            STATISTICS SECTION
+        ====================================================== */}
+        <div className="bg-white p-5 sm:p-6 lg:p-8">
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+
+            {/* STUDENTS */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+              <div className="flex items-start justify-between">
+
+                <div>
+                  <p className="text-sm font-medium text-slate-500">
+                    Students
+                  </p>
+
+                  {loading ? (
+                    <Loader2 className="mt-2 h-6 w-6 animate-spin text-blue-500" />
+                  ) : (
+                    <p className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
+                      {stats.totalStudents.toLocaleString()}
+                    </p>
+                  )}
+                </div>
+
+                <div className="rounded-xl bg-blue-50 p-3">
+                  <Users className="h-5 w-5 text-blue-600" />
+                </div>
+
+              </div>
+
+              <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-500">
+                <CheckCircle className="h-3.5 w-3.5 text-blue-500" />
+
+                <span>
+                  {stats.activeStudents.toLocaleString()}{' '}
+                  active
                 </span>
               </div>
-            </motion.div>
-          )
-        )}
-      </motion.div>
 
-      {/* Logo / Avatar */}
-      <motion.div
-        initial={{
-          opacity: 0,
-          scale: 0.9,
-        }}
-        animate={{
-          opacity: 1,
-          scale: 1,
-        }}
-        transition={{
-          delay: 0.5,
-        }}
-        className="
-          absolute
-          top-4 right-4
-          sm:top-6 sm:right-6
-          md:top-8 md:right-8
-        "
-      >
-        <div className="relative group">
-          <div
-            className="
-              flex
-              h-16 w-16
-              sm:h-20 sm:w-20
-              md:h-28 md:w-28
-              lg:h-36 lg:w-36
-              items-center
-              justify-center
-              rounded-full
-              bg-white/10
-              backdrop-blur-sm
-              border-2
-              border-white/20
-              group-hover:border-white/40
-              transition-all
-              shadow-2xl
-            "
-          >
-            {logoUrl ? (
-              <img
-                src={logoUrl}
-                alt={
-                  schoolInfo?.school_name ||
-                  'School Logo'
-                }
-                className="
-                  h-12 w-12
-                  sm:h-14 sm:w-14
-                  md:h-20 md:w-20
-                  lg:h-28 lg:w-28
-                  rounded-full
-                  object-cover
-                "
-                onError={(e) => {
-                  (
-                    e.target as HTMLImageElement
-                  ).src = schoolLogo;
-                }}
-              />
-            ) : (
-              <div className="flex flex-col items-center">
-                <School
-                  className="
-                    h-8 w-8
-                    sm:h-10 sm:w-10
-                    md:h-14 md:w-14
-                    text-white/70
-                  "
-                />
+            </div>
 
-                <span className="text-[8px] sm:text-[10px] text-white/50 mt-0.5">
-                  EIS
+            {/* TEACHERS */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+              <div className="flex items-start justify-between">
+
+                <div>
+                  <p className="text-sm font-medium text-slate-500">
+                    Teachers
+                  </p>
+
+                  {loading ? (
+                    <Loader2 className="mt-2 h-6 w-6 animate-spin text-blue-500" />
+                  ) : (
+                    <p className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
+                      {stats.totalTeachers.toLocaleString()}
+                    </p>
+                  )}
+                </div>
+
+                <div className="rounded-xl bg-blue-50 p-3">
+                  <GraduationCap className="h-5 w-5 text-blue-600" />
+                </div>
+
+              </div>
+
+              <div className="mt-3 flex items-center gap-1.5 text-xs text-slate-500">
+                <BookOpen className="h-3.5 w-3.5 text-blue-500" />
+                <span>
+                  Active teaching staff
                 </span>
               </div>
-            )}
+
+            </div>
+
+            {/* REVENUE */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+              <div className="flex items-start justify-between">
+
+                <div className="min-w-0">
+
+                  <p className="text-sm font-medium text-slate-500">
+                    Revenue
+                  </p>
+
+                  {loading ? (
+                    <Loader2 className="mt-2 h-6 w-6 animate-spin text-blue-500" />
+                  ) : (
+                    <p className="mt-1 truncate text-2xl font-bold tracking-tight text-slate-900">
+                      {formatCurrency(
+                        stats.totalRevenue
+                      )}
+                    </p>
+                  )}
+
+                </div>
+
+                <div className="rounded-xl bg-blue-50 p-3">
+                  <CreditCard className="h-5 w-5 text-blue-600" />
+                </div>
+
+              </div>
+
+              <div className="mt-3 flex items-center gap-1.5 text-xs">
+
+                {!loading &&
+                  stats.previousTermRevenue >
+                    0 && (
+                    <>
+                      {isRevenueIncreasing ? (
+                        <TrendingUp className="h-3.5 w-3.5 text-green-600" />
+                      ) : (
+                        <TrendingDown className="h-3.5 w-3.5 text-red-600" />
+                      )}
+
+                      <span
+                        className={
+                          isRevenueIncreasing
+                            ? 'font-medium text-green-600'
+                            : 'font-medium text-red-600'
+                        }
+                      >
+                        {revenuePercentage}%{' '}
+                        {isRevenueIncreasing
+                          ? 'increase'
+                          : 'decrease'}
+                      </span>
+
+                      <span className="text-slate-400">
+                        vs previous session
+                      </span>
+                    </>
+                  )}
+
+                {!loading &&
+                  stats.previousTermRevenue ===
+                    0 && (
+                    <span className="text-slate-500">
+                      {stats.studentsPaid.toLocaleString()}{' '}
+                      students paid
+                    </span>
+                  )}
+
+              </div>
+            </div>
+
+            {/* PASS RATE */}
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+              <div className="flex items-start justify-between">
+
+                <div>
+
+                  <p className="text-sm font-medium text-slate-500">
+                    Pass Rate
+                  </p>
+
+                  {loading ? (
+                    <Loader2 className="mt-2 h-6 w-6 animate-spin text-blue-500" />
+                  ) : (
+                    <p className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
+                      {stats.passRate ===
+                      null
+                        ? '—'
+                        : `${stats.passRate}%`}
+                    </p>
+                  )}
+
+                </div>
+
+                <div className="rounded-xl bg-blue-50 p-3">
+                  <CheckCircle className="h-5 w-5 text-blue-600" />
+                </div>
+
+              </div>
+
+              <div className="mt-3 text-xs text-slate-500">
+                {stats.passRate ===
+                null
+                  ? 'No published results yet'
+                  : `Published results · pass mark ${PASS_MARK}%`}
+              </div>
+
+            </div>
           </div>
 
-          {/* Animated Rings */}
-          <div className="absolute -inset-2 sm:-inset-4 animate-pulse rounded-full border border-white/10 group-hover:border-white/20 transition-all hidden sm:block" />
+          {/* ===================================================
+              ACADEMIC STATUS
+          ==================================================== */}
+          <div className="mt-5 flex flex-col gap-3 rounded-2xl bg-blue-50 p-4 ring-1 ring-blue-100 sm:flex-row sm:items-center sm:justify-between">
 
-          <div className="absolute -inset-4 sm:-inset-8 rounded-full border border-white/5 group-hover:border-white/10 transition-all hidden md:block" />
+            <div className="flex items-center gap-3">
+
+              <div className="rounded-xl bg-white p-2.5 shadow-sm ring-1 ring-blue-100">
+                <CalendarDays className="h-5 w-5 text-blue-600" />
+              </div>
+
+              <div>
+
+                <p className="text-sm font-semibold text-slate-900">
+                  {displayedSession}
+                </p>
+
+                <p className="text-xs text-slate-500">
+                  {displayedTerm}
+
+                  {academicSession?.term_number
+                    ? ` · Term ${academicSession.term_number}`
+                    : ''}
+                </p>
+
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs font-medium text-blue-700">
+
+              <span className="h-2 w-2 rounded-full bg-blue-500" />
+
+              Current academic record
+
+            </div>
+          </div>
+
         </div>
-      </motion.div>
-
-      {/* Footer Info */}
-      <motion.div
-        initial={{
-          opacity: 0,
-        }}
-        animate={{
-          opacity: 1,
-        }}
-        transition={{
-          delay: 0.55,
-        }}
-        className="
-          relative z-10
-          mt-3
-          flex
-          flex-wrap
-          items-center
-          gap-x-2
-          gap-y-1
-          text-[9px]
-          sm:text-[10px]
-          text-white/50
-        "
-      >
-        <span className="hidden xs:inline">
-          {currentTime.format(
-            'dddd, MMMM D, YYYY'
-          )}
-        </span>
-
-        <span className="xs:hidden">
-          {currentTime.format(
-            'MMM D, YYYY'
-          )}
-        </span>
-
-        {user?.email && (
-          <>
-            <span className="hidden sm:inline">
-              •
-            </span>
-
-            <span className="hidden sm:flex items-center gap-1">
-              <span className="opacity-50">
-                Logged in as
-              </span>
-
-              <span className="text-white/70 max-w-[100px] truncate">
-                {user.email}
-              </span>
-            </span>
-          </>
-        )}
-
-        {schoolInfo?.motto && (
-          <>
-            <span className="hidden lg:inline">
-              •
-            </span>
-
-            <span className="italic text-white/40 hidden lg:inline max-w-[200px] truncate">
-              "{schoolInfo.motto}"
-            </span>
-          </>
-        )}
-      </motion.div>
+      </div>
     </motion.div>
   );
 };

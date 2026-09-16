@@ -1,3 +1,4 @@
+
 import React, {
   useCallback,
   useEffect,
@@ -42,28 +43,34 @@ import { useAuth } from '../../../hooks/useAuth';
 interface Payment {
   id: string;
   branch_id: string;
-  student_id: string;
-  fee_id: string;
-  assignment_id?: string;
-  amount_paid: number;
+  student_id: string | null;
+  fee_id: string | null;
+  assignment_id: string | null;
+
+  amount_paid: number | null;
+  amount?: number | null;
+
   payment_date: string;
-  payment_method?: string;
-  receipt_number?: string;
-  status: string;
+
+  payment_method?: string | null;
+  receipt_number?: string | null;
+
+  status: string | null;
+
+  academic_session?: string | null;
+  academic_term?: string | null;
+
+  term_id?: string | null;
+  session_id?: string | null;
+
+  metadata?: Record<string, any> | null;
 }
 
 interface Fee {
   id: string;
-  name: string;
-  category?: string;
-  amount?: number;
-}
-
-interface Student {
-  id: string;
-  student_id?: string;
-  first_name?: string;
-  last_name?: string;
+  name?: string | null;
+  category?: string | null;
+  amount?: number | null;
 }
 
 interface RevenuePoint {
@@ -105,6 +112,7 @@ const SUCCESS_STATUSES = [
 const PAYMENT_METHOD_LABELS: Record<string, string> = {
   cash: 'Cash',
   bank_transfer: 'Bank Transfer',
+  bank: 'Bank Transfer',
   transfer: 'Bank Transfer',
   card: 'Card',
   online: 'Online',
@@ -115,6 +123,15 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   mobile_money: 'Mobile Money',
 };
 
+const PIE_COLORS = [
+  '#2563eb',
+  '#16a34a',
+  '#f59e0b',
+  '#8b5cf6',
+  '#ef4444',
+  '#06b6d4',
+];
+
 
 // ============================================================
 // COMPONENT
@@ -123,13 +140,8 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
 const RevenueChart: React.FC = () => {
   const { user } = useAuth();
 
-  // ----------------------------------------------------------
-  // STATE
-  // ----------------------------------------------------------
-
   const [payments, setPayments] = useState<Payment[]>([]);
   const [fees, setFees] = useState<Fee[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -158,9 +170,12 @@ const RevenueChart: React.FC = () => {
   const [currentTerm, setCurrentTerm] =
     useState('');
 
+  const [currentSessionId, setCurrentSessionId] =
+    useState<string | null>(null);
+
 
   // ==========================================================
-  // GET BRANCH ID
+  // BRANCH ID
   // ==========================================================
 
   const getBranchId = useCallback(() => {
@@ -174,175 +189,314 @@ const RevenueChart: React.FC = () => {
 
 
   // ==========================================================
+  // NORMALIZE STATUS
+  // ==========================================================
+
+  const isSuccessfulPayment = useCallback(
+    (status: string | null | undefined) => {
+      if (!status) return false;
+
+      return SUCCESS_STATUSES.includes(
+        status.toLowerCase().trim()
+      );
+    },
+    []
+  );
+
+
+  // ==========================================================
+  // GET PAYMENT AMOUNT
+  //
+  // amount_paid is the canonical amount used by the
+  // existing payment implementation.
+  //
+  // amount is retained as a fallback for older records.
+  // ==========================================================
+
+  const getPaymentAmount = useCallback(
+    (payment: Payment) => {
+      const amountPaid = Number(
+        payment.amount_paid
+      );
+
+      if (
+        Number.isFinite(amountPaid) &&
+        amountPaid > 0
+      ) {
+        return amountPaid;
+      }
+
+      const amount = Number(
+        payment.amount
+      );
+
+      return Number.isFinite(amount)
+        ? amount
+        : 0;
+    },
+    []
+  );
+
+
+  // ==========================================================
   // FETCH DATA
   // ==========================================================
 
-  const fetchData = useCallback(async () => {
-    const branchId = getBranchId();
+  const fetchData = useCallback(
+    async () => {
+      const branchId =
+        getBranchId();
 
-    if (!branchId) {
-      console.error(
-        'RevenueChart: No branch ID found'
-      );
-
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      // ------------------------------------------------------
-      // CURRENT ACADEMIC SESSION
-      // ------------------------------------------------------
-
-      const {
-        data: sessionData,
-        error: sessionError,
-      } = await supabase
-        .from('academic_sessions')
-        .select(
-          'session_name, term_name'
-        )
-        .eq('branch_id', branchId)
-        .eq('is_current', true)
-        .maybeSingle();
-
-      if (sessionError) {
-        console.warn(
-          'RevenueChart session fetch:',
-          sessionError.message
+      if (!branchId) {
+        console.error(
+          'RevenueChart: No branch ID found.'
         );
+
+        setPayments([]);
+        setFees([]);
+        setLoading(false);
+        setRefreshing(false);
+
+        return;
       }
 
-      setCurrentSession(
-        sessionData?.session_name || ''
-      );
+      setLoading(true);
 
-      setCurrentTerm(
-        sessionData?.term_name || ''
-      );
+      try {
+        // ----------------------------------------------------
+        // CURRENT ACADEMIC SESSION
+        //
+        // First try the branch's current session ID.
+        // This follows the same structure already used in
+        // PaymentsList.tsx.
+        // ----------------------------------------------------
 
+        let sessionName = '';
+        let termName = '';
+        let sessionId: string | null = null;
 
-      // ------------------------------------------------------
-      // PAYMENTS
-      // ------------------------------------------------------
+        const {
+          data: branchData,
+          error: branchError,
+        } = await supabase
+          .from('branches')
+          .select(
+            'current_session_id, current_term'
+          )
+          .eq('id', branchId)
+          .maybeSingle();
 
-      const {
-        data: paymentData,
-        error: paymentError,
-      } = await supabase
-        .from('payments')
-        .select(`
-          id,
-          branch_id,
-          student_id,
-          fee_id,
-          assignment_id,
-          amount_paid,
-          payment_date,
-          payment_method,
-          receipt_number,
-          status
-        `)
-        .eq('branch_id', branchId)
-        .in(
-          'status',
-          SUCCESS_STATUSES
-        )
-        .order(
-          'payment_date',
-          {
-            ascending: true,
+        if (branchError) {
+          console.warn(
+            'RevenueChart branch lookup:',
+            branchError.message
+          );
+        }
+
+        if (branchData?.current_session_id) {
+          sessionId =
+            branchData.current_session_id;
+
+          const {
+            data: sessionData,
+            error: sessionError,
+          } = await supabase
+            .from('academic_sessions')
+            .select(
+              'id, session_name, term_name'
+            )
+            .eq(
+              'id',
+              branchData.current_session_id
+            )
+            .maybeSingle();
+
+          if (sessionError) {
+            console.warn(
+              'RevenueChart session lookup:',
+              sessionError.message
+            );
           }
+
+          if (sessionData) {
+            sessionName =
+              sessionData.session_name ||
+              '';
+
+            termName =
+              sessionData.term_name ||
+              '';
+          }
+        }
+
+        // ----------------------------------------------------
+        // FALLBACK: CURRENT ACADEMIC SESSION
+        // ----------------------------------------------------
+
+        if (!sessionName) {
+          const {
+            data: sessionData,
+            error: sessionError,
+          } = await supabase
+            .from('academic_sessions')
+            .select(
+              'id, session_name, term_name'
+            )
+            .eq(
+              'branch_id',
+              branchId
+            )
+            .eq(
+              'is_current',
+              true
+            )
+            .maybeSingle();
+
+          if (sessionError) {
+            console.warn(
+              'RevenueChart current session:',
+              sessionError.message
+            );
+          }
+
+          if (sessionData) {
+            sessionId =
+              sessionData.id ||
+              sessionId;
+
+            sessionName =
+              sessionData.session_name ||
+              '';
+
+            termName =
+              sessionData.term_name ||
+              '';
+          }
+        }
+
+        // Branch current_term is a useful fallback when the
+        // academic_sessions row doesn't contain term_name.
+        if (
+          !termName &&
+          branchData?.current_term
+        ) {
+          termName =
+            branchData.current_term;
+        }
+
+        setCurrentSession(
+          sessionName
         );
 
-      if (paymentError) {
-        throw paymentError;
+        setCurrentTerm(
+          termName
+        );
+
+        setCurrentSessionId(
+          sessionId
+        );
+
+
+        // ----------------------------------------------------
+        // PAYMENTS
+        //
+        // Select only columns actually used by the live
+        // payment implementation.
+        // ----------------------------------------------------
+
+        const {
+          data: paymentData,
+          error: paymentError,
+        } = await supabase
+          .from('payments')
+          .select(`
+            id,
+            branch_id,
+            student_id,
+            fee_id,
+            assignment_id,
+            amount_paid,
+            amount,
+            payment_date,
+            payment_method,
+            receipt_number,
+            status,
+            academic_session,
+            academic_term,
+            term_id,
+            session_id,
+            metadata
+          `)
+          .eq(
+            'branch_id',
+            branchId
+          )
+          .in(
+            'status',
+            SUCCESS_STATUSES
+          )
+          .order(
+            'payment_date',
+            {
+              ascending: true,
+            }
+          );
+
+        if (paymentError) {
+          throw paymentError;
+        }
+
+        setPayments(
+          (paymentData || []) as Payment[]
+        );
+
+
+        // ----------------------------------------------------
+        // FEES
+        // ----------------------------------------------------
+
+        const {
+          data: feeData,
+          error: feeError,
+        } = await supabase
+          .from('fees')
+          .select(`
+            id,
+            name,
+            category,
+            amount
+          `)
+          .eq(
+            'branch_id',
+            branchId
+          );
+
+        if (feeError) {
+          console.warn(
+            'RevenueChart fees:',
+            feeError.message
+          );
+        }
+
+        setFees(
+          (feeData || []) as Fee[]
+        );
+
+      } catch (error: any) {
+        console.error(
+          'RevenueChart fetch error:',
+          error
+        );
+
+        setPayments([]);
+        setFees([]);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-
-      setPayments(
-        (paymentData || []) as Payment[]
-      );
-
-
-      // ------------------------------------------------------
-      // FEES
-      // ------------------------------------------------------
-
-      const {
-        data: feeData,
-        error: feeError,
-      } = await supabase
-        .from('fees')
-        .select(`
-          id,
-          name,
-          category,
-          amount
-        `)
-        .eq(
-          'branch_id',
-          branchId
-        );
-
-      if (feeError) {
-        console.warn(
-          'RevenueChart fees fetch:',
-          feeError.message
-        );
-      }
-
-      setFees(
-        (feeData || []) as Fee[]
-      );
-
-
-      // ------------------------------------------------------
-      // STUDENTS
-      // ------------------------------------------------------
-
-      const {
-        data: studentData,
-        error: studentError,
-      } = await supabase
-        .from('students')
-        .select(`
-          id,
-          student_id,
-          first_name,
-          last_name
-        `)
-        .eq(
-          'branch_id',
-          branchId
-        )
-        .eq(
-          'current_status',
-          'active'
-        );
-
-      if (studentError) {
-        console.warn(
-          'RevenueChart students fetch:',
-          studentError.message
-        );
-      }
-
-      setStudents(
-        (studentData || []) as Student[]
-      );
-
-    } catch (error: any) {
-      console.error(
-        'RevenueChart fetch error:',
-        error
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [getBranchId]);
+    },
+    [getBranchId]
+  );
 
 
   // ==========================================================
@@ -360,200 +514,344 @@ const RevenueChart: React.FC = () => {
 
 
   // ==========================================================
-  // FILTERED PAYMENTS
+  // SESSION / TERM NORMALIZATION
   // ==========================================================
 
-  const filteredPayments = useMemo(() => {
-    if (!dateRange) {
-      return payments;
-    }
+  const normalizeText = useCallback(
+    (value: unknown) => {
+      return String(
+        value ?? ''
+      )
+        .trim()
+        .toLowerCase();
+    },
+    []
+  );
 
-    const [start, end] =
-      dateRange;
 
-    const startDate =
-      start.startOf('day');
+  // ==========================================================
+  // FILTER PAYMENTS
+  //
+  // Important:
+  //
+  // We preserve older payments that do not contain academic
+  // session/term values when they fall within the selected
+  // calendar period.
+  //
+  // Newer payments containing academic_session / academic_term
+  // are matched against the current academic context.
+  // ==========================================================
 
-    const endDate =
-      end.endOf('day');
-
-    return payments.filter(
-      payment => {
-        const paymentDate =
-          dayjs(
-            payment.payment_date
-          );
-
-        return (
-          !paymentDate.isBefore(
-            startDate
-          ) &&
-          !paymentDate.isAfter(
-            endDate
-          )
-        );
+  const sessionFilteredPayments =
+    useMemo(() => {
+      if (!currentSession) {
+        return payments;
       }
-    );
-  }, [
-    payments,
-    dateRange,
-  ]);
+
+      const normalizedCurrentSession =
+        normalizeText(
+          currentSession
+        );
+
+      const normalizedCurrentTerm =
+        normalizeText(
+          currentTerm
+        );
+
+      return payments.filter(
+        payment => {
+          const paymentSession =
+            normalizeText(
+              payment.academic_session ||
+              payment.metadata?.session
+            );
+
+          const paymentTerm =
+            normalizeText(
+              payment.academic_term ||
+              payment.metadata?.term
+            );
+
+          const paymentSessionId =
+            payment.session_id ||
+            payment.metadata?.session_id;
+
+          // Explicit session ID match.
+          if (
+            currentSessionId &&
+            paymentSessionId
+          ) {
+            return (
+              paymentSessionId ===
+              currentSessionId
+            );
+          }
+
+          // Explicit session name match.
+          if (
+            paymentSession
+          ) {
+            if (
+              paymentSession !==
+              normalizedCurrentSession
+            ) {
+              return false;
+            }
+
+            // If current term is known and payment has a term,
+            // match it too.
+            if (
+              normalizedCurrentTerm &&
+              paymentTerm
+            ) {
+              return (
+                paymentTerm ===
+                normalizedCurrentTerm
+              );
+            }
+
+            return true;
+          }
+
+          // Legacy payment without academic session.
+          // Keep it available so historical data isn't silently
+          // removed from the revenue chart.
+          return true;
+        }
+      );
+    }, [
+      payments,
+      currentSession,
+      currentTerm,
+      currentSessionId,
+      normalizeText,
+    ]);
+
+
+  // ==========================================================
+  // DATE FILTER
+  // ==========================================================
+
+  const filteredPayments =
+    useMemo(() => {
+      if (!dateRange) {
+        return sessionFilteredPayments;
+      }
+
+      const [
+        start,
+        end,
+      ] = dateRange;
+
+      const startDate =
+        start.startOf('day');
+
+      const endDate =
+        end.endOf('day');
+
+      return sessionFilteredPayments.filter(
+        payment => {
+          const paymentDate =
+            dayjs(
+              payment.payment_date
+            );
+
+          if (
+            !paymentDate.isValid()
+          ) {
+            return false;
+          }
+
+          return (
+            !paymentDate.isBefore(
+              startDate
+            ) &&
+            !paymentDate.isAfter(
+              endDate
+            )
+          );
+        }
+      );
+    }, [
+      sessionFilteredPayments,
+      dateRange,
+    ]);
 
 
   // ==========================================================
   // REVENUE CHART DATA
-  //
-  // IMPORTANT:
-  // We create points for every day/month in the selected
-  // period, even when revenue is ₦0.
-  //
-  // This makes the graph visibly move UP and DOWN.
   // ==========================================================
 
-  const revenueData = useMemo(() => {
-    if (!dateRange) {
-      return [];
-    }
-
-    const [
-      start,
-      end,
-    ] = dateRange;
-
-    const grouped: Record<
-      string,
-      RevenuePoint
-    > = {};
-
-    // --------------------------------------------------------
-    // CREATE EMPTY POINTS FOR ENTIRE DATE RANGE
-    // --------------------------------------------------------
-
-    let cursor =
-      start.startOf('day');
-
-    const lastDate =
-      end.startOf('day');
-
-    while (
-      cursor.isBefore(lastDate) ||
-      cursor.isSame(
-        lastDate,
-        'day'
-      )
-    ) {
-      const key =
-        viewMode === 'monthly'
-          ? cursor.format(
-              'YYYY-MM'
-            )
-          : cursor.format(
-              'YYYY-MM-DD'
-            );
-
-      const label =
-        viewMode === 'monthly'
-          ? cursor.format(
-              'MMM YYYY'
-            )
-          : cursor.format(
-              'DD MMM'
-            );
-
-      if (!grouped[key]) {
-        grouped[key] = {
-          date: key,
-          label,
-          revenue: 0,
-          transactions: 0,
-        };
+  const revenueData =
+    useMemo(() => {
+      if (!dateRange) {
+        return [];
       }
+
+      const [
+        start,
+        end,
+      ] = dateRange;
+
+      const grouped: Record<
+        string,
+        RevenuePoint
+      > = {};
+
+      // ------------------------------------------------------
+      // CREATE EMPTY DATE POINTS
+      // ------------------------------------------------------
 
       if (
         viewMode === 'monthly'
       ) {
-        cursor =
-          cursor.add(
-            1,
+        let cursor =
+          start.startOf(
             'month'
           );
-      } else {
-        cursor =
-          cursor.add(
-            1,
-            'day'
-          );
-      }
-    }
 
-
-    // --------------------------------------------------------
-    // ADD ACTUAL PAYMENTS
-    // --------------------------------------------------------
-
-    filteredPayments.forEach(
-      payment => {
-        const paymentDate =
-          dayjs(
-            payment.payment_date
+        const lastDate =
+          end.startOf(
+            'month'
           );
 
-        const key =
-          viewMode === 'monthly'
-            ? paymentDate.format(
-                'YYYY-MM'
-              )
-            : paymentDate.format(
-                'YYYY-MM-DD'
-              );
+        while (
+          cursor.isBefore(
+            lastDate
+          ) ||
+          cursor.isSame(
+            lastDate,
+            'month'
+          )
+        ) {
+          const key =
+            cursor.format(
+              'YYYY-MM'
+            );
 
-        if (!grouped[key]) {
           grouped[key] = {
             date: key,
-
-            label:
-              viewMode ===
-              'monthly'
-                ? paymentDate.format(
-                    'MMM YYYY'
-                  )
-                : paymentDate.format(
-                    'DD MMM'
-                  ),
-
+            label: cursor.format(
+              'MMM YYYY'
+            ),
             revenue: 0,
             transactions: 0,
           };
+
+          cursor =
+            cursor.add(
+              1,
+              'month'
+            );
         }
+      } else {
+        let cursor =
+          start.startOf('day');
 
-        grouped[key].revenue +=
-          Number(
-            payment.amount_paid
-          ) || 0;
+        const lastDate =
+          end.startOf('day');
 
-        grouped[key]
-          .transactions += 1;
+        while (
+          cursor.isBefore(
+            lastDate
+          ) ||
+          cursor.isSame(
+            lastDate,
+            'day'
+          )
+        ) {
+          const key =
+            cursor.format(
+              'YYYY-MM-DD'
+            );
+
+          grouped[key] = {
+            date: key,
+            label: cursor.format(
+              'DD MMM'
+            ),
+            revenue: 0,
+            transactions: 0,
+          };
+
+          cursor =
+            cursor.add(
+              1,
+              'day'
+            );
+        }
       }
-    );
 
 
-    // --------------------------------------------------------
-    // SORT CHRONOLOGICALLY
-    // --------------------------------------------------------
+      // ------------------------------------------------------
+      // ADD PAYMENTS
+      // ------------------------------------------------------
 
-    return Object.values(
-      grouped
-    ).sort(
-      (a, b) =>
-        a.date.localeCompare(
-          b.date
-        )
-    );
-  }, [
-    filteredPayments,
-    dateRange,
-    viewMode,
-  ]);
+      filteredPayments.forEach(
+        payment => {
+          const paymentDate =
+            dayjs(
+              payment.payment_date
+            );
+
+          if (
+            !paymentDate.isValid()
+          ) {
+            return;
+          }
+
+          const key =
+            viewMode === 'monthly'
+              ? paymentDate.format(
+                  'YYYY-MM'
+                )
+              : paymentDate.format(
+                  'YYYY-MM-DD'
+                );
+
+          if (
+            !grouped[key]
+          ) {
+            grouped[key] = {
+              date: key,
+              label:
+                viewMode === 'monthly'
+                  ? paymentDate.format(
+                      'MMM YYYY'
+                    )
+                  : paymentDate.format(
+                      'DD MMM'
+                    ),
+              revenue: 0,
+              transactions: 0,
+            };
+          }
+
+          grouped[key].revenue +=
+            getPaymentAmount(
+              payment
+            );
+
+          grouped[key]
+            .transactions += 1;
+        }
+      );
+
+
+      return Object.values(
+        grouped
+      ).sort(
+        (a, b) =>
+          a.date.localeCompare(
+            b.date
+          )
+      );
+    }, [
+      filteredPayments,
+      dateRange,
+      viewMode,
+      getPaymentAmount,
+    ]);
 
 
   // ==========================================================
@@ -569,10 +867,8 @@ const RevenueChart: React.FC = () => {
             payment
           ) =>
             total +
-            (
-              Number(
-                payment.amount_paid
-              ) || 0
+            getPaymentAmount(
+              payment
             ),
           0
         );
@@ -592,7 +888,6 @@ const RevenueChart: React.FC = () => {
 
       return {
         revenue,
-
         transactions,
 
         averagePayment:
@@ -606,6 +901,7 @@ const RevenueChart: React.FC = () => {
       };
     }, [
       filteredPayments,
+      getPaymentAmount,
     ]);
 
 
@@ -627,9 +923,14 @@ const RevenueChart: React.FC = () => {
               payment.payment_method ||
               'other';
 
+            const normalized =
+              raw
+                .toLowerCase()
+                .trim();
+
             const key =
               PAYMENT_METHOD_LABELS[
-                raw.toLowerCase()
+                normalized
               ] ||
               raw
                 .replace(
@@ -647,10 +948,8 @@ const RevenueChart: React.FC = () => {
                 grouped[key] ||
                 0
               ) +
-              (
-                Number(
-                  payment.amount_paid
-                ) || 0
+              getPaymentAmount(
+                payment
               );
           }
         );
@@ -675,6 +974,7 @@ const RevenueChart: React.FC = () => {
       },
       [
         filteredPayments,
+        getPaymentAmount,
       ]
     );
 
@@ -709,13 +1009,23 @@ const RevenueChart: React.FC = () => {
         filteredPayments.forEach(
           payment => {
             const fee =
-              feeMap.get(
-                payment.fee_id
-              );
+              payment.fee_id
+                ? feeMap.get(
+                    payment.fee_id
+                  )
+                : undefined;
 
-            const category =
+            const rawCategory =
               fee?.category ||
               'Other';
+
+            const category =
+              rawCategory
+                .replace(
+                  /_/g,
+                  ' '
+                )
+                .trim();
 
             grouped[
               category
@@ -725,10 +1035,8 @@ const RevenueChart: React.FC = () => {
                   category
                 ] || 0
               ) +
-              (
-                Number(
-                  payment.amount_paid
-                ) || 0
+              getPaymentAmount(
+                payment
               );
           }
         );
@@ -741,11 +1049,7 @@ const RevenueChart: React.FC = () => {
               name,
               value,
             ]) => ({
-              name:
-                name.replace(
-                  /_/g,
-                  ' '
-                ),
+              name,
               value,
             })
           )
@@ -758,12 +1062,13 @@ const RevenueChart: React.FC = () => {
       [
         filteredPayments,
         fees,
+        getPaymentAmount,
       ]
     );
 
 
   // ==========================================================
-  // CURRENCY FORMAT
+  // CURRENCY
   // ==========================================================
 
   const formatCurrency =
@@ -772,17 +1077,14 @@ const RevenueChart: React.FC = () => {
         return new Intl.NumberFormat(
           'en-NG',
           {
-            style:
-              'currency',
-
-            currency:
-              'NGN',
-
+            style: 'currency',
+            currency: 'NGN',
             minimumFractionDigits: 0,
-
             maximumFractionDigits: 0,
           }
-        ).format(amount);
+        ).format(
+          amount
+        );
       },
       []
     );
@@ -881,8 +1183,7 @@ const RevenueChart: React.FC = () => {
 
       const revenue =
         Number(
-          payload[0]
-            ?.value
+          payload[0]?.value
         ) || 0;
 
       const transactions =
@@ -893,7 +1194,6 @@ const RevenueChart: React.FC = () => {
 
       return (
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-xl p-3 min-w-[150px]">
-
           <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
             {label}
           </p>
@@ -912,7 +1212,6 @@ const RevenueChart: React.FC = () => {
               ? 's'
               : ''}
           </p>
-
         </div>
       );
     };
@@ -925,17 +1224,13 @@ const RevenueChart: React.FC = () => {
   if (loading) {
     return (
       <div className="w-full bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-8">
-
         <div className="flex items-center justify-center gap-3">
-
           <Loader2 className="w-5 h-5 animate-spin text-blue-600" />
 
           <span className="text-sm text-gray-500 dark:text-gray-400">
             Loading revenue...
           </span>
-
         </div>
-
       </div>
     );
   }
@@ -948,7 +1243,6 @@ const RevenueChart: React.FC = () => {
   return (
     <div className="space-y-4">
 
-
       {/* =====================================================
           HEADER
       ===================================================== */}
@@ -956,23 +1250,18 @@ const RevenueChart: React.FC = () => {
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
 
         <div>
-
           <div className="flex items-center gap-2">
 
             <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-
               <TrendingUp className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-
             </div>
 
             <div>
-
               <h2 className="text-lg font-bold text-gray-900 dark:text-white">
                 Revenue Overview
               </h2>
 
               <p className="text-xs text-gray-500 dark:text-gray-400">
-
                 {currentSession
                   ? `${currentSession}${
                       currentTerm
@@ -980,19 +1269,14 @@ const RevenueChart: React.FC = () => {
                         : ''
                     }`
                   : 'Payment revenue'}
-
               </p>
-
             </div>
 
           </div>
-
         </div>
 
 
-        {/* ===================================================
-            CONTROLS
-        =================================================== */}
+        {/* CONTROLS */}
 
         <div className="flex flex-wrap items-center gap-2">
 
@@ -1050,7 +1334,6 @@ const RevenueChart: React.FC = () => {
             className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition disabled:opacity-50"
             title="Refresh"
           >
-
             <RefreshCw
               className={`w-4 h-4 ${
                 refreshing
@@ -1058,7 +1341,6 @@ const RevenueChart: React.FC = () => {
                   : ''
               }`}
             />
-
           </button>
 
         </div>
@@ -1072,104 +1354,79 @@ const RevenueChart: React.FC = () => {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
 
-
         {/* REVENUE */}
 
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-
           <div className="flex items-center justify-between">
 
             <div>
-
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Revenue
               </p>
 
               <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">
-
                 {formatCurrency(
                   summary.revenue
                 )}
-
               </p>
-
             </div>
 
             <div className="w-9 h-9 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-
               <Wallet className="w-4 h-4 text-green-600 dark:text-green-400" />
-
             </div>
 
           </div>
-
         </div>
 
 
         {/* TRANSACTIONS */}
 
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-
           <div className="flex items-center justify-between">
 
             <div>
-
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Transactions
               </p>
 
               <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">
-
                 {summary.transactions.toLocaleString()}
-
               </p>
-
             </div>
 
             <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-
               <CreditCard className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-
             </div>
 
           </div>
-
         </div>
 
 
         {/* AVERAGE */}
 
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-
           <p className="text-xs text-gray-500 dark:text-gray-400">
             Average Payment
           </p>
 
           <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">
-
             {formatCurrency(
               summary.averagePayment
             )}
-
           </p>
-
         </div>
 
 
         {/* STUDENTS */}
 
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-
           <p className="text-xs text-gray-500 dark:text-gray-400">
             Students Paid
           </p>
 
           <p className="text-xl font-bold text-gray-900 dark:text-white mt-1">
-
             {summary.students.toLocaleString()}
-
           </p>
-
         </div>
 
       </div>
@@ -1181,7 +1438,6 @@ const RevenueChart: React.FC = () => {
 
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm">
 
-
         {/* CHART HEADER */}
 
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
@@ -1189,20 +1445,16 @@ const RevenueChart: React.FC = () => {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
 
             <div>
-
               <h3 className="font-semibold text-gray-900 dark:text-white">
                 Revenue Trend
               </h3>
 
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Revenue movement from successful payments
+                Successful payments for the selected period
               </p>
-
             </div>
 
-
             <div className="flex items-center gap-2">
-
 
               {/* DAILY / MONTHLY */}
 
@@ -1288,9 +1540,7 @@ const RevenueChart: React.FC = () => {
         </div>
 
 
-        {/* ===================================================
-            CHART
-        =================================================== */}
+        {/* CHART */}
 
         <div className="p-4">
 
@@ -1300,9 +1550,7 @@ const RevenueChart: React.FC = () => {
             <div className="h-[320px] flex flex-col items-center justify-center text-center">
 
               <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center mb-3">
-
                 <Wallet className="w-6 h-6 text-gray-400" />
-
               </div>
 
               <p className="font-medium text-gray-700 dark:text-gray-300">
@@ -1533,10 +1781,7 @@ const RevenueChart: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-
-          {/* =================================================
-              PAYMENT METHODS
-          ================================================= */}
+          {/* PAYMENT METHODS */}
 
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
 
@@ -1553,114 +1798,109 @@ const RevenueChart: React.FC = () => {
 
             ) : (
 
-              <div className="h-[260px]">
+              <>
+                <div className="h-[260px]">
 
-                <ResponsiveContainer
-                  width="100%"
-                  height="100%"
-                >
-
-                  <PieChart>
-
-                    <Pie
-                      data={
-                        paymentMethodData
-                      }
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={
-                        90
-                      }
-                      innerRadius={
-                        55
-                      }
-                    >
-
-                      {paymentMethodData.map(
-                        (
-                          _,
-                          index
-                        ) => (
-
-                          <Cell
-                            key={`method-${index}`}
-                            fill={[
-                              '#2563eb',
-                              '#16a34a',
-                              '#f59e0b',
-                              '#8b5cf6',
-                              '#ef4444',
-                              '#06b6d4',
-                            ][
-                              index %
-                                6
-                            ]}
-                          />
-
-                        )
-                      )}
-
-                    </Pie>
-
-                    <Tooltip
-                      formatter={(
-                        value: any
-                      ) =>
-                        formatCurrency(
-                          Number(
-                            value
-                          )
-                        )
-                      }
-                    />
-
-                  </PieChart>
-
-                </ResponsiveContainer>
-
-              </div>
-
-            )}
-
-            <div className="space-y-2 mt-2">
-
-              {paymentMethodData.map(
-                method => (
-
-                  <div
-                    key={
-                      method.name
-                    }
-                    className="flex items-center justify-between text-sm"
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
                   >
 
-                    <span className="text-gray-600 dark:text-gray-400">
-                      {
-                        method.name
-                      }
-                    </span>
+                    <PieChart>
 
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {formatCurrency(
-                        method.value
-                      )}
-                    </span>
+                      <Pie
+                        data={
+                          paymentMethodData
+                        }
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={
+                          90
+                        }
+                        innerRadius={
+                          55
+                        }
+                      >
 
-                  </div>
+                        {paymentMethodData.map(
+                          (
+                            _,
+                            index
+                          ) => (
 
-                )
-              )}
+                            <Cell
+                              key={`method-${index}`}
+                              fill={
+                                PIE_COLORS[
+                                  index %
+                                    PIE_COLORS.length
+                                ]
+                              }
+                            />
 
-            </div>
+                          )
+                        )}
+
+                      </Pie>
+
+                      <Tooltip
+                        formatter={(
+                          value: any
+                        ) =>
+                          formatCurrency(
+                            Number(
+                              value
+                            )
+                          )
+                        }
+                      />
+
+                    </PieChart>
+
+                  </ResponsiveContainer>
+
+                </div>
+
+                <div className="space-y-2 mt-2">
+
+                  {paymentMethodData.map(
+                    method => (
+
+                      <div
+                        key={
+                          method.name
+                        }
+                        className="flex items-center justify-between text-sm"
+                      >
+
+                        <span className="text-gray-600 dark:text-gray-400">
+                          {
+                            method.name
+                          }
+                        </span>
+
+                        <span className="font-medium text-gray-900 dark:text-white">
+                          {formatCurrency(
+                            method.value
+                          )}
+                        </span>
+
+                      </div>
+
+                    )
+                  )}
+
+                </div>
+              </>
+
+            )}
 
           </div>
 
 
-          {/* =================================================
-              FEE CATEGORIES
-          ================================================= */}
+          {/* FEE CATEGORIES */}
 
           <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
 

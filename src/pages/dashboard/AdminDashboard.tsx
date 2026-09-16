@@ -1,10 +1,34 @@
+
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../config/supabase/client';
 import toast from 'react-hot-toast';
 import dayjs from 'dayjs';
-import { Eye, Package, CalendarDays, User, HandHelping, Box, ChevronRight, School, PenTool, CheckCircle, Clock, AlertCircle, X } from 'lucide-react';
+import {
+  Eye,
+  Package,
+  CalendarDays,
+  User,
+  HandHelping,
+  Box,
+  ChevronRight,
+  School,
+  PenTool,
+  CheckCircle,
+  Clock,
+  AlertCircle,
+  X,
+  BarChart3,
+  BookOpen,
+  ClipboardList,
+  Database,
+  Loader2,
+  Target,
+  Trophy,
+  Users,
+} from 'lucide-react';
 
 // Dashboard Components
 import HeroBanner from './components/HeroBanner';
@@ -18,9 +42,21 @@ import QuickActions from './components/QuickActions';
 import Birthdays from './components/Birthdays';
 import TopPerformingClasses from './components/TopPerformingClasses';
 import Tasks from './components/Tasks';
+import AdminTimetableOverview from './components/AdminTimetableOverview';
 
 // Admin Assistant Components
 import StatsGrid from '../adminAsst/adminAsst/components/StatsGrid';
+
+/* =========================================================
+   JAMB STATS TYPE
+========================================================= */
+
+interface JambStats {
+  registrations: number;
+  attempts: number;
+  questions: number;
+  averageScore: number;
+}
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -41,11 +77,20 @@ const AdminDashboard: React.FC = () => {
   const [activeStudents, setActiveStudents] = useState(0);
   const [lowStockItems, setLowStockItems] = useState(0);
   const [pendingAdmissions, setPendingAdmissions] = useState(0);
-  
+
   // Modal state
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
   const [selectedStudentCollections, setSelectedStudentCollections] = useState<any[]>([]);
   const [showCollectionModal, setShowCollectionModal] = useState(false);
+
+  // JAMB state
+  const [jambStats, setJambStats] = useState<JambStats>({
+    registrations: 0,
+    attempts: 0,
+    questions: 0,
+    averageScore: 0,
+  });
+  const [jambLoading, setJambLoading] = useState(true);
 
   const branchId = user?.branch_id || null;
 
@@ -57,6 +102,67 @@ const AdminDashboard: React.FC = () => {
       setLoading(false);
     }
   }, [branchId]);
+
+  // Fetch JAMB stats
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadJambStats = async () => {
+      setJambLoading(true);
+      try {
+        const [registrations, attempts, questions] = await Promise.all([
+          supabase
+            .from('jamb_registrations')
+            .select('id', { count: 'exact', head: true }),
+          supabase
+            .from('jamb_attempts')
+            .select('id, score'),
+          supabase
+            .from('jamb_questions')
+            .select('id', { count: 'exact', head: true })
+            .eq('is_active', true),
+        ]);
+
+        if (cancelled) return;
+
+        if (registrations.error) {
+          console.error('JAMB registrations:', registrations.error);
+        }
+        if (attempts.error) {
+          console.error('JAMB attempts:', attempts.error);
+        }
+        if (questions.error) {
+          console.error('JAMB questions:', questions.error);
+        }
+
+        const scores = (attempts.data || [])
+          .map((item: any) => Number(item.score))
+          .filter((score: number) => Number.isFinite(score));
+
+        setJambStats({
+          registrations: registrations.count || 0,
+          attempts: attempts.data?.length || 0,
+          questions: questions.count || 0,
+          averageScore: scores.length
+            ? Math.round(
+                (scores.reduce((sum, score) => sum + score, 0) / scores.length) * 10
+              ) / 10
+            : 0,
+        });
+      } catch (error) {
+        console.error('Failed to load JAMB dashboard statistics:', error);
+      } finally {
+        if (!cancelled) setJambLoading(false);
+      }
+    };
+
+    if (user?.id) loadJambStats();
+    else setJambLoading(false);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const fetchAllData = async () => {
     setLoading(true);
@@ -88,12 +194,12 @@ const AdminDashboard: React.FC = () => {
         console.error('Error fetching students:', error);
         return;
       }
-      
+
       const studentsData = data || [];
       setStudents(studentsData);
       setActiveStudents(studentsData.filter((s: any) => s.current_status === 'active').length || 0);
       setPendingAdmissions(studentsData.filter((s: any) => s.admission_status === 'pending').length || 0);
-      
+
       setStats(prev => ({
         ...prev,
         students: studentsData.length,
@@ -105,7 +211,6 @@ const AdminDashboard: React.FC = () => {
 
   const fetchCollections = async () => {
     try {
-      // Collections table doesn't have branch_id, so we fetch all and filter by student branch
       const { data, error } = await supabase
         .from('collections')
         .select(`
@@ -123,15 +228,14 @@ const AdminDashboard: React.FC = () => {
         console.error('Error fetching collections:', error);
         return;
       }
-      
-      // Filter collections by branch_id through the student relation
-      const filteredData = (data || []).filter((collection: any) => 
+
+      const filteredData = (data || []).filter((collection: any) =>
         collection.students?.branch_id === branchId
       );
-      
+
       const formattedCollections = filteredData.map((collection: any) => ({
         ...collection,
-        student_name: collection.students 
+        student_name: collection.students
           ? `${collection.students.first_name} ${collection.students.last_name}`
           : 'Unknown Student',
         class_at_collection: collection.class_at_collection || 'N/A',
@@ -160,15 +264,15 @@ const AdminDashboard: React.FC = () => {
         console.error('Error fetching inventory:', error);
         return;
       }
-      
+
       const inventoryData = data || [];
       setInventory(inventoryData);
-      
+
       const lowStock = inventoryData.filter(
         (item: any) => (item.quantity_added || 0) - (item.quantity_distributed || 0) <= (item.minimum_stock || 0)
       ).length;
       setLowStockItems(lowStock);
-      
+
       setStats(prev => ({
         ...prev,
         inventory: inventoryData.length,
@@ -191,7 +295,7 @@ const AdminDashboard: React.FC = () => {
         console.error('Error fetching classes:', error);
         return;
       }
-      
+
       const classesData = data || [];
       setClasses(classesData);
       setStats(prev => ({
@@ -215,7 +319,7 @@ const AdminDashboard: React.FC = () => {
         console.error('Error fetching sessions:', error);
         return;
       }
-      
+
       const sessionsData = data || [];
       setSessions(sessionsData);
       setStats(prev => ({
@@ -238,14 +342,13 @@ const AdminDashboard: React.FC = () => {
         console.error('Error fetching users:', error);
         return;
       }
-      
+
       setUsers(data || []);
     } catch (error) {
       console.error('Error fetching users:', error);
     }
   };
 
-  // View collection details - gets all collections for a student
   const handleViewStudentCollections = async (studentId: string, studentName: string) => {
     try {
       const { data, error } = await supabase
@@ -268,13 +371,12 @@ const AdminDashboard: React.FC = () => {
         return;
       }
 
-      // Get student details including class
       const student = students.find(s => s.id === studentId);
       const className = student ? classes.find(c => c.id === student.class_id)?.name || 'N/A' : 'N/A';
 
       const formattedCollections = (data || []).map((collection: any) => ({
         ...collection,
-        student_name: collection.students 
+        student_name: collection.students
           ? `${collection.students.first_name} ${collection.students.last_name}`
           : studentName,
         class_at_collection: collection.class_at_collection || className || 'N/A',
@@ -344,21 +446,137 @@ const AdminDashboard: React.FC = () => {
     >
       <HeroBanner />
 
-      <StatsGrid 
+      <StatsGrid
         stats={stats}
-        studentsCount={students.length}
         activeStudents={activeStudents}
         lowStockItems={lowStockItems}
         pendingAdmissions={pendingAdmissions}
       />
-      <RevenueChart/>
 
-
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <AttendanceChart />
-        <AcademicPerformance />
+      {/* Revenue Chart — bounded so it can't expand */}
+      <div className="w-full min-w-0 overflow-hidden">
+        <RevenueChart />
       </div>
+
+      {/* =====================================================
+          CHARTS ROW — FIXED HEIGHT
+          Both charts share a capped height so neither one
+          can push into siblings below (e.g. timetable section).
+      ===================================================== */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="w-full min-w-0 min-h-0 overflow-hidden lg:h-[420px]">
+          <AttendanceChart />
+        </div>
+        <div className="w-full min-w-0 min-h-0 overflow-hidden lg:h-[420px]">
+          <AcademicPerformance />
+        </div>
+      </div>
+
+      {/* =====================================================
+          ALL CLASSES TIMETABLE OVERVIEW
+      ===================================================== */}
+      <AdminTimetableOverview />
+
+      {/* =====================================================
+          JAMB CBT MANAGEMENT
+      ===================================================== */}
+      <motion.section
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35 }}
+        className="overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-5 text-white shadow-xl dark:border-slate-700 sm:p-7"
+      >
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-semibold text-blue-100">
+              <Target className="h-3.5 w-3.5" />
+              JAMB CBT PREPARATION
+            </div>
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
+              JAMB CBT Management
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-300">
+              Manage student registrations, authorized practice questions, CBT attempts and performance from one place.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/admin/jamb-cbt"
+              className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
+            >
+              <BarChart3 className="h-4 w-4" />
+              Analytics
+            </Link>
+            <Link
+              to="/admin/jamb-cbt/questions"
+              className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/15"
+            >
+              <Database className="h-4 w-4" />
+              Question Bank
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {[
+            { label: 'Registered Students', value: jambStats.registrations, icon: Users },
+            { label: 'CBT Attempts', value: jambStats.attempts, icon: ClipboardList },
+            { label: 'Active Questions', value: jambStats.questions, icon: BookOpen },
+            { label: 'Average Score', value: `${jambStats.averageScore}%`, icon: Trophy },
+          ].map((item) => {
+            const Icon = item.icon;
+            return (
+              <div
+                key={item.label}
+                className="rounded-2xl border border-white/10 bg-white/[0.07] p-4 backdrop-blur-sm"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <Icon className="h-5 w-5 text-blue-200" />
+                  {jambLoading && (
+                    <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                  )}
+                </div>
+                <p className="mt-3 text-2xl font-bold">{item.value}</p>
+                <p className="mt-1 text-xs text-slate-400">{item.label}</p>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <Link
+            to="/admin/jamb-cbt"
+            className="group flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] p-4 transition hover:bg-white/[0.11]"
+          >
+            <div>
+              <p className="font-semibold">Performance Analytics</p>
+              <p className="mt-1 text-xs text-slate-400">Scores and subject performance</p>
+            </div>
+            <ChevronRight className="h-5 w-5 text-slate-400 transition group-hover:translate-x-1" />
+          </Link>
+          <Link
+            to="/admin/jamb-cbt/questions"
+            className="group flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] p-4 transition hover:bg-white/[0.11]"
+          >
+            <div>
+              <p className="font-semibold">Question Bank</p>
+              <p className="mt-1 text-xs text-slate-400">Import and manage questions</p>
+            </div>
+            <ChevronRight className="h-5 w-5 text-slate-400 transition group-hover:translate-x-1" />
+          </Link>
+          <Link
+            to="/admin/jamb-cbt"
+            className="group flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.06] p-4 transition hover:bg-white/[0.11]"
+          >
+            <div>
+              <p className="font-semibold">CBT Control Centre</p>
+              <p className="mt-1 text-xs text-slate-400">Monitor the JAMB preparation system</p>
+            </div>
+            <ChevronRight className="h-5 w-5 text-slate-400 transition group-hover:translate-x-1" />
+          </Link>
+        </div>
+      </motion.section>
 
       {/* Live Activity Log & Payment Audit Feed */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -370,7 +588,7 @@ const AdminDashboard: React.FC = () => {
 
         <div className="space-y-6">
           <QuickActions />
-          
+
           {/* Collections List - Compact & Responsive */}
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-2 mb-3">
@@ -442,8 +660,8 @@ const AdminDashboard: React.FC = () => {
                     <div
                       key={item.id}
                       className={`p-2.5 rounded-xl border transition-all ${
-                        isLow 
-                          ? 'border-red-200 dark:border-red-700 bg-red-50/50 dark:bg-red-900/10' 
+                        isLow
+                          ? 'border-red-200 dark:border-red-700 bg-red-50/50 dark:bg-red-900/10'
                           : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
                       }`}
                     >
@@ -494,7 +712,7 @@ const AdminDashboard: React.FC = () => {
 };
 
 // ============================================
-// COLLECTION DETAIL MODAL - Comprehensive with Class & Term
+// COLLECTION DETAIL MODAL
 // ============================================
 const CollectionDetailModal: React.FC<{
   open: boolean;
@@ -522,7 +740,6 @@ const CollectionDetailModal: React.FC<{
     }
   };
 
-  // Group collections by session and term
   const groupedBySession = collections.reduce((acc: any, curr: any) => {
     const key = `${curr.session_name || 'N/A'} - ${curr.term_name || 'N/A'}`;
     if (!acc[key]) {
@@ -556,7 +773,6 @@ const CollectionDetailModal: React.FC<{
         exit={{ scale: 0.9, opacity: 0, y: 20 }}
         className="bg-white dark:bg-gray-900 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
       >
-        {/* Header - Student Info with Class */}
         <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -594,7 +810,6 @@ const CollectionDetailModal: React.FC<{
           ) : (
             groupedList.map((group: any, groupIndex: number) => (
               <div key={groupIndex} className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-                {/* Session/Term Header */}
                 <div className="bg-gradient-to-r from-teal-50 to-cyan-50 dark:from-teal-900/20 dark:to-cyan-900/20 p-3 border-b border-gray-200 dark:border-gray-700">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -611,7 +826,6 @@ const CollectionDetailModal: React.FC<{
                   </div>
                 </div>
 
-                {/* Items List */}
                 <div className="divide-y divide-gray-100 dark:divide-gray-700">
                   {group.items.map((item: any, itemIndex: number) => (
                     <div key={itemIndex} className="p-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
@@ -660,7 +874,6 @@ const CollectionDetailModal: React.FC<{
             ))
           )}
 
-          {/* Summary Footer */}
           {collections.length > 0 && (
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 flex items-center justify-between text-sm">
               <span className="text-gray-500 dark:text-gray-400">Total Collections</span>
@@ -668,7 +881,6 @@ const CollectionDetailModal: React.FC<{
             </div>
           )}
 
-          {/* Close Button */}
           <button
             onClick={onClose}
             className="w-full px-4 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-xl font-medium hover:opacity-90 transition-all text-sm"

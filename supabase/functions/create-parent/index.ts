@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.7';
+import { sendTransactionalEmail } from '../_shared/email.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -25,8 +26,6 @@ serve(async (req: Request) => {
     );
 
     const body = await req.json();
-    console.log('📝 Received parent registration request:', JSON.stringify(body, null, 2));
-
     const {
       email,
       password,
@@ -104,6 +103,7 @@ serve(async (req: Request) => {
 
     let authUserId: string;
     let finalPassword = password || generateSecurePassword();
+    let createdNewAuthUser = false;
 
     if (existingUser) {
       // User already exists, use existing user
@@ -164,6 +164,7 @@ serve(async (req: Request) => {
       }
 
       authUserId = authData.user.id;
+      createdNewAuthUser = true;
       console.log(`✅ Auth user created: ${authUserId}`);
 
       // --- CREATE USER RECORD ---
@@ -308,6 +309,220 @@ serve(async (req: Request) => {
       }
     }
 
+    // ============================================================
+    // SEND PARENT PORTAL EMAIL
+    // ============================================================
+
+    let emailSent = false;
+    let emailMessageId: string | null = null;
+    let emailError: string | null = null;
+
+    try {
+      const portalUrl =
+        'https://www.ebenezerinternationalschool.com.ng/login';
+
+      const fullName =
+        `${first_name} ${middle_name ? `${middle_name} ` : ''}${last_name}`.trim();
+
+      const parentNumber = existing_parent_id
+        ? existing_parent_id
+        : parentId;
+
+      if (createdNewAuthUser) {
+        const subject =
+          'Your Ebenezer International School Parent Portal Account';
+
+        const html = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Parent Portal Account</title>
+          </head>
+          <body style="margin:0;padding:0;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
+            <div style="max-width:640px;margin:30px auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+              <div style="background:#123b6d;padding:28px 30px;color:#ffffff;">
+                <h1 style="margin:0;font-size:24px;">Ebenezer International School</h1>
+                <p style="margin:8px 0 0;font-size:14px;opacity:.9;">Parent Portal Account</p>
+              </div>
+
+              <div style="padding:30px;">
+                <h2 style="margin-top:0;">Welcome, ${escapeHtml(fullName)}</h2>
+
+                <p>
+                  Your Parent Portal account has been successfully created.
+                  You can now access your child's school information online.
+                </p>
+
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:20px;margin:24px 0;">
+                  <p style="margin:0 0 10px;"><strong>Parent ID:</strong> ${escapeHtml(parentNumber)}</p>
+                  <p style="margin:0 0 10px;"><strong>Email:</strong> ${escapeHtml(email)}</p>
+                  <p style="margin:0;"><strong>Password:</strong> ${escapeHtml(finalPassword)}</p>
+                </div>
+
+                <div style="text-align:center;margin:28px 0;">
+                  <a
+                    href="${portalUrl}"
+                    style="display:inline-block;background:#123b6d;color:#ffffff;text-decoration:none;padding:13px 24px;border-radius:8px;font-weight:bold;"
+                  >
+                    Open Parent Portal
+                  </a>
+                </div>
+
+                <p style="font-size:13px;color:#64748b;">
+                  For your security, please change your password after your first successful login
+                  and do not share your login credentials with anyone.
+                </p>
+
+                <p style="margin-bottom:0;">
+                  Regards,<br>
+                  <strong>Ebenezer International School</strong>
+                </p>
+              </div>
+            </div>
+          </body>
+          </html>
+        `;
+
+        const plainText = `
+Ebenezer International School
+
+Welcome, ${fullName}.
+
+Your Parent Portal account has been created.
+
+Parent ID: ${parentNumber}
+Email: ${email}
+Password: ${finalPassword}
+
+Login:
+${portalUrl}
+
+For your security, please change your password after your first successful login and do not share your credentials.
+
+Regards,
+Ebenezer International School
+        `.trim();
+
+        const result = await sendTransactionalEmail({
+          to: email,
+          subject,
+          html,
+          text: plainText,
+          sender: 'general',
+        });
+
+        emailSent = true;
+        emailMessageId = result.messageId;
+
+        console.log('📧 Parent welcome email sent', {
+          recipient: email,
+          messageId: result.messageId,
+        });
+      } else {
+        const subject =
+          'Ebenezer International School Parent Portal Access Updated';
+
+        const html = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Parent Portal Access</title>
+          </head>
+          <body style="margin:0;padding:0;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
+            <div style="max-width:640px;margin:30px auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+              <div style="background:#123b6d;padding:28px 30px;color:#ffffff;">
+                <h1 style="margin:0;font-size:24px;">Ebenezer International School</h1>
+                <p style="margin:8px 0 0;font-size:14px;opacity:.9;">Parent Portal</p>
+              </div>
+
+              <div style="padding:30px;">
+                <h2 style="margin-top:0;">Hello, ${escapeHtml(fullName)}</h2>
+
+                <p>
+                  Your Parent Portal access has been successfully enabled or updated.
+                </p>
+
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:20px;margin:24px 0;">
+                  <p style="margin:0 0 10px;"><strong>Parent ID:</strong> ${escapeHtml(parentNumber)}</p>
+                  <p style="margin:0;"><strong>Email:</strong> ${escapeHtml(email)}</p>
+                </div>
+
+                <div style="text-align:center;margin:28px 0;">
+                  <a
+                    href="${portalUrl}"
+                    style="display:inline-block;background:#123b6d;color:#ffffff;text-decoration:none;padding:13px 24px;border-radius:8px;font-weight:bold;"
+                  >
+                    Open Parent Portal
+                  </a>
+                </div>
+
+                <p style="font-size:13px;color:#64748b;">
+                  If you do not remember your password, please use the password-reset option
+                  on the portal or contact the school.
+                </p>
+
+                <p style="margin-bottom:0;">
+                  Regards,<br>
+                  <strong>Ebenezer International School</strong>
+                </p>
+              </div>
+            </div>
+          </body>
+          </html>
+        `;
+
+        const result = await sendTransactionalEmail({
+          to: email,
+          subject,
+          html,
+          text: `
+Ebenezer International School
+
+Hello ${fullName}.
+
+Your Parent Portal access has been successfully enabled or updated.
+
+Parent ID: ${parentNumber}
+Email: ${email}
+
+Login:
+${portalUrl}
+
+If you do not remember your password, use the password-reset option on the portal or contact the school.
+
+Regards,
+Ebenezer International School
+          `.trim(),
+          sender: 'general',
+        });
+
+        emailSent = true;
+        emailMessageId = result.messageId;
+
+        console.log('📧 Parent access email sent', {
+          recipient: email,
+          messageId: result.messageId,
+        });
+      }
+    } catch (mailError) {
+      const detailedEmailError =
+        mailError instanceof Error
+          ? mailError.message
+          : String(mailError);
+
+      console.error('⚠️ Parent email delivery failed:', {
+        recipient: email,
+        error: detailedEmailError,
+      });
+
+      emailError =
+        'Welcome email could not be delivered. Please contact the school.';
+    }
+
     console.log('✅ Parent registered successfully!');
 
     return new Response(
@@ -318,9 +533,12 @@ serve(async (req: Request) => {
           parent_id: parentId,
           user_id: authUserId,
           email: email,
-          password: existing_parent_id ? 'Created with provided password' : finalPassword,
+          password: createdNewAuthUser ? finalPassword : null,
           first_name: first_name,
           last_name: last_name,
+          email_sent: emailSent,
+          email_message_id: emailMessageId,
+          email_error: emailError,
         },
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -333,6 +551,15 @@ serve(async (req: Request) => {
     );
   }
 });
+
+function escapeHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 // --- HELPER FUNCTIONS ---
 

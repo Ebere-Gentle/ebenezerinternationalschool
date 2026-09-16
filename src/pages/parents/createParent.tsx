@@ -392,7 +392,7 @@ const createParent = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
       },
       body: JSON.stringify({
         email: formData.email.trim(),
@@ -539,7 +539,7 @@ const createParentLogin = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
       },
       body: JSON.stringify({
         email: parent.email,
@@ -617,7 +617,7 @@ const retryAuthCreation = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY}`,
       },
       body: JSON.stringify({
         email: parent.email,
@@ -653,9 +653,9 @@ const retryAuthCreation = async () => {
     }
 
     toast.success(
-      `✅ Login created successfully!\n\n` +
-      `Email: ${parent.email}\n` +
-      `Password: ${retryPassword}`,
+      `✅ Parent portal access processed successfully!\n\n` +
+      `Email: ${parent.email}\n\n` +
+      `${result.data?.email_sent ? '📧 Access notification sent to the parent.' : '⚠️ Access was processed, but the email notification could not be sent.'}`,
       { duration: 8000 }
     );
 
