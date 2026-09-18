@@ -258,7 +258,7 @@ const navigation: NavigationItem[] = [
   {
     label: 'Results',
     icon: BarChart3,
-    path: '#',
+    path: '/student/results/test',
     roles: ['student'],
     children: [
       { label: 'View Test Results', icon: FileText, path: '/student/results/test', roles: ['student'] },
